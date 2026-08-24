@@ -5,13 +5,18 @@ import { Button } from "@/components/ui.tsx";
 /**
  * Stav střežení. `armed` je ostrý režim, `alarm` běžící poplach —
  * jediné místo mimo primární tlačítko, kde se smí objevit záře.
+ *
+ * `unknown` je samostatný stav schválně: když se stav nepodaří zjistit
+ * (nedostupná databáze, žádná lokalita), nesmí to vypadat stejně jako
+ * ověřené „nestřeženo“. Obojí je šedé, ale popisek se liší.
  */
-export type GuardState = "armed" | "disarmed" | "alarm";
+export type GuardState = "armed" | "disarmed" | "alarm" | "unknown";
 
 const GUARD_LABELS: Record<GuardState, string> = {
   armed: "Střeženo",
   disarmed: "Nestřeženo",
   alarm: "Poplach",
+  unknown: "Stav neznámý",
 };
 
 function GuardBadge({ state }: { state: GuardState }) {
@@ -19,6 +24,7 @@ function GuardBadge({ state }: { state: GuardState }) {
     armed:
       "border-[var(--success)]/40 text-[var(--success)] bg-[var(--success)]/10",
     disarmed: "border-[var(--border)] text-[var(--text-muted)]",
+    unknown: "border-[var(--border)] text-[var(--text-muted)]",
     alarm:
       "border-[var(--danger)] text-white bg-[var(--danger)] shadow-[var(--glow-danger)]",
   };
@@ -35,7 +41,8 @@ function GuardBadge({ state }: { state: GuardState }) {
             ? "bg-[var(--success)]"
             : state === "alarm"
               ? "bg-white animate-pulse"
-              : "bg-[var(--text-muted)]"
+              : // nestřeženo i neznámý stav jsou šedé
+                "bg-[var(--text-muted)]"
         }`}
         aria-hidden="true"
       />

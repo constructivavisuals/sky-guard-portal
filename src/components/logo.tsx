@@ -1,38 +1,33 @@
-// Znak Sky Guard — kvadrokoptéra. Jako inline SVG, aby škáloval
-// a bral barvu z currentColor (v tmavém UI se hodí i bílá varianta).
+import Image from "next/image";
 
+import markWhite from "../../public/sky-guard-mark.png";
+import logoWhite from "../../public/sky-guard-logo.png";
+
+// Bílá varianta loga pro tmavé UI. Zdroj je rastr, ne vektor — import
+// přes next/image drží rozměry i optimalizaci. Kdyby přišel originál
+// v SVG, mění se jen tyhle dva importy.
+
+/** Samotný znak (štít s rameny dronu) — pro úzká místa a dlaždice. */
 export function DroneMark({ className = "" }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 64 64"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
+    <Image
+      src={markWhite}
+      alt=""
       aria-hidden="true"
-    >
-      {/* Ramena z těla k rotorům */}
-      <path d="M24 24 14 14M40 24l10-10M24 40 14 50M40 40l10 10" />
-      {/* Tělo */}
-      <path d="M24 24h16v16H24z" />
-      {/* Rotory */}
-      <circle cx="10" cy="10" r="6" />
-      <circle cx="54" cy="10" r="6" />
-      <circle cx="10" cy="54" r="6" />
-      <circle cx="54" cy="54" r="6" />
-    </svg>
+      priority
+      className={`h-8 w-auto ${className}`}
+    />
   );
 }
 
+/** Celá značka: znak + nápis SKY GUARD. */
 export function Logo({ className = "" }: { className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-3 ${className}`}>
-      <DroneMark className="h-8 w-8 text-[var(--accent-deep)]" />
-      <span className="text-lg font-semibold tracking-tight">
-        Sky<span className="text-[var(--text-muted)]"> Guard</span>
-      </span>
-    </span>
+    <Image
+      src={logoWhite}
+      alt="Sky Guard"
+      priority
+      className={`h-7 w-auto ${className}`}
+    />
   );
 }

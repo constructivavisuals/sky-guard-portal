@@ -3,14 +3,22 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Sidebar } from "./sidebar.tsx";
-import { Topbar } from "./topbar.tsx";
+import { Topbar, type GuardState } from "./topbar.tsx";
 
 /**
  * Drží stav mobilního šuplíku. Nad lg je sidebar součástí layoutu
  * a stav se nepoužívá; pod lg je vysunutý mimo obrazovku a obsah
  * dostane celou šířku.
  */
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({
+  children,
+  siteName,
+  guardState,
+}: {
+  children: ReactNode;
+  siteName: string;
+  guardState: GuardState;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Zavření po přechodu na jinou stránku řeší Sidebar klepnutím na
@@ -39,15 +47,18 @@ export function Shell({ children }: { children: ReactNode }) {
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Název lokality a stav střežení jsou zatím pevné — data
-            přijdou, až bude výběr lokality napojený. */}
         <Topbar
-          siteName="Vyberte lokalitu"
-          guardState="disarmed"
+          siteName={siteName}
+          guardState={guardState}
           menuOpen={menuOpen}
           onMenuToggle={() => setMenuOpen((open) => !open)}
         />
-        <main className="flex-1 overflow-y-auto p-5 sm:p-8">{children}</main>
+        <main className="flex-1 overflow-y-auto">
+          {/* Obsah se na širokých monitorech nerozlévá donekonečna. */}
+          <div className="mx-auto w-full max-w-[1280px] p-5 sm:p-8">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   );

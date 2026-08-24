@@ -101,7 +101,7 @@ export function EmptyState({
   description: string;
 }) {
   return (
-    <Card className="flex flex-col items-center justify-center text-center py-20 px-6">
+    <Card className="flex flex-col items-center text-center py-16 px-6">
       <IconBadge>{icon}</IconBadge>
       <h2 className="mt-4 text-base font-medium">{title}</h2>
       <p className="mt-1 max-w-sm text-sm text-[var(--text-muted)]">
