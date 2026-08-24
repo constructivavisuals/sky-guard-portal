@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { Button, Card } from "@/components/ui.tsx";
@@ -14,6 +14,18 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Do nahydratování se odesílání blokuje. Bez JS by se formulář odeslal
+  // nativně a heslo by skončilo v URL a v access logu serveru; method
+  // POST je druhá pojistka pro případ, že by tlačítko někdo obešel
+  // klávesou Enter dřív, než se stav propíše.
+  //
+  // useSyncExternalStore místo useState + useEffect: na serveru a při
+  // hydrataci vrací false, po ní true — bez cascading renderu.
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,7 +59,11 @@ export function LoginForm() {
         Přístup jen pro pověřené osoby.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <form
+        method="post"
+        onSubmit={handleSubmit}
+        className="mt-6 space-y-4"
+      >
         <Field
           id="email"
           label="E-mail"
@@ -75,7 +91,7 @@ export function LoginForm() {
           </p>
         ) : null}
 
-        <Button type="submit" className="w-full" disabled={pending}>
+        <Button type="submit" className="w-full" disabled={pending || !hydrated}>
           {pending ? "Přihlašuji…" : "Přihlásit se"}
         </Button>
       </form>

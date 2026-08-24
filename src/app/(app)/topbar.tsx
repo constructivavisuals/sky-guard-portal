@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, Menu } from "lucide-react";
 
 import { Button } from "@/components/ui.tsx";
 
@@ -23,9 +23,11 @@ function GuardBadge({ state }: { state: GuardState }) {
       "border-[var(--danger)] text-white bg-[var(--danger)] shadow-[var(--glow-danger)]",
   };
 
+  // Na úzkém displeji zbývá jen tečka; text se vrací od sm. Popisek
+  // zůstává ve stromu pro odečítač i tehdy, když není vidět.
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 h-8 text-xs font-semibold ${styles[state]}`}
+      className={`inline-flex shrink-0 items-center gap-2 rounded-full border h-8 px-2 sm:px-3 text-xs font-semibold ${styles[state]}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
@@ -37,7 +39,7 @@ function GuardBadge({ state }: { state: GuardState }) {
         }`}
         aria-hidden="true"
       />
-      {GUARD_LABELS[state]}
+      <span className="sr-only sm:not-sr-only">{GUARD_LABELS[state]}</span>
     </span>
   );
 }
@@ -45,17 +47,31 @@ function GuardBadge({ state }: { state: GuardState }) {
 export function Topbar({
   siteName,
   guardState,
+  menuOpen,
+  onMenuToggle,
 }: {
   siteName: string;
   guardState: GuardState;
+  menuOpen: boolean;
+  onMenuToggle: () => void;
 }) {
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-6">
-      <div className="flex items-center gap-3 min-w-0">
+    <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-3 sm:px-6">
+      <div className="flex items-center gap-1 sm:gap-3 min-w-0">
+        <button
+          type="button"
+          onClick={onMenuToggle}
+          aria-label="Otevřít menu"
+          aria-expanded={menuOpen}
+          className="-ml-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] lg:hidden"
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+        </button>
+
         {/* Přepínač lokality — zatím jen kostra, bez dat. */}
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-lg px-3 h-9 text-sm font-medium hover:bg-[var(--surface-2)] transition min-w-0"
+          className="inline-flex items-center gap-2 rounded-lg px-2 sm:px-3 h-9 text-sm font-medium hover:bg-[var(--surface-2)] transition min-w-0"
         >
           <span className="truncate">{siteName}</span>
           <ChevronDown
