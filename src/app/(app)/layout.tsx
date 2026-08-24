@@ -1,67 +1,47 @@
-import { cookies } from "next/headers";
-
+import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
 import { Shell } from "./shell.tsx";
 import type { GuardState } from "./topbar.tsx";
 
 // App shell pro přihlášené. Přístup hlídá middleware.ts, tahle vrstva
-// se autentizací nezabývá — jen zjistí vybranou lokalitu a její stav
-// střežení, aby je horní lišta mohla ukázat.
+// jen zjistí vybranou lokalitu a její stav střežení pro horní lištu.
 
-/** Cookie s vybranou lokalitou; přepínač v liště ji bude nastavovat. */
-export const SITE_COOKIE = "sg-lokalita";
-
-interface SelectedSite {
-  name: string;
-  guardState: GuardState;
-}
-
-async function resolveSelectedSite(): Promise<SelectedSite> {
-  const fallback: SelectedSite = {
-    name: "Vyberte lokalitu",
-    guardState: "unknown",
-  };
+async function guardStateFor(siteId: string | null): Promise<GuardState> {
+  // Bez konkrétní lokality (filtr „všechny“) není co ukazovat — stav
+  // střežení je vlastnost jednoho areálu, ne jejich součtu.
+  if (!siteId) return "unknown";
 
   try {
     const supabase = await createClient();
-
-    const { data: sites, error } = await supabase
-      .from("sites")
-      .select("id, name")
-      .order("name");
-
-    if (error || !sites || sites.length === 0) return fallback;
-
-    const preferred = (await cookies()).get(SITE_COOKIE)?.value;
-    const site = sites.find((item) => item.id === preferred) ?? sites[0];
-
     // Ostrý režim počítá databáze, ne aplikace — armed_from/armed_to se
-    // vyhodnocuje v časové zóně lokality (viz site_is_armed v migraci
+    // vyhodnocuje v časové zóně lokality (site_is_armed v migraci
     // 20260824120000). Kdyby to počítal server, rozešly by se výsledky
     // s tím, podle čeho se potlačují výjezdy.
-    const { data: armed, error: armedError } = await supabase.rpc(
-      "site_is_armed",
-      { p_site_id: site.id },
-    );
-
-    if (armedError) {
-      // Nezjištěný stav se nesmí tvářit jako ověřené „nestřeženo“.
-      return { name: site.name, guardState: "unknown" };
-    }
-
-    return { name: site.name, guardState: armed ? "armed" : "disarmed" };
+    const { data, error } = await supabase.rpc("site_is_armed", {
+      p_site_id: siteId,
+    });
+    // Nezjištěný stav se nesmí tvářit jako ověřené „nestřeženo“.
+    if (error) return "unknown";
+    return data ? "armed" : "disarmed";
   } catch {
-    // Chybějící konfigurace nebo nenasazené schéma nesmí shodit celý shell.
-    return fallback;
+    return "unknown";
   }
 }
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const { name, guardState } = await resolveSelectedSite();
+  const { sites, selected } = await getSiteSelection();
+  const guardState = await guardStateFor(selected?.id ?? null);
 
   return (
-    <Shell siteName={name} guardState={guardState}>
+    <Shell
+      siteName={
+        selected?.name ?? (sites.length > 0 ? "Všechny lokality" : "Vyberte lokalitu")
+      }
+      siteOptions={sites}
+      selectedSiteId={selected?.id ?? null}
+      guardState={guardState}
+    >
       {children}
     </Shell>
   );

@@ -1,0 +1,116 @@
+import { strict as assert } from "node:assert";
+import { describe, it } from "node:test";
+
+import {
+  formatArmedDays,
+  formatArmedWindow,
+  formatConfidence,
+  formatDateTime,
+  formatFocalLength,
+  formatTimeOfDay,
+  orDash,
+  plural,
+} from "./format.ts";
+
+describe("formatDateTime", () => {
+  it("formátuje v zóně lokality, ne serveru", () => {
+    // 20:00 UTC je v Praze 22:00 (CEST) a v New Yorku 16:00 (EDT).
+    const iso = "2026-08-24T20:00:00Z";
+    assert.match(formatDateTime(iso, "Europe/Prague"), /22:00:00/);
+    assert.match(formatDateTime(iso, "America/New_York"), /16:00:00/);
+  });
+
+  it("respektuje zimní čas", () => {
+    assert.match(formatDateTime("2026-01-15T20:00:00Z", "Europe/Prague"), /21:00:00/);
+  });
+
+  it("null i nesmysl vrací pomlčku", () => {
+    assert.equal(formatDateTime(null), "—");
+    assert.equal(formatDateTime("včera"), "—");
+  });
+});
+
+describe("formatArmedDays", () => {
+  const cases: [string, number[], string][] = [
+    ["celý týden", [1, 2, 3, 4, 5, 6, 7], "Celý týden"],
+    ["pracovní dny", [1, 2, 3, 4, 5], "Po–Pá"],
+    ["víkend zůstává výčtem", [6, 7], "So, Ne"],
+    ["nesouvislé dny", [1, 3, 5], "Po, St, Pá"],
+    ["rozsah plus samostatný den", [1, 2, 3, 7], "Po–St, Ne"],
+    ["jediný den", [3], "St"],
+    ["prázdné", [], "Nikdy"],
+    ["duplicity a nepořádek", [5, 1, 3, 1], "Po, St, Pá"],
+  ];
+
+  for (const [name, days, expected] of cases) {
+    it(name, () => {
+      assert.equal(formatArmedDays(days as never), expected);
+    });
+  }
+});
+
+describe("formatTimeOfDay a formatArmedWindow", () => {
+  it("zahazuje sekundy", () => {
+    assert.equal(formatTimeOfDay("18:00:00"), "18:00");
+  });
+
+  it("okno přes půlnoc se píše tak, jak je", () => {
+    assert.equal(formatArmedWindow("18:00:00", "06:00:00"), "18:00–06:00");
+  });
+
+  it("null vrací pomlčku", () => {
+    assert.equal(formatTimeOfDay(null), "—");
+  });
+});
+
+describe("formatConfidence", () => {
+  it("převádí na procenta", () => {
+    assert.equal(formatConfidence(0.874), "87 %");
+    assert.equal(formatConfidence(1), "100 %");
+  });
+
+  it("nula je platná hodnota, ne chybějící", () => {
+    assert.equal(formatConfidence(0), "0 %");
+  });
+
+  it("null vrací pomlčku", () => {
+    assert.equal(formatConfidence(null), "—");
+  });
+});
+
+describe("formatFocalLength a orDash", () => {
+  it("ohnisko s desetinnou čárkou", () => {
+    assert.equal(formatFocalLength(4), "4 mm");
+    assert.equal(formatFocalLength(2.8), "2,8 mm");
+  });
+
+  it("prázdné hodnoty jsou pomlčka", () => {
+    assert.equal(formatFocalLength(null), "—");
+    assert.equal(orDash(null), "—");
+    assert.equal(orDash("   "), "—");
+    assert.equal(orDash("Dahua"), "Dahua");
+  });
+});
+
+describe("plural", () => {
+  const zone = (n: number) => plural(n, "zóna", "zóny", "zón");
+
+  it("jednotné číslo", () => {
+    assert.equal(zone(1), "1 zóna");
+  });
+
+  it("dva až čtyři", () => {
+    assert.equal(zone(2), "2 zóny");
+    assert.equal(zone(4), "4 zóny");
+  });
+
+  it("pět a víc", () => {
+    assert.equal(zone(5), "5 zón");
+    assert.equal(zone(11), "11 zón");
+    assert.equal(zone(22), "22 zón");
+  });
+
+  it("nula bere tvar pro pět a víc", () => {
+    assert.equal(zone(0), "0 zón");
+  });
+});

@@ -3,6 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Sidebar } from "./sidebar.tsx";
+import type { SiteOption } from "@/lib/site.ts";
+
 import { Topbar, type GuardState } from "./topbar.tsx";
 
 /**
@@ -13,10 +15,14 @@ import { Topbar, type GuardState } from "./topbar.tsx";
 export function Shell({
   children,
   siteName,
+  siteOptions,
+  selectedSiteId,
   guardState,
 }: {
   children: ReactNode;
   siteName: string;
+  siteOptions: SiteOption[];
+  selectedSiteId: string | null;
   guardState: GuardState;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -49,6 +55,8 @@ export function Shell({
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           siteName={siteName}
+          siteOptions={siteOptions}
+          selectedSiteId={selectedSiteId}
           guardState={guardState}
           menuOpen={menuOpen}
           onMenuToggle={() => setMenuOpen((open) => !open)}

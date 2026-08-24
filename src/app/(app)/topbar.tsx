@@ -1,6 +1,9 @@
-import { ChevronDown, LogOut, Menu } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 
 import { Button } from "@/components/ui.tsx";
+import type { SiteOption } from "@/lib/site.ts";
+
+import { SiteSwitcher } from "./site-switcher.tsx";
 
 /**
  * Stav střežení. `armed` je ostrý režim, `alarm` běžící poplach —
@@ -53,11 +56,15 @@ function GuardBadge({ state }: { state: GuardState }) {
 
 export function Topbar({
   siteName,
+  siteOptions,
+  selectedSiteId,
   guardState,
   menuOpen,
   onMenuToggle,
 }: {
   siteName: string;
+  siteOptions: SiteOption[];
+  selectedSiteId: string | null;
   guardState: GuardState;
   menuOpen: boolean;
   onMenuToggle: () => void;
@@ -75,17 +82,11 @@ export function Topbar({
           <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        {/* Přepínač lokality — zatím jen kostra, bez dat. */}
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-lg px-2 sm:px-3 h-9 text-sm font-medium hover:bg-[var(--surface-2)] transition min-w-0"
-        >
-          <span className="truncate">{siteName}</span>
-          <ChevronDown
-            className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
-            aria-hidden="true"
-          />
-        </button>
+        <SiteSwitcher
+          sites={siteOptions}
+          selectedId={selectedSiteId}
+          label={siteName}
+        />
         <GuardBadge state={guardState} />
       </div>
 
