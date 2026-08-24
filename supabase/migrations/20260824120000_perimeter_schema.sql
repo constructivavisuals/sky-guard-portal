@@ -98,6 +98,10 @@ CREATE TABLE IF NOT EXISTS sites (
   fh_workflow_uuid TEXT,
   -- Perimetr lokality. WGS84; dotazy typu ST_Contains(geofence, point).
   geofence geography(Polygon, 4326),
+  -- IANA zóna lokality. armed_from/armed_to/armed_days se vyhodnocují
+  -- v ní, ne v UTC — jinak by se ostrý režim v létě posunul o hodinu
+  -- (Europe/Prague je CET/CEST). Platnost hlídá trigger níž.
+  timezone TEXT NOT NULL DEFAULT 'Europe/Prague',
   -- Okno, ve kterém se na detekci reaguje výjezdem. armed_from > armed_to
   -- znamená okno přes půlnoc (18:00 → 06:00), což je běžný případ.
   armed_from TIME NOT NULL DEFAULT '18:00',
@@ -120,6 +124,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_dock_sn
   ON sites(dock_sn) WHERE dock_sn IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sites_geofence ON sites USING GIST (geofence);
 
+-- Neplatná zóna by shodila každé vyhodnocení ostrého režimu, tak ji
+-- odchytneme už při zápisu. CHECK constraint to neumí — pg_timezone_names
+-- ani AT TIME ZONE nejsou IMMUTABLE.
+CREATE OR REPLACE FUNCTION sites_validate_timezone()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = NEW.timezone) THEN
+    RAISE EXCEPTION 'Neznámá časová zóna: %', NEW.timezone;
+  END IF;
+  RETURN NEW;
+END; $$;
+
+DROP TRIGGER IF EXISTS sites_timezone_valid ON sites;
+CREATE TRIGGER sites_timezone_valid
+  BEFORE INSERT OR UPDATE OF timezone ON sites
+  FOR EACH ROW EXECUTE FUNCTION sites_validate_timezone();
+
 -- ── zones — hlídané body perimetru ───────────────────────────────
 
 CREATE TABLE IF NOT EXISTS zones (
@@ -128,9 +149,6 @@ CREATE TABLE IF NOT EXISTS zones (
   name TEXT NOT NULL,
   -- Bod, na který dron letí (waypoint). WGS84.
   location geography(Point, 4326),
-  -- Kamera, která zónu pokrývá. FK se přidává až za definicí cameras
-  -- (kruhová vazba zones ↔ cameras), viz ALTER níž.
-  camera_id UUID,
   -- Výchozí stupeň zásahu 1–5 předaný do FlightHub jako level_sent.
   default_level SMALLINT NOT NULL DEFAULT 1
     CHECK (default_level BETWEEN 1 AND 5),
@@ -140,7 +158,6 @@ CREATE TABLE IF NOT EXISTS zones (
 );
 
 CREATE INDEX IF NOT EXISTS idx_zones_site ON zones(site_id);
-CREATE INDEX IF NOT EXISTS idx_zones_camera ON zones(camera_id);
 CREATE INDEX IF NOT EXISTS idx_zones_location ON zones USING GIST (location);
 -- Název zóny unikátní v rámci lokality (ať UI nemá dvě "Brána sever").
 CREATE UNIQUE INDEX IF NOT EXISTS idx_zones_site_name
@@ -152,6 +169,8 @@ CREATE TABLE IF NOT EXISTS cameras (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   site_id UUID NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
   -- Zóna, kterou kamera hlídá. Kamera bez zóny je zatím nezapojená.
+  -- Jediná vazba mezi zónou a kamerou — zóna sama na kameru neukazuje,
+  -- pokrývající kamery se čtou přes cameras.zone_id.
   zone_id UUID REFERENCES zones(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   model TEXT,
@@ -173,13 +192,6 @@ CREATE INDEX IF NOT EXISTS idx_cameras_zone ON cameras(zone_id);
 CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cameras_site_name
   ON cameras(site_id, lower(name));
-
--- Kruhová vazba zones.camera_id → cameras.id. DEFERRABLE, aby šlo
--- zónu i kameru založit v jedné transakci bez ohledu na pořadí.
-ALTER TABLE zones DROP CONSTRAINT IF EXISTS zones_camera_id_fkey;
-ALTER TABLE zones ADD CONSTRAINT zones_camera_id_fkey
-  FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE SET NULL
-  DEFERRABLE INITIALLY DEFERRED;
 
 -- ── detections — co kamera viděla ────────────────────────────────
 
@@ -462,6 +474,39 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
     WHEN flight_site_id(p_flight_id) IS NULL THEN is_admin()
     ELSE site_is_visible(flight_site_id(p_flight_id))
   END;
+$$;
+
+-- ── Ostrý režim lokality ─────────────────────────────────────────
+-- Protějšek isSiteArmed() z src/types/database.ts — obě implementace
+-- musí dávat stejnou odpověď, proto stejná pravidla:
+--   armed_from = armed_to  → nikdy (prázdné okno, ne 24 h),
+--   armed_from < armed_to  → denní okno v rámci jednoho dne,
+--   armed_from > armed_to  → okno přes půlnoc; večerní část patří
+--                            dnešku, ranní včerejšku (pátek 18:00–06:00
+--                            zahrnuje i sobotní ráno).
+-- Vše se počítá z p_at AT TIME ZONE s.timezone, tedy z nástěnných
+-- hodin lokality včetně letního času.
+
+CREATE OR REPLACE FUNCTION site_is_armed(
+  p_site_id UUID,
+  p_at TIMESTAMPTZ DEFAULT now()
+)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT CASE
+    WHEN s.armed_from = s.armed_to THEN FALSE
+    WHEN s.armed_from < s.armed_to THEN
+      EXTRACT(ISODOW FROM l.local_ts)::INT = ANY (s.armed_days)
+      AND l.local_ts::TIME >= s.armed_from
+      AND l.local_ts::TIME <  s.armed_to
+    WHEN l.local_ts::TIME >= s.armed_from THEN
+      EXTRACT(ISODOW FROM l.local_ts)::INT = ANY (s.armed_days)
+    WHEN l.local_ts::TIME <  s.armed_to THEN
+      EXTRACT(ISODOW FROM l.local_ts - INTERVAL '1 day')::INT = ANY (s.armed_days)
+    ELSE FALSE
+  END
+  FROM sites s
+  CROSS JOIN LATERAL (SELECT p_at AT TIME ZONE s.timezone AS local_ts) l
+  WHERE s.id = p_site_id;
 $$;
 
 -- ── RLS ──────────────────────────────────────────────────────────

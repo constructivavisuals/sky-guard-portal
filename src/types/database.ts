@@ -130,7 +130,12 @@ export interface Site {
   fh_workflow_uuid: string | null;
   /** Perimetr lokality, geography(Polygon, 4326). */
   geofence: Geography | null;
-  /** `HH:MM:SS`. armed_from > armed_to = okno přes půlnoc. */
+  /**
+   * IANA zóna lokality (`Europe/Prague`). armed_* se vyhodnocuje v ní,
+   * ne v UTC ani v časové zóně serveru — viz isSiteArmed().
+   */
+  timezone: string;
+  /** `HH:MM:SS` nástěnného času v `timezone`. armed_from > armed_to = okno přes půlnoc. */
   armed_from: string;
   armed_to: string;
   armed_days: IsoWeekday[];
@@ -146,8 +151,6 @@ export interface Zone {
   name: string;
   /** Waypoint, na který dron letí, geography(Point, 4326). */
   location: Geography | null;
-  /** Kamera pokrývající zónu (protějšek Camera.zone_id). */
-  camera_id: string | null;
   default_level: DispatchLevel;
   enabled: boolean;
   created_at: string;
@@ -292,6 +295,10 @@ export interface Database {
       camera_site_id: { Args: { p_camera_id: string }; Returns: string };
       flight_site_id: { Args: { p_flight_id: string }; Returns: string };
       flight_is_visible: { Args: { p_flight_id: string }; Returns: boolean };
+      site_is_armed: {
+        Args: { p_site_id: string; p_at?: string };
+        Returns: boolean;
+      };
     };
     Enums: {
       user_role: UserRole;
@@ -306,12 +313,13 @@ export interface Database {
 
 // ── Kompozitní typy pro UI ───────────────────────────────────────
 
-export interface ZoneWithCamera extends Zone {
-  camera: Pick<Camera, "id" | "name" | "status"> | null;
+export interface ZoneWithCameras extends Zone {
+  /** Kamery pokrývající zónu — načteno přes cameras.zone_id. */
+  cameras: Pick<Camera, "id" | "name" | "status">[];
 }
 
 export interface SiteWithZones extends Site {
-  zones: ZoneWithCamera[];
+  zones: ZoneWithCameras[];
 }
 
 export interface DetectionWithContext extends Detection {
@@ -343,38 +351,82 @@ export function isDispatchSuppressed(
   );
 }
 
+const ISO_WEEKDAY_BY_SHORT_NAME: Record<string, IsoWeekday> = {
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+  Sun: 7,
+};
+
 /**
- * Je lokalita v daný okamžik v ostrém režimu?
- * Okno armed_from > armed_to jde přes půlnoc — den v týdnu se pak bere
- * podle času vzniku okna, tedy ranní část patří k předchozímu dni.
- *
- * Počítá v lokálním čase předaného Date; volající si musí pohlídat,
- * že jde o čas v časové zóně lokality (Europe/Prague).
+ * Nástěnné hodiny daného okamžiku v IANA zóně — tedy včetně letního
+ * času, protože posun řeší Intl podle konkrétního data, ne fixním
+ * offsetem. Vyhazuje RangeError na neplatnou zónu (v DB ji hlídá
+ * trigger sites_timezone_valid).
  */
-export function isSiteArmed(
-  site: Pick<Site, "armed_from" | "armed_to" | "armed_days">,
-  at: Date = new Date(),
-): boolean {
-  const minutes = (hhmmss: string): number => {
-    const [h, m] = hhmmss.split(":");
-    return Number(h) * 60 + Number(m);
-  };
+function wallClockIn(
+  at: Date,
+  timeZone: string,
+): { minutes: number; isoWeekday: IsoWeekday } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(at);
 
-  const now = at.getHours() * 60 + at.getMinutes();
-  const from = minutes(site.armed_from);
-  const to = minutes(site.armed_to);
-  // getDay(): 0 = neděle → ISO 7
-  const isoToday = (at.getDay() === 0 ? 7 : at.getDay()) as IsoWeekday;
-  const isoYesterday = ((isoToday === 1 ? 7 : isoToday - 1) as IsoWeekday);
+  const value = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
 
-  if (from === to) return false;
-
-  if (from < to) {
-    return site.armed_days.includes(isoToday) && now >= from && now < to;
+  const isoWeekday = ISO_WEEKDAY_BY_SHORT_NAME[value("weekday")];
+  if (!isoWeekday) {
+    throw new RangeError(`Nečekaný den v týdnu pro zónu ${timeZone}`);
   }
 
-  // Okno přes půlnoc: večerní část patří dnešku, ranní včerejšku.
-  if (now >= from) return site.armed_days.includes(isoToday);
+  return {
+    minutes: Number(value("hour")) * 60 + Number(value("minute")),
+    isoWeekday,
+  };
+}
+
+/**
+ * Je lokalita v daný okamžik v ostrém režimu?
+ *
+ * Okno se vyhodnocuje v nástěnném čase lokality (site.timezone), ne
+ * v UTC ani v zóně serveru — na Vercelu běží runtime v UTC, takže bez
+ * převodu by se ostrý režim v CEST posunul o dvě hodiny.
+ *
+ * armed_from > armed_to je okno přes půlnoc; večerní část patří dnešku,
+ * ranní včerejšku (pátek 18:00–06:00 zahrnuje i sobotní ráno).
+ * armed_from = armed_to znamená prázdné okno, ne nepřetržitý provoz.
+ *
+ * Protějšek SQL funkce site_is_armed() ve stejné migraci.
+ */
+export function isSiteArmed(
+  site: Pick<Site, "timezone" | "armed_from" | "armed_to" | "armed_days">,
+  at: Date = new Date(),
+): boolean {
+  const toMinutes = (hhmmss: string): number => {
+    const [hours, minutes] = hhmmss.split(":");
+    return Number(hours) * 60 + Number(minutes);
+  };
+
+  const from = toMinutes(site.armed_from);
+  const to = toMinutes(site.armed_to);
+  if (from === to) return false;
+
+  const { minutes: now, isoWeekday } = wallClockIn(at, site.timezone);
+  const isoYesterday = (isoWeekday === 1 ? 7 : isoWeekday - 1) as IsoWeekday;
+
+  if (from < to) {
+    return site.armed_days.includes(isoWeekday) && now >= from && now < to;
+  }
+
+  if (now >= from) return site.armed_days.includes(isoWeekday);
   if (now < to) return site.armed_days.includes(isoYesterday);
   return false;
 }
