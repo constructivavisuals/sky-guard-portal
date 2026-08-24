@@ -108,16 +108,16 @@ export type DispatchLevel = 1 | 2 | 3 | 4 | 5;
 // Timestampy jsou ISO 8601 stringy, NUMERIC sloupce vrací supabase-js
 // jako number (hodnoty jsou v bezpečném rozsahu double).
 
-export interface Profile {
+export type Profile = {
   id: string;
   email: string | null;
   full_name: string | null;
   role: UserRole;
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface Site {
+export type Site = {
   id: string;
   name: string;
   address: string | null;
@@ -143,9 +143,9 @@ export interface Site {
   cooldown_seconds: number;
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface Zone {
+export type Zone = {
   id: string;
   site_id: string;
   name: string;
@@ -155,9 +155,9 @@ export interface Zone {
   enabled: boolean;
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface Camera {
+export type Camera = {
   id: string;
   site_id: string;
   /** Zóna, kterou kamera hlídá; null = kamera zatím nezapojená. */
@@ -172,9 +172,9 @@ export interface Camera {
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface Detection {
+export type Detection = {
   id: string;
   camera_id: string;
   zone_id: string | null;
@@ -187,9 +187,9 @@ export interface Detection {
   /** Syrová odpověď detektoru (bounding boxy, model, verze). */
   raw: Json;
   created_at: string;
-}
+};
 
-export interface Dispatch {
+export type Dispatch = {
   id: string;
   site_id: string;
   zone_id: string;
@@ -204,9 +204,9 @@ export interface Dispatch {
   response: Json;
   outcome: DispatchOutcome;
   created_at: string;
-}
+};
 
-export interface Flight {
+export type Flight = {
   id: string;
   /** null = let mimo portál (ruční mise, test z FlightHubu). */
   dispatch_id: string | null;
@@ -220,9 +220,9 @@ export interface Flight {
   duration_s: number | null;
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface Media {
+export type Media = {
   id: string;
   flight_id: string;
   kind: MediaKind;
@@ -232,9 +232,9 @@ export interface Media {
   size_bytes: number | null;
   meta: Json;
   created_at: string;
-}
+};
 
-export interface AuditLogEntry {
+export type AuditLogEntry = {
   id: string;
   actor_id: string | null;
   action: "insert" | "update" | "delete";
@@ -242,7 +242,7 @@ export interface AuditLogEntry {
   entity_id: string | null;
   metadata: Json;
   created_at: string;
-}
+};
 
 // ── Insert / Update payloady ─────────────────────────────────────
 
@@ -266,13 +266,18 @@ export type AuditLogInsert = Insertable<AuditLogEntry, "action">;
 
 // ── Database schema pro createClient<Database>() ──────────────────
 
-interface TableShape<Row, Insert, Update> {
+// Tvar, který očekává supabase-js (GenericTable). Relationships zůstává
+// prázdné — vnořené selecty (`cameras(..., sites(...))`) si volající
+// typuje sám přes `.returns<T>()` / `.maybeSingle<T>()`, protože ručně
+// psané relace by se rozešly se schématem dřív než cokoli jiného.
+type TableShape<Row, Insert, Update> = {
   Row: Row;
   Insert: Insert;
   Update: Update;
-}
+  Relationships: [];
+};
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       profiles: TableShape<Profile, ProfileInsert, Updatable<Profile>>;
@@ -283,9 +288,10 @@ export interface Database {
       dispatches: TableShape<Dispatch, DispatchInsert, Updatable<Dispatch>>;
       flights: TableShape<Flight, FlightInsert, Updatable<Flight>>;
       media: TableShape<Media, MediaInsert, Updatable<Media>>;
-      audit_log: TableShape<AuditLogEntry, AuditLogInsert, never>;
+      // audit_log je append-only (hlídá DB trigger), proto prázdný Update.
+      audit_log: TableShape<AuditLogEntry, AuditLogInsert, Record<string, never>>;
     };
-    Views: Record<never, never>;
+    Views: Record<string, never>;
     Functions: {
       is_admin: { Args: Record<never, never>; Returns: boolean };
       is_operator: { Args: Record<never, never>; Returns: boolean };
@@ -309,25 +315,25 @@ export interface Database {
       media_kind: MediaKind;
     };
   };
-}
+};
 
 // ── Kompozitní typy pro UI ───────────────────────────────────────
 
-export interface ZoneWithCameras extends Zone {
+export type ZoneWithCameras = Zone & {
   /** Kamery pokrývající zónu — načteno přes cameras.zone_id. */
   cameras: Pick<Camera, "id" | "name" | "status">[];
 }
 
-export interface SiteWithZones extends Site {
+export type SiteWithZones = Site & {
   zones: ZoneWithCameras[];
 }
 
-export interface DetectionWithContext extends Detection {
+export type DetectionWithContext = Detection & {
   camera: Pick<Camera, "id" | "name" | "site_id">;
   zone: Pick<Zone, "id" | "name"> | null;
 }
 
-export interface DispatchWithFlight extends Dispatch {
+export type DispatchWithFlight = Dispatch & {
   zone: Pick<Zone, "id" | "name">;
   flight: Flight | null;
 }
