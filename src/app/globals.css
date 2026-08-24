@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════
+   Sky Guard — design tokeny
+   Tmavé UI. Barvy se odsud nekopírují do komponent; komponenty
+   sahají výhradně na proměnné, ať jde brand změnit na jednom místě.
+   ═══════════════════════════════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Plochy odspodu nahoru: pozadí → karta → vyvýšená plocha */
+  --bg: #08090c;
+  --surface: #0e1014;
+  --surface-2: #14171d;
+  --border: #1e2229;
+
+  --text: #ffffff;
+  --text-muted: #a0a6b0;
+
+  /* --accent je UI modrá (tlačítka, odkazy, aktivní stavy),
+     --accent-deep je modrá z loga (znak, sytější plochy). */
+  --accent: #2563eb;
+  --accent-deep: #0e4ba0;
+
+  --danger: #e5484d;
+  --warning: #f5a524;
+  --success: #30a46c;
+
+  /* Záře primární akce. Vyhrazená: smí ji nosit jen primární tlačítko
+     a aktivní poplach — jinde ztrácí význam signálu. */
+  --glow-accent: 0 0 24px rgba(37, 99, 235, 0.45);
+  --glow-danger: 0 0 24px rgba(229, 72, 77, 0.45);
+
+  --radius-card: 12px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-deep: var(--accent-deep);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+
+  /* Písmo se vyměňuje na jednom místě — v layout.tsx u next/font. */
+  --font-sans: var(--font-figtree);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* UI je navržené tmavé; světlý režim systému ho nepřebarvuje. */
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Viditelný fokus na klávesnici — v tmavém UI se ztratí snadno. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Mřížky bez mezer, oddělené vlasovými linkami ──────────────
+   Buňky nemají gap; dělí je 1px rámeček, který se u krajních buněk
+   překrývá se sousedem, takže nikde nevznikne dvojitá linka. */
+.hairline-grid {
+  display: grid;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.hairline-grid > * {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
