@@ -42,3 +42,34 @@ $DB -f "$REPO/supabase/migrations/20260824180000_site_grants.sql" >/dev/null
 
 echo "== RLS testy =="
 $DB -f "$REPO/supabase/tests/rls_site_grants.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR|CHYBA' || true
+
+echo "== shoda site_is_armed() v SQL a isSiteArmed() v TypeScriptu =="
+# Ostrý režim počítají dvě nezávislé implementace: databáze při
+# potlačování výjezdů, portál při vykreslování odznaku. Když se
+# rozejdou, portál lže o stavu střežení — tenhle krok to odhalí.
+$DB -q -c "
+INSERT INTO sites (id,name,timezone,armed_from,armed_to,armed_days) VALUES
+ ('00000000-0000-0000-0000-00000000aa01','Parita noc','Europe/Prague','18:00','06:00',ARRAY[1,2,3,4,5]),
+ ('00000000-0000-0000-0000-00000000aa02','Parita den','Europe/Prague','08:00','17:00',ARRAY[6,7])
+ON CONFLICT (id) DO NOTHING;" >/dev/null 2>&1
+
+CASES='2026-07-15T16:30:00Z 2026-01-15T16:30:00Z 2026-01-15T17:00:00Z 2026-08-28T20:00:00+02:00 2026-08-29T02:00:00+02:00 2026-08-29T20:00:00+02:00 2026-08-30T02:00:00+02:00 2026-08-31T18:00:00+02:00 2026-09-01T06:00:00+02:00 2026-03-29T00:30:00Z 2026-03-29T01:30:00Z 2026-10-25T00:30:00Z 2026-10-25T01:30:00Z 2026-08-29T12:00:00+02:00'
+ARR=$(echo $CASES | sed "s/[^ ]*/'&'::timestamptz/g" | tr ' ' ',')
+
+FAILED=0
+for SITE in aa01 aa02; do
+  SQL=$($DB -t -A -c "SELECT string_agg(CASE WHEN site_is_armed('00000000-0000-0000-0000-00000000$SITE', ts) THEN 't' ELSE 'f' END, '' ORDER BY ord) FROM unnest(ARRAY[$ARR]) WITH ORDINALITY AS x(ts, ord);" | tr -d ' \n')
+  TS=$(cd "$REPO" && node --input-type=module -e "
+    const {isSiteArmed} = await import('$REPO/src/types/database.ts');
+    const sites = { aa01:{timezone:'Europe/Prague',armed_from:'18:00:00',armed_to:'06:00:00',armed_days:[1,2,3,4,5]},
+                    aa02:{timezone:'Europe/Prague',armed_from:'08:00:00',armed_to:'17:00:00',armed_days:[6,7]} };
+    console.log('$CASES'.split(' ').map(t => isSiteArmed(sites['$SITE'], new Date(t)) ? 't' : 'f').join(''));
+  " 2>/dev/null | tail -1)
+  if [ "$SQL" = "$TS" ]; then
+    echo "ok    $SITE — SQL i TS: $SQL"
+  else
+    echo "FAIL  $SITE — SQL: $SQL  TS: $TS"
+    FAILED=1
+  fi
+done
+[ "$FAILED" -eq 0 ] && echo "VŠECHNY TESTY PROŠLY" || exit 1
