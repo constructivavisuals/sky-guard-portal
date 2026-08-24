@@ -1,4 +1,4 @@
-import { flightHubConfig } from "../env.ts";
+import { flightHubConfig, type FlightHubConfig } from "../env.ts";
 import type { DispatchLevel, Json } from "../../types/database.ts";
 
 // Klient pro spuštění workflow v DJI FlightHub 2.
@@ -6,6 +6,23 @@ import type { DispatchLevel, Json } from "../../types/database.ts";
 // výhradně odpověď serveru, nikdy odeslané hlavičky.
 
 export const FLIGHTHUB_TIMEOUT_MS = 5_000;
+
+/** Strop pro chybovou hlášku ukládanou do dispatches.response. */
+export const MAX_ERROR_MESSAGE_LENGTH = 500;
+
+/**
+ * Text výjimky pro uložení do databáze.
+ *
+ * Hlášky z env.ts nesou jen NÁZEV proměnné (`Chybí povinná proměnná
+ * prostředí FH_USER_TOKEN`), nikdy hodnotu — token se tudy tedy nemá jak
+ * dostat do dispatches.response. Kdyby někdo required() rozšířil o výpis
+ * hodnoty, poteče tajemství do databáze; tahle vlastnost je pojištěná
+ * testem ve flighthub.test.ts.
+ */
+function safeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
 
 export interface TriggerWorkflowInput {
   workflowUuid: string;
@@ -38,7 +55,26 @@ function readIncidentUuid(body: unknown): string | null {
 export async function triggerWorkflow(
   input: TriggerWorkflowInput,
 ): Promise<TriggerWorkflowResult> {
-  const config = flightHubConfig();
+  // Konfigurace se čte uvnitř funkce, ne na jejím okraji: chybějící
+  // proměnná prostředí musí skončit jako výsledek k zapsání, ne jako
+  // výjimka. Jinak by pokus o výjezd zmizel do console.error a
+  // v dispatches by po něm nezůstala žádná stopa.
+  let config: FlightHubConfig;
+  try {
+    config = flightHubConfig();
+  } catch (error) {
+    return {
+      incidentUuid: null,
+      httpStatus: null,
+      response: {
+        // Odlišeno od 'network_error' a 'timeout' — konfigurační chybu
+        // spraví nasazení, nedostupný FlightHub se opraví sám.
+        error: "configuration_error",
+        message: safeErrorMessage(error),
+      },
+      ok: false,
+    };
+  }
 
   const body = {
     workflow_uuid: input.workflowUuid,
@@ -95,7 +131,7 @@ export async function triggerWorkflow(
       httpStatus: null,
       response: {
         error: timedOut ? "timeout" : "network_error",
-        message: error instanceof Error ? error.message : String(error),
+        message: safeErrorMessage(error),
         timeout_ms: FLIGHTHUB_TIMEOUT_MS,
       },
       ok: false,
