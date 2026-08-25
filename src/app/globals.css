@@ -59,6 +59,10 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans), system-ui, sans-serif;
+  /* Nic nesmí posouvat stránku do stran. Široký obsah se posouvá uvnitř
+     vlastního rámečku — na mobilu je vodorovný posun celé stránky
+     nejrychlejší cesta ke ztracené navigaci. */
+  overflow-x: hidden;
 }
 
 /* Viditelný fokus na klávesnici — v tmavém UI se ztratí snadno. */
@@ -79,4 +83,101 @@ body {
 .hairline-grid > * {
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+}
+
+/* ── Tabulka, která se pod sm překlopí na karty ──────────────────
+   Jeden záznam jedna karta, popisek vlevo, hodnota vpravo. Popisky
+   berou z atributu data-label, který nastavuje komponenta Td — hlavička
+   se na mobilu skrývá, ale ve značkování zůstává tabulkou, takže na ni
+   odečítač i desktop sahají beze změny.
+
+   Vodorovné posouvání tabulky se na mobilu neovládá dobře: prst
+   nepozná, jestli táhne tabulku nebo stránku. */
+@media (max-width: 639px) {
+  .stack-table {
+    min-width: 0;
+  }
+
+  .stack-table thead {
+    display: none;
+  }
+
+  .stack-table,
+  .stack-table tbody,
+  .stack-table tr,
+  .stack-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .stack-table tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    margin-bottom: 0.75rem;
+    padding: 0.25rem 0;
+  }
+
+  .stack-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .stack-table td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0.875rem;
+    text-align: left;
+    white-space: normal;
+  }
+
+  /* Obsah buňky je v kartě flex položkou, a ta má výchozí
+     min-width: auto — dlouhý řetězec (JSON odpovědi, UUID) by se pak
+     nesmrskl a roztáhl stránku. Vlastní vodorovné posouvání uvnitř
+     <pre> tím zůstane funkční. */
+  .stack-table td > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .stack-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+  }
+
+  /* Buňka bez popisku (akce, rozbalený detail) zabere celou šířku. */
+  .stack-table td:not([data-label])::before {
+    display: none;
+  }
+
+  .stack-table td:not([data-label]) {
+    justify-content: flex-start;
+  }
+
+  /* Sloupec s akcemi zůstává u pravého okraje i v kartě. */
+  .stack-table td:not([data-label]).text-right {
+    justify-content: flex-end;
+  }
+
+  /* Řádek s rozbalitelným detailem je v tabulce samostatné <tr>, ale
+     patří k záznamu nad ním — v kartách se proto slepí do jedné, jinak
+     by detail chyby vypadal jako cizí záznam. */
+  .stack-table tr[data-continues] {
+    margin-bottom: 0;
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding-bottom: 0;
+  }
+
+  .stack-table tr[data-continuation] {
+    border-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    padding-top: 0;
+  }
 }

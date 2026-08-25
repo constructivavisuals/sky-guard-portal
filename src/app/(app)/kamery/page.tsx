@@ -115,19 +115,19 @@ export default async function Page() {
         >
           {rows.map((row) => (
             <Tr key={row.id}>
-              <Td className="font-medium">{row.name}</Td>
-              <Td>{orDash(row.sites?.name)}</Td>
-              <Td>{orDash(row.zones?.name)}</Td>
-              <Td>{orDash(row.model)}</Td>
-              <TdTight className="text-right tabular-nums">
+              <Td label="Název" className="font-medium">{row.name}</Td>
+              <Td label="Lokalita">{orDash(row.sites?.name)}</Td>
+              <Td label="Zóna">{orDash(row.zones?.name)}</Td>
+              <Td label="Model">{orDash(row.model)}</Td>
+              <TdTight label="Ohnisko" className="text-right tabular-nums">
                 {formatFocalLength(row.focal_mm)}
               </TdTight>
               {showSerial ? (
-                <TdTight className="font-mono text-xs text-[var(--text-muted)]">
+                <TdTight label="Sériové číslo" className="font-mono text-xs text-[var(--text-muted)]">
                   {orDash(row.serial_number)}
                 </TdTight>
               ) : null}
-              <Td>
+              <Td label="Stav">
                 <CameraStatusBadge status={row.status} />
               </Td>
               {admin ? (

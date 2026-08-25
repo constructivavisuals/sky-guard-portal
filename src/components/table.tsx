@@ -14,8 +14,8 @@ export function DataTable({
   caption?: string;
 }) {
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)]">
-      <table className="w-full min-w-[720px] border-collapse text-sm">
+    <div className="sm:overflow-x-auto sm:rounded-[var(--radius-card)] sm:border sm:border-[var(--border)] sm:bg-[var(--surface)]">
+      <table className="stack-table w-full border-collapse text-sm sm:min-w-[720px]">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead className="bg-[var(--surface-2)] text-left">
           <tr>{head}</tr>
@@ -45,11 +45,29 @@ export function Tr({ className = "", ...props }: ComponentProps<"tr">) {
   );
 }
 
-export function Td({ className = "", ...props }: ComponentProps<"td">) {
-  return <td className={`px-4 py-3 align-top ${className}`} {...props} />;
+/**
+ * Buňka. `label` se propíše do data-label a pod sm z něj vznikne
+ * popisek vlevo v kartě — bez něj by hodnota v překlopené tabulce
+ * neměla u sebe nic, co říká, co znamená.
+ */
+export function Td({
+  className = "",
+  label,
+  ...props
+}: ComponentProps<"td"> & { label?: string }) {
+  return (
+    <td
+      data-label={label}
+      className={`px-4 py-3 align-top ${className}`}
+      {...props}
+    />
+  );
 }
 
 /** Údaj, který nemá lámat řádek (čas, sériové číslo). */
-export function TdTight({ className = "", ...props }: ComponentProps<"td">) {
+export function TdTight({
+  className = "",
+  ...props
+}: ComponentProps<"td"> & { label?: string }) {
   return <Td className={`whitespace-nowrap ${className}`} {...props} />;
 }

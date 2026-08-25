@@ -1,18 +1,19 @@
-"use client";
+import type { ReactNode } from "react";
 
-import { useEffect, useState, type ReactNode } from "react";
-
-import { Sidebar } from "./sidebar.tsx";
 import type { CurrentProfile } from "@/lib/profile.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
+import { MobileNav } from "./mobile-nav.tsx";
+import { Sidebar } from "./sidebar.tsx";
 import { Topbar, type GuardState } from "./topbar.tsx";
 
-/**
- * Drží stav mobilního šuplíku. Nad lg je sidebar součástí layoutu
- * a stav se nepoužívá; pod lg je vysunutý mimo obrazovku a obsah
- * dostane celou šířku.
- */
+// App shell pro přihlášené.
+//
+// Nad lg je sidebar součástí layoutu, pod lg ho nahrazuje spodní
+// navigace — vzor z constructiva-portal. Šuplík s hamburgerem tu byl
+// dřív, ale na mobilu je spodní lišta dosažitelná palcem a nepotřebuje
+// dvojí klepnutí.
+
 export function Shell({
   children,
   siteName,
@@ -28,32 +29,9 @@ export function Shell({
   guardState: GuardState;
   profile: CurrentProfile | null;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  // Zavření po přechodu na jinou stránku řeší Sidebar klepnutím na
-  // odkaz, ne efekt nad usePathname — stav se tím nemění kaskádou.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [menuOpen]);
-
   return (
-    <div className="flex h-dvh overflow-hidden">
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} profile={profile} />
-
-      {/* Podklad pod šuplíkem — klepnutí vedle menu ho zavře. */}
-      {menuOpen ? (
-        <button
-          type="button"
-          aria-label="Zavřít menu"
-          onClick={() => setMenuOpen(false)}
-          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
-        />
-      ) : null}
+    <div className="flex min-h-dvh lg:h-dvh lg:overflow-hidden">
+      <Sidebar profile={profile} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -61,16 +39,17 @@ export function Shell({
           siteOptions={siteOptions}
           selectedSiteId={selectedSiteId}
           guardState={guardState}
-          menuOpen={menuOpen}
-          onMenuToggle={() => setMenuOpen((open) => !open)}
         />
-        <main className="flex-1 overflow-y-auto">
-          {/* Obsah se na širokých monitorech nerozlévá donekonečna. */}
-          <div className="mx-auto w-full max-w-[1280px] p-5 sm:p-8">
+        <main className="flex-1 lg:overflow-y-auto">
+          {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg
+              už žádná není. */}
+          <div className="mx-auto w-full max-w-[1280px] p-5 pb-28 sm:p-8 sm:pb-28 lg:pb-8">
             {children}
           </div>
         </main>
       </div>
+
+      <MobileNav />
     </div>
   );
 }

@@ -118,29 +118,32 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
             {rows.map((row) => (
               <Fragment key={row.id}>
               <Tr
+                data-continues={
+                  row.outcome === "failed" && showDiagnostics ? "" : undefined
+                }
                 className={
                   row.outcome === "failed" && showDiagnostics ? "border-b-0" : ""
                 }
               >
-                <TdTight className="text-[var(--text-muted)]">
+                <TdTight label="Čas" className="text-[var(--text-muted)]">
                   {formatDateTime(row.sent_at, row.sites?.timezone)}
                 </TdTight>
-                <Td>{orDash(row.sites?.name)}</Td>
-                <Td>{orDash(row.zones?.name)}</Td>
-                <Td className="text-center">
+                <Td label="Lokalita">{orDash(row.sites?.name)}</Td>
+                <Td label="Zóna">{orDash(row.zones?.name)}</Td>
+                <Td label="Úroveň" className="text-center">
                   <LevelBadge level={row.level_sent} />
                 </Td>
-                <Td>
+                <Td label="Výsledek">
                   <DispatchOutcomeBadge outcome={row.outcome} />
                 </Td>
                 {showDiagnostics ? (
                   <>
                     {/* UUID se láme, ne posouvá — jinak jediný dlouhý
                         řetězec roztáhne celou tabulku. */}
-                    <Td className="font-mono text-xs break-all text-[var(--text-muted)]">
+                    <Td label="Incident" className="font-mono text-xs break-all text-[var(--text-muted)]">
                       {orDash(row.fh_incident_uuid)}
                     </Td>
-                    <TdTight className="text-right tabular-nums">
+                    <TdTight label="HTTP" className="text-right tabular-nums">
                       {row.http_status ?? "—"}
                     </TdTight>
                   </>
@@ -150,7 +153,7 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
                   by surová odpověď roztáhla sloupec „Výsledek“. Rozbaluje
                   se jen u selhaných, jinde není co ukazovat. */}
               {row.outcome === "failed" && showDiagnostics ? (
-                <Tr>
+                <Tr data-continuation="">
                   <Td colSpan={columnCount} className="pt-0">
                     <details>
                       <summary className="cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text)]">

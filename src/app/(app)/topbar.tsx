@@ -1,5 +1,3 @@
-import { Menu } from "lucide-react";
-
 import type { SiteOption } from "@/lib/site.ts";
 
 import { SiteSwitcher } from "./site-switcher.tsx";
@@ -58,29 +56,15 @@ export function Topbar({
   siteOptions,
   selectedSiteId,
   guardState,
-  menuOpen,
-  onMenuToggle,
 }: {
   siteName: string;
   siteOptions: SiteOption[];
   selectedSiteId: string | null;
   guardState: GuardState;
-  menuOpen: boolean;
-  onMenuToggle: () => void;
 }) {
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-3 sm:px-6">
       <div className="flex items-center gap-1 sm:gap-3 min-w-0">
-        <button
-          type="button"
-          onClick={onMenuToggle}
-          aria-label="Otevřít menu"
-          aria-expanded={menuOpen}
-          className="-ml-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] lg:hidden"
-        >
-          <Menu className="h-5 w-5" aria-hidden="true" />
-        </button>
-
         {/* S jedinou lokalitou není z čeho vybírat — přepínač by
             nabízel „Všechny lokality“ a tutéž jednu. */}
         {siteOptions.length > 1 ? (

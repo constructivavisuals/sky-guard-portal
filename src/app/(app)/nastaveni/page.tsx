@@ -174,7 +174,7 @@ export default async function Page() {
                 >
                   {users.map((user) => (
                     <Tr key={user.id}>
-                      <Td>
+                      <Td label="Uživatel">
                         <p className="font-medium">
                           {orDash(user.full_name ?? user.email)}
                         </p>
@@ -184,8 +184,8 @@ export default async function Page() {
                           </p>
                         ) : null}
                       </Td>
-                      <Td>{USER_ROLE_LABELS[user.role]}</Td>
-                      <Td className="text-[var(--text-muted)]">
+                      <Td label="Role">{USER_ROLE_LABELS[user.role]}</Td>
+                      <Td label="Lokality" className="text-[var(--text-muted)]">
                         <GrantList user={user} />
                       </Td>
                     </Tr>

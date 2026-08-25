@@ -99,7 +99,10 @@ export default async function Page() {
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {sites.map((site) => (
-            <li key={site.id}>
+            // min-w-0: položky mřížky mají výchozí min-width auto, takže
+            // by je široký obsah karty roztáhl nad šířku kontejneru
+            // a posunul celou stránku do stran.
+            <li key={site.id} className="min-w-0">
               <SiteCard
                 site={site}
                 state={armed.get(site.id) ?? "unknown"}

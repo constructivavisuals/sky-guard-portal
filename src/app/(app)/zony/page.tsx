@@ -96,17 +96,17 @@ export default async function Page() {
             const point = parsePointEwkbHex(row.location);
             return (
               <Tr key={row.id}>
-                <Td className="font-medium">{row.name}</Td>
-                <Td>{row.sites?.name ?? "—"}</Td>
-                <TdTight className="text-right tabular-nums">
+                <Td label="Název" className="font-medium">{row.name}</Td>
+                <Td label="Lokalita">{row.sites?.name ?? "—"}</Td>
+                <TdTight label="Šířka" className="text-right tabular-nums">
                   {point ? point.latitude.toFixed(5) : "—"}
                 </TdTight>
-                <TdTight className="text-right tabular-nums">
+                <TdTight label="Délka" className="text-right tabular-nums">
                   {point ? point.longitude.toFixed(5) : "—"}
                 </TdTight>
-                <Td className="text-center tabular-nums">{row.default_level}</Td>
-                <Td className="text-right tabular-nums">{row.cameras[0]?.count ?? 0}</Td>
-                <Td>
+                <Td label="Úroveň" className="text-center tabular-nums">{row.default_level}</Td>
+                <Td label="Kamery" className="text-right tabular-nums">{row.cameras[0]?.count ?? 0}</Td>
+                <Td label="Stav">
                   {row.enabled ? (
                     <span className="text-[var(--success)]">Zapnutá</span>
                   ) : (

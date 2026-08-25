@@ -104,19 +104,19 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
           >
             {rows.map((row) => (
               <Tr key={row.id}>
-                <TdTight className="text-[var(--text-muted)]">
+                <TdTight label="Čas" className="text-[var(--text-muted)]">
                   {formatDateTime(row.detected_at, row.cameras?.sites?.timezone)}
                 </TdTight>
-                <Td>{orDash(row.cameras?.sites?.name)}</Td>
-                <Td>{orDash(row.zones?.name)}</Td>
-                <Td>{orDash(row.cameras?.name)}</Td>
-                <Td>
+                <Td label="Lokalita">{orDash(row.cameras?.sites?.name)}</Td>
+                <Td label="Zóna">{orDash(row.zones?.name)}</Td>
+                <Td label="Kamera">{orDash(row.cameras?.name)}</Td>
+                <Td label="Objekt">
                   <ObjectClassBadge objectClass={row.object_class} />
                 </Td>
-                <TdTight className="text-right tabular-nums">
+                <TdTight label="Jistota" className="text-right tabular-nums">
                   {formatConfidence(row.confidence)}
                 </TdTight>
-                <Td>
+                <Td label="Výjezd">
                   <DispatchOutcomeShortBadge
                     outcome={row.dispatches[0]?.outcome ?? null}
                   />

@@ -11,7 +11,6 @@ import {
   Radar,
   Cctv,
   Settings,
-  X,
   LogOut,
 } from "lucide-react";
 
@@ -31,38 +30,17 @@ export const NAV_ITEMS = [
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
-export function Sidebar({
-  open,
-  onClose,
-  profile,
-}: {
-  open: boolean;
-  onClose: () => void;
-  profile: CurrentProfile | null;
-}) {
+export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
   const pathname = usePathname();
 
   return (
     <nav
       aria-label="Hlavní navigace"
-      className={`fixed inset-y-0 left-0 z-50 flex h-full w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-transform duration-200 lg:static lg:translate-x-0 lg:visible ${
-        open
-          ? "translate-x-0"
-          : // `invisible` vyřadí odkazy i z pořadí tabulátoru — jinak by
-            // se na mobilu dalo klávesnicí projít do zasunutého menu.
-            "-translate-x-full invisible"
-      }`}
+      // Pod lg sidebar vůbec není — navigaci tam přebírá spodní lišta.
+      className="hidden lg:flex h-full w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]"
     >
-      <div className="flex h-16 items-center justify-between gap-2 px-5 border-b border-[var(--border)]">
+      <div className="flex h-16 items-center px-5 border-b border-[var(--border)]">
         <Logo />
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Zavřít menu"
-          className="-mr-2 inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] lg:hidden"
-        >
-          <X className="h-5 w-5" aria-hidden="true" />
-        </button>
       </div>
 
       <ul className="flex-1 overflow-y-auto p-3 space-y-1">
@@ -72,7 +50,6 @@ export function Sidebar({
             <li key={href}>
               <Link
                 href={href}
-                onClick={onClose}
                 aria-current={active ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-lg px-3 h-10 text-sm transition ${
                   active
