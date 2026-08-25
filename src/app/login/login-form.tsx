@@ -5,6 +5,7 @@ import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { Button } from "@/components/ui.tsx";
+import { bezpecnyCil } from "@/lib/redirect.ts";
 import { createClient } from "@/lib/supabase/client.ts";
 
 export function LoginForm() {
@@ -47,8 +48,7 @@ export function LoginForm() {
     }
 
     // Kam se uživatel chtěl dostat, než ho middleware odklonil.
-    const next = searchParams.get("dalsi");
-    router.replace(next?.startsWith("/") ? next : "/prehled");
+    router.replace(bezpecnyCil(searchParams.get("dalsi")));
     router.refresh();
   }
 

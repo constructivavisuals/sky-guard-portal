@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import {
+  cameraSilenceWarnings,
   cameraWarnings,
   dockWarnings,
   formatUntil,
@@ -219,5 +220,80 @@ describe("cameraWarnings", () => {
   it("když je bez zóny úplně všechno, řekne to natvrdo", () => {
     const [warning] = cameraWarnings({ total: 5, withoutZone: 5 });
     assert.match(warning.text, /nevznikne žádný zásah/);
+  });
+});
+
+describe("cameraSilenceWarnings", () => {
+  const now = new Date("2026-08-31T12:00:00Z");
+  const pred = (minut: number) => new Date(now.getTime() - minut * 60_000);
+
+  it("mlčí, když se všechny ozvaly nedávno", () => {
+    assert.deepEqual(
+      cameraSilenceWarnings(
+        [{ name: "Brána", lastSeenAt: pred(10), online: true }],
+        now,
+      ),
+      [],
+    );
+  });
+
+  it("upozorní na kameru, která mlčí přes hodinu", () => {
+    const [w] = cameraSilenceWarnings(
+      [{ name: "Brána", lastSeenAt: pred(61), online: true }],
+      now,
+    );
+    assert.match(w.text, /Brána/);
+  });
+
+  it("těsně pod prahem ještě nehlásí", () => {
+    assert.deepEqual(
+      cameraSilenceWarnings(
+        [{ name: "Brána", lastSeenAt: pred(59), online: true }],
+        now,
+      ),
+      [],
+    );
+  });
+
+  it("kamera, která se nikdy neozvala, není rozbitá — jen nezapojená", () => {
+    assert.deepEqual(
+      cameraSilenceWarnings(
+        [{ name: "Nová", lastSeenAt: null, online: true }],
+        now,
+      ),
+      [],
+    );
+  });
+
+  it("kamera vedená jako offline se nehlásí — o tom se ví jinak", () => {
+    assert.deepEqual(
+      cameraSilenceWarnings(
+        [{ name: "Vypnutá", lastSeenAt: pred(500), online: false }],
+        now,
+      ),
+      [],
+    );
+  });
+
+  it("víc kamer se sloučí do jedné hlášky se jmény", () => {
+    const [w] = cameraSilenceWarnings(
+      [
+        { name: "Brána", lastSeenAt: pred(90), online: true },
+        { name: "Dvůr", lastSeenAt: pred(200), online: true },
+      ],
+      now,
+    );
+    assert.match(w.text, /2 kamer/);
+    assert.match(w.text, /Brána, Dvůr/);
+  });
+
+  it("neplatné datum mlčí, ne aby hlásilo nesmysl", () => {
+    assert.deepEqual(
+      cameraSilenceWarnings(
+        [{ name: "Rozbitá", lastSeenAt: new Date("nesmysl"), online: true }],
+        now,
+      ),
+      [],
+    );
   });
 });

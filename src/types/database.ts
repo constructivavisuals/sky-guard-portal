@@ -301,6 +301,12 @@ export type Detection = {
    */
   location: Geography | null;
   detected_at: string;
+  /**
+   * Odkud požadavek dorazil a čím byl podepsaný. Migrace 20260831120000.
+   * U dronových detekcí a záznamů z doby před migrací null.
+   */
+  source_ip: string | null;
+  ingest_key_id: string | null;
   object_class: DetectionObjectClass;
   /** 0–1, NUMERIC(5,4). */
   confidence: number | null;

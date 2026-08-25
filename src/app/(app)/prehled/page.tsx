@@ -26,6 +26,7 @@ import {
 import {
   BATTERY_WARNING_PERCENT,
   STORAGE_WARNING_PERCENT,
+  cameraSilenceWarnings,
   cameraWarnings,
   dockWarnings,
   formatUntil,
@@ -54,6 +55,14 @@ import {
 } from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Přehled" };
+
+interface CameraRow {
+  id: string;
+  name: string;
+  zone_id: string | null;
+  status: string;
+  last_seen_at: string | null;
+}
 
 interface PatrolRow {
   id: string;
@@ -105,6 +114,7 @@ export default async function Page() {
   const patrolLastByid = new Map<string, Date>();
   let counts = { detections: 0, dispatches: 0, suppressed: 0, flights: 0 };
   let cameras = { total: 0, withoutZone: 0 };
+  let silence: { name: string; lastSeenAt: Date | null; online: boolean }[] = [];
   let events: EventRow[] = [];
   let failed = false;
 
@@ -136,9 +146,9 @@ export default async function Page() {
           // Kamer je na lokalitě řád jednotek, takže je levnější přivézt
           // si zone_id a spočítat obojí tady, než posílat dva dotazy
           // s count=exact.
-          supabase.from("cameras").select("id, zone_id")
+          supabase.from("cameras").select("id, name, zone_id, status, last_seen_at")
             .eq("site_id", site.id).neq("status", "decommissioned")
-            .returns<{ id: string; zone_id: string | null }[]>(),
+            .returns<CameraRow[]>(),
           // Poslední lety hlídek: jedním dotazem, nejnovější první.
           // Z nich se v paměti vybere poslední let ke každé hlídce.
           supabase.from("flights").select("patrol_id, started_at")
@@ -170,6 +180,11 @@ export default async function Page() {
         total: cameraList.length,
         withoutZone: cameraList.filter((camera) => camera.zone_id === null).length,
       };
+      silence = cameraList.map((camera) => ({
+        name: camera.name,
+        lastSeenAt: camera.last_seen_at ? new Date(camera.last_seen_at) : null,
+        online: camera.status === "online",
+      }));
 
       for (const flight of patrolFlights.data ?? []) {
         if (!flight.patrol_id) continue;
@@ -249,6 +264,7 @@ export default async function Page() {
     // Kamery bez zóny první — je to tichý výpadek celé lokality,
     // ne provozní drobnost jako plné úložiště.
     ...cameraWarnings(cameras),
+    ...cameraSilenceWarnings(silence, now),
     ...patrolWarnings(health, now),
   ];
 

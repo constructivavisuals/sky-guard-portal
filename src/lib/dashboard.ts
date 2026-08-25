@@ -64,6 +64,58 @@ export function dockWarnings(state: DockState): Warning[] {
   return out;
 }
 
+/** Po téhle době ticha se kamera považuje za nehlásící. */
+export const CAMERA_SILENT_MINUTES = 60;
+
+/**
+ * Kamera, která se dlouho neozvala.
+ *
+ * `last_seen_at` razítkuje ingest při každé přijaté detekci. Bez
+ * tohohle varování se kamera s rozbitými hodinami nebo starým klíčem
+ * tváří přesně jako kamera, kolem které nikdo nešel — a to je nejtišší
+ * způsob, jak přijít o ostrahu.
+ *
+ * Kamery, které se ještě nikdy neozvaly, se nepočítají: nejsou
+ * zapojené, ne rozbité. Na ty upozorňuje jiné varování, když nemají
+ * zónu.
+ */
+export function cameraSilenceWarnings(
+  cameras: { name: string; lastSeenAt: Date | null; online: boolean }[],
+  now: Date = new Date(),
+): Warning[] {
+  const prah = CAMERA_SILENT_MINUTES * 60_000;
+
+  const ticho = cameras.filter((camera) => {
+    if (!camera.online) return false;
+    if (!camera.lastSeenAt) return false;
+    const od = now.getTime() - camera.lastSeenAt.getTime();
+    // Neplatné datum by dalo NaN a to projde každým porovnáním jako
+    // false — radši výslovně.
+    if (!Number.isFinite(od)) return false;
+    return od > prah;
+  });
+
+  if (ticho.length === 0) return [];
+
+  if (ticho.length === 1) {
+    return [
+      {
+        key: `camera_silent_${ticho[0].name}`,
+        text: `Kamera „${ticho[0].name}“ se neozvala déle než ${CAMERA_SILENT_MINUTES} min, přestože je vedená jako online.`,
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "cameras_silent",
+      text: `${ticho.length} kamer se neozvalo déle než ${CAMERA_SILENT_MINUTES} min, přestože jsou vedené jako online: ${ticho
+        .map((camera) => camera.name)
+        .join(", ")}.`,
+    },
+  ];
+}
+
 /**
  * Kamery, které nemají zónu.
  *

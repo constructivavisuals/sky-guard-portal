@@ -71,10 +71,14 @@ INSERT INTO cameras (id, site_id, zone_id, name) VALUES
 -- Bez site_id schválně: doplní ho migrace odvozením přes kameru.
 -- (Migrace už proběhla, takže ho dodá DEFAULT? Ne — dodáme ho ručně,
 -- protože sloupec je NOT NULL a odvozovací UPDATE běžel jen jednou.)
-INSERT INTO detections (id, site_id, camera_id, zone_id, object_class) VALUES
+-- detected_at se zadává výslovně. Bez něj by ho dodal DEFAULT now(),
+-- který je v rámci jedné transakce pro všechny řádky stejný — a od
+-- migrace 20260831120000 hlídá unikát dvojici (camera_id, detected_at),
+-- takže by se druhá detekce z téže kamery odmítla jako přehraná.
+INSERT INTO detections (id, site_id, camera_id, zone_id, object_class, detected_at) VALUES
   ('00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000021',
-   '00000000-0000-0000-0000-000000000011', 'person');
+   '00000000-0000-0000-0000-000000000011', 'person', now() - INTERVAL '2 hours');
 
 INSERT INTO dispatches (id, site_id, zone_id, level_sent, outcome, fh_incident_uuid) VALUES
   ('00000000-0000-0000-0000-000000000041', '00000000-0000-0000-0000-000000000001',
@@ -210,10 +214,10 @@ RESET ROLE;
 
 ALTER TABLE detections ALTER COLUMN site_id DROP NOT NULL;
 
-INSERT INTO detections (id, source, camera_id, zone_id, object_class) VALUES
+INSERT INTO detections (id, source, camera_id, zone_id, object_class, detected_at) VALUES
   ('00000000-0000-0000-0000-0000000000b1', 'camera',
    '00000000-0000-0000-0000-000000000021',
-   '00000000-0000-0000-0000-000000000011', 'person');
+   '00000000-0000-0000-0000-000000000011', 'person', now() - INTERVAL '1 hour');
 
 INSERT INTO detections (id, source, flight_id, object_class, raw) VALUES
   ('00000000-0000-0000-0000-0000000000b2', 'drone',

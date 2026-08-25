@@ -7,6 +7,7 @@ import {
   deriveCameraKey,
 } from "@/lib/ingest/camera-key.ts";
 import { parseDetectionPayload } from "@/lib/ingest/payload.ts";
+import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
 import { verifySignature, type SignatureResult } from "@/lib/ingest/signature.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
@@ -171,15 +172,41 @@ function verifyForCamera(options: {
   return verifySignature({ ...base, secret: derived });
 }
 
+/** Nad tímhle se tělo ani nečte. Detekce je pár set bajtů. */
+const MAX_BODY_BYTES = 32 * 1024;
+
 export async function POST(request: NextRequest): Promise<Response> {
   // Jeden čas pro celý požadavek: podle něj se ověřuje stáří podpisu,
   // omezuje hlášený detected_at i vyhodnocuje ostrý režim. Kdyby si ho
   // každý krok bral zvlášť, mohly by se na hranici okna rozejít.
   const receivedAt = new Date();
+  const ip = clientIp(request.headers);
+
+  // Velikost se kontroluje z hlavičky, tedy DŘÍV, než se tělo přečte.
+  // Číst megabajty od někoho, kdo se ještě neprokázal, je zbytečná
+  // práce — a od chvíle, kdy se kvůli klíči kamery sahá do databáze
+  // před ověřením podpisu, i levná cesta, jak endpoint zatížit.
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    console.warn("Ingest odmítnut: tělo je moc velké", {
+      ip,
+      content_length: declaredLength,
+    });
+    return jsonError(413, "payload_too_large");
+  }
 
   // Raw tělo je potřeba přesně tak, jak dorazilo — přeparsovaný JSON
   // by dal jiné bajty a podpis by nesedl.
   const rawBody = await request.text();
+
+  // Hlavičce se nedá věřit; po přečtení se ověří skutečná délka.
+  if (rawBody.length > MAX_BODY_BYTES) {
+    console.warn("Ingest odmítnut: tělo je moc velké", {
+      ip,
+      bytes: rawBody.length,
+    });
+    return jsonError(413, "payload_too_large");
+  }
 
   let secret: string;
   try {
@@ -194,16 +221,34 @@ export async function POST(request: NextRequest): Promise<Response> {
   try {
     body = JSON.parse(rawBody);
   } catch {
+    console.warn("Ingest odmítnut: tělo není JSON", { ip });
     return jsonError(400, "invalid_json");
   }
 
   const parsed = parseDetectionPayload(body, receivedAt);
   if (!parsed.ok) {
+    console.warn("Ingest odmítnut: vadný obsah", { ip, duvody: parsed.errors });
     return jsonError(400, "invalid_payload", parsed.errors);
   }
 
   const { payload } = parsed;
   const db = supabaseAdmin();
+
+  // Limit až tady: dřív není podle čeho počítat vědro kamery. Pořád
+  // ale před dohledáním kamery a před ověřením podpisu, což jsou
+  // dražší kroky.
+  const limit = await takeIngestToken(db, {
+    cameraSerial: payload.cameraSerial,
+    ip,
+  });
+  if (!limit.allowed) {
+    console.warn("Ingest odmítnut: překročen limit", {
+      ip,
+      serial: payload.cameraSerial,
+      vycerpano: limit.reason,
+    });
+    return jsonError(429, "rate_limited");
+  }
 
   const lookup = await najitKameru(db, payload.cameraSerial);
 
@@ -224,11 +269,23 @@ export async function POST(request: NextRequest): Promise<Response> {
   });
 
   if (!check.valid) {
+    // Zamítnutí se logují: dřív po nich nezůstávalo nic a kamera
+    // s rozjetými hodinami nebo starým klíčem tiše umlkla.
+    console.warn("Ingest odmítnut: podpis neprošel", {
+      ip,
+      serial: payload.cameraSerial,
+      duvod: check.reason,
+      znama_kamera: Boolean(camera),
+    });
     return jsonError(401, "unauthorized", check.reason);
   }
 
   // Až za platným podpisem se smí přiznat, že kamera není v evidenci.
   if (!camera || !camera.sites) {
+    console.warn("Ingest odmítnut: neznámá kamera", {
+      ip,
+      serial: payload.cameraSerial,
+    });
     return jsonError(404, "unknown_camera");
   }
 
@@ -237,6 +294,13 @@ export async function POST(request: NextRequest): Promise<Response> {
   const { data: detection, error: detectionError } = await db
     .from("detections")
     .insert({
+      source_ip: ip,
+      // Čím byl požadavek podepsaný: vlastním klíčem kamery, nebo
+      // společným tajemstvím. Bez toho by po rotaci klíčů nešlo zjistit,
+      // které kamery ještě jedou na starém.
+      ingest_key_id: camera.ingest_secret_hash
+        ? (camera.serial_number ?? "camera")
+        : "shared",
       // Ingest z kamer; dronové detekce půjdou jinou cestou, až se
       // budou tahat data z FlightHubu.
       source: "camera",
@@ -254,12 +318,42 @@ export async function POST(request: NextRequest): Promise<Response> {
     .single();
 
   if (detectionError || !detection) {
+    // 23505 na idx_detections_replay_guard = tatáž detekce už tu je.
+    // Uvnitř tolerance podpisu jde požadavek přehrát a podpis na něm
+    // sedí; unikát je to jediné, co přehrání od skutečnosti odliší.
+    if (detectionError?.code === "23505") {
+      console.warn("Ingest odmítnut: přehraný požadavek", {
+        ip,
+        serial: payload.cameraSerial,
+        detected_at: payload.detectedAt.toISOString(),
+      });
+      return jsonError(409, "duplicate_detection");
+    }
+
     console.error("Zápis detekce selhal", {
       camera_id: camera.id,
       message: detectionError?.message,
     });
     return jsonError(500, "detection_insert_failed");
   }
+
+  // Kamera se ozvala. Bez tohohle razítka nešlo odlišit klidnou noc od
+  // kamery, která tři dny mlčí — přehled na to teď upozorňuje.
+  //
+  // after(): zápis se nesmí připlést do jedné sekundy, kterou má
+  // endpoint na odpověď, a když selže, přijde o něj jen ten sloupec.
+  after(async () => {
+    const { error } = await db
+      .from("cameras")
+      .update({ last_seen_at: receivedAt.toISOString() })
+      .eq("id", camera.id);
+    if (error) {
+      console.error("Zápis last_seen_at selhal", {
+        camera_id: camera.id,
+        message: error.message,
+      });
+    }
+  });
 
   const context: DispatchContext = {
     detectionId: detection.id,

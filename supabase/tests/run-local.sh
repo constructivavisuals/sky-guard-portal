@@ -72,6 +72,9 @@ run_test_file camera_location.sql
 echo "== práva na pomocné funkce =="
 run_test_file function_grants.sql
 
+echo "== zpevnění ingestu =="
+run_test_file ingest_hardening.sql
+
 echo "== kontrola seedu Vysoké Veselí =="
 run_test_file seed_vysoke_veseli.sql
 

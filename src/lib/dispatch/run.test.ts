@@ -214,3 +214,47 @@ describe("runDispatch — nedotčené cesty", () => {
     assert.equal(triggered, 0);
   });
 });
+
+describe("cooldown se počítá z času přijetí", () => {
+  it("detekce datovaná zpět cooldown neobejde", async () => {
+    // Bez tohohle stačilo poslat detekci s detected_at o pět minut
+    // zpátky a cooldown se tvářil jako uplynulý. Čas přijetí si
+    // odesílatel neurčuje.
+    const prijato = new Date("2026-08-24T22:00:00Z");
+    const poslednyZasah = new Date("2026-08-24T21:55:00Z"); // před 5 min
+
+    const { deps: d, inserted } = deps({
+      lastSentDispatchAt: async () => poslednyZasah,
+    });
+
+    await runDispatch(
+      context({
+        // Kamera tvrdí, že se to stalo o hodinu dřív.
+        detectedAt: new Date("2026-08-24T21:00:00Z"),
+        receivedAt: prijato,
+        siteCooldownSeconds: 900,
+      }),
+      d,
+    );
+
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0].outcome, "suppressed_cooldown");
+  });
+
+  it("po uplynutí cooldownu zásah odejde", async () => {
+    const { deps: d, inserted } = deps({
+      lastSentDispatchAt: async () => new Date("2026-08-24T21:00:00Z"),
+    });
+
+    await runDispatch(
+      context({
+        detectedAt: new Date("2026-08-24T22:00:00Z"),
+        receivedAt: new Date("2026-08-24T22:00:00Z"),
+        siteCooldownSeconds: 900,
+      }),
+      d,
+    );
+
+    assert.equal(inserted[0].outcome, "sent");
+  });
+});

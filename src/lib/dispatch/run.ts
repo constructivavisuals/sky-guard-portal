@@ -125,7 +125,10 @@ async function lastSentDispatchAt(
     .select("sent_at")
     .eq("site_id", context.siteId)
     .eq("outcome", "sent")
-    .lte("sent_at", context.detectedAt.toISOString())
+    // Čas přijetí, ne hlášený: cooldown je pravidlo o tom, jak často
+    // smí dron vzlétnout, a to se řídí skutečností, ne tím, co kamera
+    // o sobě tvrdí.
+    .lte("sent_at", context.receivedAt.toISOString())
     .order("sent_at", { ascending: false })
     .limit(1);
 
@@ -175,14 +178,16 @@ async function prepareDispatchRow(
     armed,
     cooldownSeconds: context.siteCooldownSeconds,
     lastSentAt,
-    at: context.detectedAt,
+    // Rovněž čas přijetí. S hlášeným časem by šlo cooldown obejít
+    // detekcí datovanou o pět minut zpět.
+    at: context.receivedAt,
   });
 
   // Důvod se ukládá spolu se zásahem. Databáze si dřív pamatovala jen
   // výsledek, takže detail zásahu musel rozhodnutí rekonstruovat — a po
   // každé změně pravidel by staré zásahy vyprávěly novou verzi.
   const elapsedSeconds = lastSentAt
-    ? (context.detectedAt.getTime() - lastSentAt.getTime()) / 1000
+    ? (context.receivedAt.getTime() - lastSentAt.getTime()) / 1000
     : null;
 
   const reason: DecisionReason = {
