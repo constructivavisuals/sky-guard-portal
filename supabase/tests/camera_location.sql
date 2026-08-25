@@ -96,5 +96,43 @@ SELECT test_expect('JV roh a Východ jsou od sebe 95 m',
     WHERE a.id = '00000000-0000-0000-0000-000000000072'
       AND b.id = '00000000-0000-0000-0000-000000000073'), 95);
 
+-- ── Ingest klíč kamery ───────────────────────────────────────────
+
+SELECT test_expect('nová kamera je na společném tajemství',
+  (SELECT count(*) FROM cameras
+    WHERE id = '00000000-0000-0000-0000-000000000071'
+      AND ingest_secret_hash IS NULL AND ingest_key_version = 1), 1);
+
+-- Kdyby sem někdo omylem uložil klíč místo otisku, CHECK to zachytí.
+SELECT test_expect_rejected('do otisku nejde uložit cokoli', $sql$
+  UPDATE cameras SET ingest_secret_hash = 'tajny-klic'
+   WHERE id = '00000000-0000-0000-0000-000000000071'
+$sql$);
+
+SELECT test_expect_rejected('otisk s velkými písmeny neprojde', $sql$
+  UPDATE cameras SET ingest_secret_hash = repeat('A', 64)
+   WHERE id = '00000000-0000-0000-0000-000000000071'
+$sql$);
+
+SELECT test_expect_rejected('nulová verze klíče neprojde', $sql$
+  UPDATE cameras SET ingest_key_version = 0
+   WHERE id = '00000000-0000-0000-0000-000000000071'
+$sql$);
+
+-- Ingest dohledává kameru podle sériového čísla; bez něj by byl otisk
+-- mrtvý údaj, protože by se k němu nešlo dostat.
+SELECT test_expect_rejected('otisk bez sériového čísla neprojde', $sql$
+  UPDATE cameras SET ingest_secret_hash = repeat('a', 64)
+   WHERE id = '00000000-0000-0000-0000-000000000071'
+$sql$);
+
+UPDATE cameras SET serial_number = 'CAM-TEST-01', ingest_secret_hash = repeat('a', 64)
+ WHERE id = '00000000-0000-0000-0000-000000000071';
+
+SELECT test_expect('se sériovým číslem otisk projde',
+  (SELECT count(*) FROM cameras
+    WHERE id = '00000000-0000-0000-0000-000000000071'
+      AND ingest_secret_hash = repeat('a', 64)), 1);
+
 DO $$ BEGIN RAISE NOTICE 'VŠECHNY TESTY PROŠLY'; END $$;
 ROLLBACK;

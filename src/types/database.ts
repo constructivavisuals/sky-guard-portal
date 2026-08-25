@@ -222,6 +222,13 @@ export type Camera = {
   focal_mm: number | null;
   mount_description: string | null;
   /**
+   * SHA-256 otisk ingest klíče kamery. Migrace 20260829120000.
+   * NULL = kamera se ještě podepisuje společným INGEST_SECRET.
+   * Klíč sám v databázi není, odvozuje se — viz lib/ingest/camera-key.ts.
+   */
+  ingest_secret_hash: string | null;
+  ingest_key_version: number;
+  /**
    * Kde kamera stojí a kam kouká. Migrace 20260828180000.
    * EWKB hex, rozebírá `parsePointEwkbHex`. Azimut 0 = sever, 90 = východ;
    * null znamená, že se po montáži nezměřil.

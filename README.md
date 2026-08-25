@@ -43,6 +43,23 @@ Schéma a RLS jde ověřit lokálně proti jednorázovému PostgreSQL
 supabase/tests/run-local.sh
 ```
 
+## Ingest klíče kamer
+
+Každá kamera se podepisuje vlastním klíčem. Klíč se nikde neukládá,
+odvozuje se z `INGEST_SECRET` a sériového čísla; v databázi je jen jeho
+SHA-256 otisk, aby server poznal, že kamera už nejede na společném
+tajemství.
+
+```bash
+npm run kamera-klic CAM-VV-01        # vypíše klíč a SQL s otiskem
+npm run kamera-klic CAM-VV-01 2      # rotace jedné kamery
+```
+
+Klíč se nastaví v kameře, vypsané SQL se pustí v SQL Editoru. Dokud
+kamera otisk nemá, podepisuje se společným `INGEST_SECRET` a server to
+při každé detekci zaloguje — podle toho se pozná, na které kamery se
+zapomnělo.
+
 ## Plánování hlídek
 
 `GET /api/cron/patrols` projde zapnuté hlídky a pro ty, které mají
