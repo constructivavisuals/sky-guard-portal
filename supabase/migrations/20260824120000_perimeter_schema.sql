@@ -280,7 +280,21 @@ CREATE TABLE IF NOT EXISTS flights (
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_flights_fh_task_id ON flights(fh_task_id);
+-- Sloupec fh_task_id zrušila migrace 20260826180000. CREATE TABLE IF
+-- NOT EXISTS ho do existující tabulky nevrátí, ale samotný CREATE INDEX
+-- by na jeho nepřítomnosti spadl — a tím by se celé znovuspuštění téhle
+-- migrace zastavilo dřív, než dojde na definice funkcí. Idempotence
+-- tady není kosmetika: na ní stojí to, že se soubor smí pustit znovu.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'flights'
+       AND column_name = 'fh_task_id'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_flights_fh_task_id ON flights(fh_task_id);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_flights_dispatch ON flights(dispatch_id);
 CREATE INDEX IF NOT EXISTS idx_flights_status ON flights(status);
 CREATE INDEX IF NOT EXISTS idx_flights_started ON flights(started_at DESC);
@@ -440,9 +454,17 @@ $$;
 -- Parametr p_site_id je tu schválně — až přibude tabulka grantů
 -- (přístup klienta jen na svou lokalitu), mění se jen tělo téhle
 -- funkce, ne jednotlivé politiky.
+--
+-- Tělo je ZÁMĚRNĚ nejpřísnější možné: vidí jen admin. Rozšiřuje ho až
+-- migrace 20260824180000 o granty. Kdyby tady zůstalo „vidí každý, kdo
+-- má profil“, stačilo by tenhle soubor jednou pustit znovu — kvůli
+-- opravě, kvůli `supabase db push` — a každý klient by tiše viděl
+-- všechny lokality. Migrace se pouštějí ručně, takže tenhle omyl je na
+-- dosah; při tomhle pořadí je nejhorší možný následek opačný, totiž že
+-- klient dočasně nevidí nic.
 CREATE OR REPLACE FUNCTION site_is_visible(p_site_id UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT p_site_id IS NOT NULL AND current_role_of_user() IS NOT NULL;
+  SELECT p_site_id IS NOT NULL AND is_admin();
 $$;
 
 -- Právo měnit konfiguraci lokality.

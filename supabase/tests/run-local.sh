@@ -72,6 +72,19 @@ run_test_file camera_location.sql
 echo "== kontrola seedu Vysoké Veselí =="
 run_test_file seed_vysoke_veseli.sql
 
+# Regrese na past z auditu (4A): základní migrace definuje
+# site_is_visible() a pozdější ji rozšiřuje o granty. Když se ta
+# základní pustí znovu, nesmí to izolaci klientů rozvolnit.
+echo "== znovuspuštění základní migrace nesmí rozvolnit izolaci =="
+# Bez -q, ať je případná chyba vidět: kdyby migrace spadla dřív, než
+# dojde na definice funkcí, test by prošel, aniž by cokoli ověřil.
+$DB -f "$REPO/supabase/migrations/20260824120000_perimeter_schema.sql" >/dev/null
+run_test_file rls_deny_by_default.sql
+
+echo "== a po znovuspuštění té pozdější se přístup vrátí =="
+$DB -f "$REPO/supabase/migrations/20260824180000_site_grants.sql" >/dev/null
+run_test_file rls_site_grants.sql
+
 echo "== shoda site_is_armed() v SQL a isSiteArmed() v TypeScriptu =="
 # Ostrý režim počítají dvě nezávislé implementace: databáze při
 # potlačování výjezdů, portál při vykreslování odznaku. Když se
