@@ -3,9 +3,17 @@ import {
   type DetectionObjectClass,
   type Json,
 } from "../../types/database.ts";
+import { DEFAULT_TOLERANCE_SECONDS } from "./signature.ts";
 
 // Validace těla ingest požadavku. Zvlášť od podpisu, protože se testuje
 // jinak a chybové kódy míří na jiné HTTP stavy (400 vs. 401).
+//
+// detected_at je HLÁŠENÝ údaj, ne zdroj pravdy. O ostrém režimu i o tom,
+// jestli zásah odejde, rozhoduje čas přijetí na serveru — jinak by stačilo
+// poslat detekci s časem mimo hlídané okno a zásah by se sám potlačil.
+// Tady se hlášený čas jen omezí na stejnou toleranci, jakou má podpis:
+// co je mimo, je buď rozjetá kamera, nebo pokus o podvod, a obojí má
+// skončit odmítnutím, ne tichým přepsáním na teď.
 
 export interface DetectionPayload {
   cameraSerial: string;
@@ -25,7 +33,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
-export function parseDetectionPayload(body: unknown): PayloadResult {
+export function parseDetectionPayload(
+  body: unknown,
+  now: Date = new Date(),
+): PayloadResult {
   const errors: string[] = [];
 
   if (!isPlainObject(body)) {
@@ -40,7 +51,7 @@ export function parseDetectionPayload(body: unknown): PayloadResult {
   }
 
   // detected_at je čas z kamery; chybí-li, bereme čas přijetí.
-  let detectedAt = new Date();
+  let detectedAt = now;
   if (body.detected_at !== undefined && body.detected_at !== null) {
     if (typeof body.detected_at !== "string") {
       errors.push("detected_at musí být ISO 8601 řetězec");
@@ -48,6 +59,14 @@ export function parseDetectionPayload(body: unknown): PayloadResult {
       const parsed = new Date(body.detected_at);
       if (Number.isNaN(parsed.getTime())) {
         errors.push("detected_at není platný ISO 8601 čas");
+      } else if (
+        Math.abs(now.getTime() - parsed.getTime()) >
+        DEFAULT_TOLERANCE_SECONDS * 1_000
+      ) {
+        // Platí i do budoucna: hodiny kamery můžou být napřed.
+        errors.push(
+          `detected_at se od času serveru liší o víc než ${DEFAULT_TOLERANCE_SECONDS} s`,
+        );
       } else {
         detectedAt = parsed;
       }

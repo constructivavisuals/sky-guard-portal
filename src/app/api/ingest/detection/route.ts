@@ -42,6 +42,11 @@ function jsonError(status: number, error: string, detail?: unknown) {
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
+  // Jeden čas pro celý požadavek: podle něj se ověřuje stáří podpisu,
+  // omezuje hlášený detected_at i vyhodnocuje ostrý režim. Kdyby si ho
+  // každý krok bral zvlášť, mohly by se na hranici okna rozejít.
+  const receivedAt = new Date();
+
   // Raw tělo je potřeba přesně tak, jak dorazilo — přeparsovaný JSON
   // by dal jiné bajty a podpis by nesedl.
   const rawBody = await request.text();
@@ -60,6 +65,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     signature: request.headers.get("x-signature"),
     timestamp: request.headers.get("x-timestamp"),
     secret,
+    now: receivedAt,
   });
 
   if (!signature.valid) {
@@ -75,7 +81,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(400, "invalid_json");
   }
 
-  const parsed = parseDetectionPayload(body);
+  const parsed = parseDetectionPayload(body, receivedAt);
   if (!parsed.ok) {
     return jsonError(400, "invalid_payload", parsed.errors);
   }
@@ -140,6 +146,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     siteWorkflowUuid: camera.sites.fh_workflow_uuid,
     objectClass: payload.objectClass,
     detectedAt: payload.detectedAt,
+    receivedAt,
   };
 
   after(async () => {

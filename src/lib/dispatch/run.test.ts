@@ -23,6 +23,7 @@ function context(overrides: Partial<DispatchContext> = {}): DispatchContext {
     siteWorkflowUuid: "wf-uuid",
     objectClass: "person",
     detectedAt: new Date("2026-08-24T22:00:00Z"),
+    receivedAt: new Date("2026-08-24T22:00:00Z"),
     ...overrides,
   };
 }

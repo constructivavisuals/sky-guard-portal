@@ -35,7 +35,14 @@ export interface DispatchContext {
   siteCooldownSeconds: number;
   siteWorkflowUuid: string | null;
   objectClass: DetectionObjectClass;
+  /** Čas hlášený kamerou. Ukládá se, ale nic se podle něj nerozhoduje. */
   detectedAt: Date;
+  /**
+   * Kdy detekce dorazila na server. Podle tohohle času se vyhodnocuje
+   * ostrý režim — detected_at si určuje odesílatel a šlo by jím zásah
+   * potlačit tvrzením, že se to stalo mimo hlídané okno.
+   */
+  receivedAt: Date;
 }
 
 /** Kontext poté, co je jisté, že kamera má zónu. */
@@ -129,7 +136,8 @@ async function lastSentDispatchAt(
 async function isSiteArmedInDb(context: ResolvedDispatchContext): Promise<boolean> {
   const { data, error } = await supabaseAdmin().rpc("site_is_armed", {
     p_site_id: context.siteId,
-    p_at: context.detectedAt.toISOString(),
+    // Čas přijetí, ne hlášený čas z těla požadavku.
+    p_at: context.receivedAt.toISOString(),
   });
 
   // Když se stav nedá zjistit, zásah neposíláme — planý let stojí víc
