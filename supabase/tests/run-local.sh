@@ -126,4 +126,32 @@ for SITE in aa01 aa02; do
     FAILED=1
   fi
 done
+echo "== shoda plate_normalize() v SQL a normalizePlate() v TypeScriptu =="
+# Značku normalizují taky dvě implementace: databáze v unikátním
+# a funkčním indexu, portál při párování se seznamem. Když se rozejdou,
+# tiše přestane fungovat párování — nežádoucí auto projde jako neznámé
+# a známé jako nepřečtené.
+#
+# V constructiva-portal byla tatáž úprava opsaná na čtyřech místech
+# a netestovaná vůbec; proto je tenhle krok tady.
+PLATES='1AB 2345|1ab2345|1AB-2345|1.a.b/2345|   |---|ČAU 123|1AB 2345 🚚|AA00BB11|a|9zz-0000'
+
+SQL_OUT=$(
+  $DB -t -A -F '|' -c "
+    SELECT string_agg(plate_normalize(p), '|' ORDER BY ord)
+      FROM unnest(string_to_array(\$\$$PLATES\$\$, '|')) WITH ORDINALITY AS x(p, ord);"
+)
+TS_OUT=$(cd "$REPO" && node --input-type=module -e "
+  const {normalizePlate} = await import('$REPO/src/lib/plates.ts');
+  console.log('$PLATES'.split('|').map(normalizePlate).join('|'));
+" 2>/dev/null | tail -1)
+
+if [ "$SQL_OUT" = "$TS_OUT" ]; then
+  echo "ok    značky — SQL i TS: $SQL_OUT"
+else
+  echo "FAIL  značky — SQL: $SQL_OUT"
+  echo "                TS:  $TS_OUT"
+  FAILED=1
+fi
+
 [ "$FAILED" -eq 0 ] && echo "VŠECHNY TESTY PROŠLY" || exit 1
