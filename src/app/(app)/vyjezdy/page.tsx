@@ -8,7 +8,7 @@ import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatDateTime, orDash } from "@/lib/format.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
-import { isAdmin } from "@/lib/profile.ts";
+import { isOperator } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import type { DispatchOutcome, Json } from "@/types/database.ts";
@@ -35,11 +35,14 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
     getSiteSelection(),
     getCurrentProfile(),
   ]);
-  // Ladicí údaje z FlightHubu klienta nezajímají a jen zaplevelují
-  // tabulku. Není to bezpečnostní hranice — stránka se vykresluje na
-  // serveru, takže se skrytá data do prohlížeče nedostanou, ale kdyby
-  // se dostala, pořád platí, že jediná záruka je RLS.
-  const showDiagnostics = isAdmin(profile);
+  // Ladicí údaje z FlightHubu vidí operátor i admin — operátor spouští
+  // ruční výjezdy, takže potřebuje dohledat incident ve FlightHubu.
+  // Klienta jen zaplevelují tabulku.
+  //
+  // Není to bezpečnostní hranice: stránka se vykresluje na serveru, takže
+  // se skrytá data do prohlížeče nedostanou, ale i kdyby se dostala,
+  // jedinou zárukou zůstává RLS.
+  const showDiagnostics = isOperator(profile);
   const columnCount = showDiagnostics ? 7 : 5;
 
   let rows: DispatchRow[] = [];
