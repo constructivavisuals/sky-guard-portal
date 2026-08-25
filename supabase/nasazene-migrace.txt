@@ -16,3 +16,5 @@
 20260827180000_flights_site.sql
 20260828120000_site_map.sql
 20260828180000_camera_location.sql
+20260829120000_camera_ingest_key.sql
+20260829180000_function_grants.sql

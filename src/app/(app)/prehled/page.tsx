@@ -277,6 +277,8 @@ export default async function Page() {
   // Čas do přepnutí se dopočítává v TypeScriptu — SQL na to funkci
   // nemá. Obě implementace pravidla se shodují, což hlídá paritní test
   // v supabase/tests/run-local.sh.
+  const hasMap = Boolean(map?.imageUrl);
+
   const transition = nextArmedTransition(site, now, { currentlyArmed: armed });
   const until = transition ? formatUntil(transition.at, now) : null;
 
@@ -299,37 +301,52 @@ export default async function Page() {
     <>
       <PageHeader title="Přehled" description={site.name} />
 
-      <div className="space-y-6">
-        <StatusBar
-          site={site}
-          armed={armed}
-          until={until}
-          becomes={transition?.becomes ?? null}
-          dock={dock}
-          dockError={dockError}
-          dockAgeMs={dockAgeMs}
-          lastPatrolFlightAt={lastPatrolFlightAt}
-        />
+      {/* Dva sloupce až od lg. Bez podkladu by pravý sloupec zůstal
+          prázdný, tak se mřížka v tom případě vůbec nezakládá.
+          min-w-0: položky mřížky mají výchozí min-width auto, takže by
+          je široký obsah roztáhl nad šířku sloupce. */}
+      <div
+        className={
+          hasMap
+            ? "grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+            : ""
+        }
+      >
+        <div className="min-w-0 space-y-6">
+          <StatusBar
+            site={site}
+            armed={armed}
+            until={until}
+            becomes={transition?.becomes ?? null}
+            dock={dock}
+            dockError={dockError}
+            dockAgeMs={dockAgeMs}
+            lastPatrolFlightAt={lastPatrolFlightAt}
+          />
 
-        {warnings.length > 0 ? <Warnings items={warnings} /> : null}
+          {warnings.length > 0 ? <Warnings items={warnings} /> : null}
 
-        {map?.imageUrl ? (
-          <Card className="p-5">
-            <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
-              Areál
-            </h2>
-            <AreaMap
-              imageUrl={map.imageUrl}
-              bounds={map.bounds}
-              points={map.points}
-              siteName={site.name}
-            />
-          </Card>
+          <Numbers counts={counts} />
+
+          <Timeline events={events} timeZone={site.timezone} />
+        </div>
+
+        {hasMap && map ? (
+          // Timeline vlevo může být dlouhá; mapa při rolování zůstane.
+          <div className="min-w-0 lg:sticky lg:top-6">
+            <Card className="p-4">
+              <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
+                Areál
+              </h2>
+              <AreaMap
+                imageUrl={map.imageUrl}
+                bounds={map.bounds}
+                points={map.points}
+                siteName={site.name}
+              />
+            </Card>
+          </div>
         ) : null}
-
-        <Numbers counts={counts} />
-
-        <Timeline events={events} timeZone={site.timezone} />
       </div>
     </>
   );
