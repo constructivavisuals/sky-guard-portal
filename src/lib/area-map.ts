@@ -5,10 +5,15 @@
 // (object-fit: fill), ne oříznutý — při cover by se body rozešly
 // s tím, co je pod nimi vidět.
 //
-// Lineární projekce ve stupních není kartograficky přesná: stupeň
-// délky je v naší šířce kratší než stupeň šířky. Na ploše dvou set
-// metrů je ta odchylka zanedbatelná a výhoda je, že podklad může být
-// jakýkoli obrázek, ne dlaždice z mapového serveru.
+// Projekce zůstává lineární ve stupních — na ploše dvou set metrů je
+// odchylka od skutečné mapové projekce zanedbatelná a výhoda je, že
+// podklad může být jakýkoli obrázek, ne dlaždice z mapového serveru.
+//
+// Poměr stran rámečku se ale počítá v metrech, ne ve stupních. Stupeň
+// délky je na 50° s. š. jen ~0,64 stupně šířky, takže výřez široký
+// 1,798 stupňového poměru je ve skutečnosti 1,15 metrového. Fotka
+// zachycuje metry, takže rámeček musí být metrový — jinak by se
+// obrázek roztažením deformoval.
 
 export interface MapBounds {
   nwLat: number;
@@ -36,13 +41,21 @@ export function boundsAreUsable(bounds: MapBounds | null): bounds is MapBounds {
 }
 
 /**
- * Poměr stran výřezu ve stupních.
+ * Poměr stran výřezu v metrech.
  *
- * Schválně ve stupních, ne v metrech: rámeček se tím zarovná se stejnou
- * soustavou, ve které se počítají pozice bodů.
+ * Rozsah zeměpisné délky se přepočítá kosinem průměrné šířky rohů —
+ * poledníky se k pólům sbíhají, takže stupeň délky je kratší než
+ * stupeň šířky. Bez toho by rámeček vycházel příliš široký a fotka
+ * by se do něj vodorovně protáhla.
+ *
+ * Pro projekci bodů se tenhle přepočet nedělá: obě osy se škálují
+ * stejnou konstantou, takže se poměry uvnitř výřezu nemění.
  */
 export function boundsAspectRatio(bounds: MapBounds): number {
-  return Math.abs(bounds.seLon - bounds.nwLon) / Math.abs(bounds.nwLat - bounds.seLat);
+  const latSpan = Math.abs(bounds.nwLat - bounds.seLat);
+  const lonSpan = Math.abs(bounds.seLon - bounds.nwLon);
+  const meanLatRad = (((bounds.nwLat + bounds.seLat) / 2) * Math.PI) / 180;
+  return (lonSpan * Math.cos(meanLatRad)) / latSpan;
 }
 
 /**

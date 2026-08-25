@@ -77,14 +77,37 @@ describe("projectPoint — body mimo výřez", () => {
 });
 
 describe("boundsAspectRatio", () => {
-  it("Vysoké Veselí má výřez zhruba 1,80", () => {
-    assert.ok(Math.abs(boundsAspectRatio(VESELI) - 1.798) < 0.01);
+  it("Vysoké Veselí má výřez zhruba 1,15 — v metrech, ne ve stupních", () => {
+    // 223 × 194 m. Poměr ve stupních je 1,798; kdyby se použil ten,
+    // fotka by se do rámečku vodorovně protáhla.
+    assert.ok(Math.abs(boundsAspectRatio(VESELI) - 1.15) < 0.01);
   });
 
-  it("čtvercový výřez dá 1", () => {
+  it("stejný výřez je na rovníku širší než u pólu", () => {
+    const span = { nwLon: 0, seLon: 0.01 };
+    const rovnik = boundsAspectRatio({ ...span, nwLat: 0.001, seLat: 0 });
+    const sever = boundsAspectRatio({ ...span, nwLat: 60.001, seLat: 60 });
+    assert.ok(rovnik > sever);
+    // Na 60° s. š. je stupeň délky přesně poloviční.
+    assert.ok(Math.abs(sever / rovnik - 0.5) < 0.001);
+  });
+
+  it("na rovníku se poměr rovná poměru ve stupních", () => {
+    assert.ok(
+      Math.abs(boundsAspectRatio({ nwLat: 0, nwLon: 0, seLat: -1, seLon: 1 }) - 1) <
+        1e-4,
+    );
+  });
+
+  it("nezáleží na pořadí rohů", () => {
     assert.equal(
-      boundsAspectRatio({ nwLat: 1, nwLon: 0, seLat: 0, seLon: 1 }),
-      1,
+      boundsAspectRatio(VESELI),
+      boundsAspectRatio({
+        nwLat: VESELI.seLat,
+        nwLon: VESELI.seLon,
+        seLat: VESELI.nwLat,
+        seLon: VESELI.nwLon,
+      }),
     );
   });
 });
