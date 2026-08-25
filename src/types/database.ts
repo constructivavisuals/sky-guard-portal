@@ -46,6 +46,34 @@ export const FLIGHT_STATUSES = [
 ] as const;
 export type FlightStatus = (typeof FLIGHT_STATUSES)[number];
 
+/**
+ * Srážky hlásí dok kódem, ne mírou. Potvrzené je "no_rain", ostatní
+ * hodnoty jsou z dokumentace DJI a v provozu ověřené nejsou — proto
+ * formatRainfall() nezná-li kód, vypíše ho tak, jak přišel.
+ */
+export const RAINFALL_LEVELS = [
+  "no_rain",
+  "light_rain",
+  "moderate_rain",
+  "heavy_rain",
+] as const;
+export type RainfallLevel = (typeof RAINFALL_LEVELS)[number];
+
+export const RAINFALL_LABELS: Record<RainfallLevel, string> = {
+  no_rain: "Beze srážek",
+  light_rain: "Slabý déšť",
+  moderate_rain: "Déšť",
+  heavy_rain: "Silný déšť",
+};
+
+/** Podmínky odečtené z doku při plánování letu. */
+export type FlightConditions = {
+  wind_speed: number | null;
+  rainfall: string | null;
+  environment_temperature: number | null;
+  measured_at: string;
+};
+
 export const FLIGHT_KINDS = ["patrol", "dispatch"] as const;
 export type FlightKind = (typeof FLIGHT_KINDS)[number];
 
@@ -308,7 +336,7 @@ export type Flight = {
    * environment_temperature. Migrace 20260827120000. Null u letů, které
    * nevznikly z hlídky, a když dok hodnoty nehlásil.
    */
-  conditions: Json | null;
+  conditions: FlightConditions | null;
   created_at: string;
   updated_at: string;
 };

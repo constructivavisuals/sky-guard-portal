@@ -4,8 +4,12 @@ import { describe, it } from "node:test";
 import {
   formatArmedDays,
   formatArmedWindow,
+  formatConditions,
   formatConfidence,
   formatDateTime,
+  formatRainfall,
+  formatTemperature,
+  formatWindSpeed,
   formatFocalLength,
   formatTimeOfDay,
   orDash,
@@ -112,5 +116,88 @@ describe("plural", () => {
 
   it("nula bere tvar pro pět a víc", () => {
     assert.equal(zone(0), "0 zón");
+  });
+});
+
+describe("formatRainfall", () => {
+  it("známé kódy jsou česky", () => {
+    assert.equal(formatRainfall("no_rain"), "Beze srážek");
+    assert.equal(formatRainfall("light_rain"), "Slabý déšť");
+    assert.equal(formatRainfall("moderate_rain"), "Déšť");
+    assert.equal(formatRainfall("heavy_rain"), "Silný déšť");
+  });
+
+  it("neznámý kód se vypíše, ne zahodí", () => {
+    // Ať jde z obrazovky poznat, co dok posílá, a překlad doplnit.
+    assert.equal(formatRainfall("torrential_rain"), "torrential_rain");
+  });
+
+  it("chybějící hodnota je pomlčka", () => {
+    assert.equal(formatRainfall(null), "—");
+    assert.equal(formatRainfall(""), "—");
+    assert.equal(formatRainfall(undefined), "—");
+  });
+});
+
+describe("formatWindSpeed a formatTemperature", () => {
+  it("jednotky a desetinná čárka", () => {
+    assert.equal(formatWindSpeed(3.4), "3,4 m/s");
+    assert.equal(formatTemperature(21.5), "21,5 °C");
+  });
+
+  it("nula je platná hodnota, ne chybějící", () => {
+    assert.equal(formatWindSpeed(0), "0 m/s");
+    assert.equal(formatTemperature(0), "0 °C");
+  });
+
+  it("záporná teplota projde", () => {
+    assert.equal(formatTemperature(-4.5), "-4,5 °C");
+  });
+
+  it("null je pomlčka", () => {
+    assert.equal(formatWindSpeed(null), "—");
+    assert.equal(formatTemperature(null), "—");
+  });
+});
+
+describe("formatConditions", () => {
+  it("skládá vše do jednoho řádku", () => {
+    assert.equal(
+      formatConditions({
+        wind_speed: 3.4,
+        rainfall: "no_rain",
+        environment_temperature: 21.5,
+        measured_at: "2026-08-25T13:16:13.547Z",
+      }),
+      "3,4 m/s · Beze srážek · 21,5 °C",
+    );
+  });
+
+  it("chybějící údaje vynechá, ne vypíše jako pomlčky", () => {
+    assert.equal(
+      formatConditions({
+        wind_speed: null,
+        rainfall: "light_rain",
+        environment_temperature: null,
+        measured_at: "2026-08-25T13:16:13.547Z",
+      }),
+      "Slabý déšť",
+    );
+  });
+
+  it("bez podmínek je pomlčka", () => {
+    assert.equal(formatConditions(null), "—");
+  });
+
+  it("prázdný odečet nevrátí oddělovače bez hodnot", () => {
+    assert.equal(
+      formatConditions({
+        wind_speed: null,
+        rainfall: null,
+        environment_temperature: null,
+        measured_at: "2026-08-25T13:16:13.547Z",
+      }),
+      "—",
+    );
   });
 });

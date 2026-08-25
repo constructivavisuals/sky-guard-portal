@@ -1,4 +1,9 @@
-import type { IsoWeekday } from "../types/database.ts";
+import {
+  RAINFALL_LABELS,
+  type FlightConditions,
+  type IsoWeekday,
+  type RainfallLevel,
+} from "../types/database.ts";
 
 // Formátování hodnot pro UI. Čisté funkce bez závislosti na Reactu,
 // aby se daly testovat i použít na serveru i na klientovi.
@@ -114,4 +119,38 @@ export function plural(
   if (n === 1) return `${count} ${one}`;
   if (n >= 2 && n <= 4) return `${count} ${few}`;
   return `${count} ${many}`;
+}
+
+/**
+ * Srážky česky. Neznámý kód se vypíše tak, jak přišel — je to lepší
+ * než pomlčka, protože z logu pak jde doplnit překlad.
+ */
+export function formatRainfall(value: string | null | undefined): string {
+  if (!value) return "—";
+  return RAINFALL_LABELS[value as RainfallLevel] ?? value;
+}
+
+/** Rychlost větru z doku. */
+export function formatWindSpeed(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 1 }).format(value)} m/s`;
+}
+
+/** Teplota z doku. */
+export function formatTemperature(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 1 }).format(value)} °C`;
+}
+
+/** Podmínky letu jedním řádkem, prázdné údaje se vynechají. */
+export function formatConditions(
+  conditions: FlightConditions | null | undefined,
+): string {
+  if (!conditions) return "—";
+  const parts = [
+    formatWindSpeed(conditions.wind_speed),
+    formatRainfall(conditions.rainfall),
+    formatTemperature(conditions.environment_temperature),
+  ].filter((part) => part !== "—");
+  return parts.length > 0 ? parts.join(" · ") : "—";
 }

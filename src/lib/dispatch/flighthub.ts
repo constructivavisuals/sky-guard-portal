@@ -1,5 +1,9 @@
 import { flightHubConfig, type FlightHubConfig } from "../env.ts";
-import type { DispatchLevel, Json } from "../../types/database.ts";
+import type {
+  DispatchLevel,
+  FlightConditions,
+  Json,
+} from "../../types/database.ts";
 
 // Klient pro spuštění workflow v DJI FlightHub 2.
 // Token ani projekt se nikam nelogují — do dispatches.response jde
@@ -344,7 +348,7 @@ export interface DockState {
   /** Kolik souborů čeká na odeslání z doku. */
   remainUpload: number | null;
   /** Odečet počasí z doku; ukládá se k letu. */
-  conditions: Json | null;
+  conditions: FlightConditions | null;
 }
 
 export type DockStateResult =
@@ -419,18 +423,22 @@ export async function getDockState(dockSn: string): Promise<DockStateResult> {
     total !== null && used !== null && total > 0 ? (used / total) * 100 : null;
 
   const wind = numberOrNull(deviceState.wind_speed);
-  const rain = numberOrNull(deviceState.rainfall);
+  // rainfall je kód, ne číslo: dok vrací "no_rain" a podobné.
+  const rain =
+    typeof deviceState.rainfall === "string" && deviceState.rainfall
+      ? deviceState.rainfall
+      : null;
   const temperature = numberOrNull(deviceState.environment_temperature);
   const conditions =
     wind === null && rain === null && temperature === null
       ? null
-      : ({
+      : {
           wind_speed: wind,
           rainfall: rain,
           environment_temperature: temperature,
           // Odečet je z okamžiku plánování, ne ze startu letu.
           measured_at: new Date().toISOString(),
-        } as Json);
+        };
 
   return {
     ok: true,
