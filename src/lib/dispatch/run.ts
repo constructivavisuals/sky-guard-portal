@@ -252,7 +252,16 @@ export async function runDispatch(
   deps: DispatchDeps = databaseDeps,
 ): Promise<DispatchRunResult> {
   // Bez zóny není kam letět a schéma dispatches ani zónu nepovoluje NULL.
+  //
+  // Loguje se, protože jinak je tenhle stav nerozeznatelný od klidné
+  // noci: detekce se zapíše, v dispatches nezůstane nic a nikdo se
+  // nedozví, že kamera hlídá naprázdno. Přehled na to navíc upozorňuje
+  // varováním „kamery bez zóny“.
   if (!context.zoneId) {
+    console.warn("Detekce bez zóny — zásah nevznikne", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+    });
     return { status: "skipped", reason: "camera_without_zone" };
   }
 

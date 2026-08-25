@@ -65,6 +65,36 @@ export function dockWarnings(state: DockState): Warning[] {
 }
 
 /**
+ * Kamery, které nemají zónu.
+ *
+ * Nejde o kosmetiku: kamera bez zóny detekuje, ale zásah z ní nikdy
+ * nevznikne — runDispatch() ji odloží dřív, než se cokoli rozhodne,
+ * a v dispatches po ní nezůstane řádek. Bez tohohle varování se ten
+ * stav nedá odlišit od noci, kdy prostě nikdo nešel kolem.
+ */
+export function cameraWarnings(cameras: {
+  total: number;
+  withoutZone: number;
+}): Warning[] {
+  if (cameras.withoutZone <= 0) return [];
+
+  const all = cameras.withoutZone === cameras.total && cameras.total > 0;
+  const count =
+    cameras.withoutZone === 1
+      ? "Jedna kamera nemá"
+      : `${cameras.withoutZone} kamer nemá`;
+
+  return [
+    {
+      key: "cameras_without_zone",
+      text: all
+        ? `${count} přiřazenou zónu — na téhle lokalitě proto nevznikne žádný zásah, i když kamery detekují.`
+        : `${count} přiřazenou zónu, takže z ní zásah nevznikne.`,
+    },
+  ];
+}
+
+/**
  * Hlídka, která nelétá.
  *
  * Práh je dvojnásobek intervalu — jedno vynechání může být plné

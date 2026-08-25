@@ -17,6 +17,7 @@ import { AreaMap } from "@/components/area-map.tsx";
 import { DispatchOutcomeShortBadge, ObjectClassBadge } from "@/components/badges.tsx";
 import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
 import {
+  cameraWarnings,
   dockWarnings,
   formatUntil,
   patrolWarnings,
@@ -118,6 +119,7 @@ export default async function Page() {
   const patrolLastByid = new Map<string, Date>();
   let armed = false;
   let counts = { detections: 0, dispatches: 0, suppressed: 0, flights: 0 };
+  let cameras = { total: 0, withoutZone: 0 };
   let events: EventRow[] = [];
   let map: AreaMapData | null = null;
   let failed = false;
@@ -147,7 +149,7 @@ export default async function Page() {
       });
       armed = armedNow === true;
 
-      const [detections, dispatches, suppressed, flights, patrolRows, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, camerasTotal, camerasWithoutZone, patrolFlights, lastDetections, lastDispatches] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -161,6 +163,12 @@ export default async function Page() {
           supabase.from("patrols").select("id, name, interval_minutes, created_at")
             .eq("site_id", site.id).eq("enabled", true)
             .returns<PatrolRow[]>(),
+          supabase.from("cameras").select("id", { count: "exact", head: true })
+            .eq("site_id", site.id).neq("status", "decommissioned"),
+          // Kamera bez zóny detekuje, ale zásah z ní nevznikne.
+          supabase.from("cameras").select("id", { count: "exact", head: true })
+            .eq("site_id", site.id).neq("status", "decommissioned")
+            .is("zone_id", null),
           // Poslední lety hlídek: jedním dotazem, nejnovější první.
           // Z nich se v paměti vybere poslední let ke každé hlídce.
           supabase.from("flights").select("patrol_id, started_at")
@@ -187,6 +195,10 @@ export default async function Page() {
         flights: flights.count ?? 0,
       };
       patrols = patrolRows.data ?? [];
+      cameras = {
+        total: camerasTotal.count ?? 0,
+        withoutZone: camerasWithoutZone.count ?? 0,
+      };
 
       for (const flight of patrolFlights.data ?? []) {
         if (!flight.patrol_id) continue;
@@ -276,6 +288,9 @@ export default async function Page() {
   }));
 
   const warnings: Warning[] = [
+    // Kamery bez zóny první — je to tichý výpadek celé lokality,
+    // ne provozní drobnost jako plné úložiště.
+    ...cameraWarnings(cameras),
     ...(dock ? dockWarnings(dock) : []),
     ...patrolWarnings(health, now),
   ];

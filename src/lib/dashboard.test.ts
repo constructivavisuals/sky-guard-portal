@@ -1,7 +1,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { dockWarnings, formatUntil, patrolWarnings } from "./dashboard.ts";
+import {
+  cameraWarnings,
+  dockWarnings,
+  formatUntil,
+  patrolWarnings,
+} from "./dashboard.ts";
 import type { DockState } from "./dispatch/flighthub.ts";
 
 const ZDRAVY: DockState = {
@@ -188,5 +193,31 @@ describe("patrolWarnings — vadná data", () => {
       now,
     );
     assert.deepEqual(w, []);
+  });
+});
+
+describe("cameraWarnings", () => {
+  it("mlčí, když mají všechny kamery zónu", () => {
+    assert.deepEqual(cameraWarnings({ total: 5, withoutZone: 0 }), []);
+  });
+
+  it("mlčí i bez kamer", () => {
+    assert.deepEqual(cameraWarnings({ total: 0, withoutZone: 0 }), []);
+  });
+
+  it("část kamer bez zóny", () => {
+    const [warning] = cameraWarnings({ total: 5, withoutZone: 2 });
+    assert.match(warning.text, /2 kamer nemá/);
+    assert.ok(!warning.text.includes("žádný zásah"));
+  });
+
+  it("jedna kamera se skloňuje", () => {
+    const [warning] = cameraWarnings({ total: 5, withoutZone: 1 });
+    assert.match(warning.text, /^Jedna kamera nemá/);
+  });
+
+  it("když je bez zóny úplně všechno, řekne to natvrdo", () => {
+    const [warning] = cameraWarnings({ total: 5, withoutZone: 5 });
+    assert.match(warning.text, /nevznikne žádný zásah/);
   });
 });
