@@ -23,6 +23,9 @@ export const CAMERA_STATUSES = [
 ] as const;
 export type CameraStatus = (typeof CAMERA_STATUSES)[number];
 
+export const DETECTION_SOURCES = ["camera", "drone"] as const;
+export type DetectionSource = (typeof DETECTION_SOURCES)[number];
+
 export const DETECTION_OBJECT_CLASSES = ["person", "vehicle", "unknown"] as const;
 export type DetectionObjectClass = (typeof DETECTION_OBJECT_CLASSES)[number];
 
@@ -59,6 +62,11 @@ export const CAMERA_STATUS_LABELS: Record<CameraStatus, string> = {
   offline: "Offline",
   maintenance: "Údržba",
   decommissioned: "Vyřazena",
+};
+
+export const DETECTION_SOURCE_LABELS: Record<DetectionSource, string> = {
+  camera: "Kamera",
+  drone: "Dron",
 };
 
 export const DETECTION_OBJECT_CLASS_LABELS: Record<DetectionObjectClass, string> = {
@@ -174,10 +182,44 @@ export type Camera = {
   updated_at: string;
 };
 
+/**
+ * Podle čeho ingest rozhodl o zásahu. Migrace 20260825120000.
+ *
+ * Zapisuje se při vzniku zásahu; u záznamů z doby před tou migrací je
+ * null a UI si důvod rekonstruuje ze stejných pravidel — což u sebe
+ * musí přiznat, protože pravidla se od té doby mohla změnit.
+ */
+export type DecisionReason = {
+  object_class: DetectionObjectClass | null;
+  base_level: number;
+  level_sent: number;
+  escalated: boolean;
+  /** Proč se eskalovalo. null, když k eskalaci nedošlo. */
+  escalation: {
+    reason: "person_in_other_zone";
+    window_seconds: number;
+  } | null;
+  /** Byla lokalita v ostrém režimu podle site_is_armed(). */
+  armed: boolean;
+  /** Vypnutá zóna se chová jako mimo režim. */
+  zone_enabled: boolean;
+  cooldown_seconds: number;
+  /** null, když na lokalitě ještě žádný zásah neodešel. */
+  seconds_since_last_sent: number | null;
+  /** Kolik z cooldownu zbývalo. 0, když už uplynul. */
+  cooldown_remaining_seconds: number | null;
+  decided_at: string;
+};
+
 export type Detection = {
   id: string;
-  camera_id: string;
+  /** Odkud detekce je — od toho se odvíjí, co je vyplněné. */
+  source: DetectionSource;
+  /** null u dronové detekce. */
+  camera_id: string | null;
   zone_id: string | null;
+  /** Vyplněné u dronové detekce, jinak null. */
+  flight_id: string | null;
   detected_at: string;
   object_class: DetectionObjectClass;
   /** 0–1, NUMERIC(5,4). */
@@ -203,6 +245,8 @@ export type Dispatch = {
   /** Celá odpověď FlightHubu včetně chybového těla. */
   response: Json;
   outcome: DispatchOutcome;
+  /** Null u zásahů z doby před migrací 20260825120000. */
+  decision_reason: DecisionReason | null;
   created_at: string;
 };
 
@@ -263,7 +307,7 @@ export type ProfileInsert = Insertable<Profile, "id">;
 export type SiteInsert = Insertable<Site, "name">;
 export type ZoneInsert = Insertable<Zone, "site_id" | "name">;
 export type CameraInsert = Insertable<Camera, "site_id" | "name">;
-export type DetectionInsert = Insertable<Detection, "camera_id">;
+export type DetectionInsert = Insertable<Detection, "source">;
 export type DispatchInsert = Insertable<
   Dispatch,
   "site_id" | "zone_id" | "level_sent" | "outcome"
@@ -320,6 +364,7 @@ export type Database = {
       user_role: UserRole;
       camera_status: CameraStatus;
       detection_object_class: DetectionObjectClass;
+      detection_source: DetectionSource;
       dispatch_outcome: DispatchOutcome;
       flight_status: FlightStatus;
       media_kind: MediaKind;

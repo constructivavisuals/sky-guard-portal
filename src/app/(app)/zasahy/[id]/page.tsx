@@ -17,8 +17,10 @@ import { DispatchOutcomeBadge, LevelBadge, ObjectClassBadge } from "@/components
 import { Card, EmptyState, IconBadge, PageHeader } from "@/components/ui.tsx";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import {
+  conditionsFromReason,
   explainLevel,
   explainOutcome,
+  levelFromReason,
   mapUrl,
 } from "@/lib/dispatch/explain.ts";
 import {
@@ -32,6 +34,7 @@ import { parsePointEwkbHex } from "@/lib/geo.ts";
 import { isOperator } from "@/lib/profile.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import type {
+  DecisionReason,
   DetectionObjectClass,
   DispatchOutcome,
   IsoWeekday,
@@ -48,6 +51,7 @@ interface DispatchDetail {
   fh_incident_uuid: string | null;
   http_status: number | null;
   response: Json;
+  decision_reason: DecisionReason | null;
   sites: {
     name: string;
     timezone: string;
@@ -81,7 +85,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
     const { data, error } = await supabase
       .from("dispatches")
       .select(
-        "id, sent_at, level_sent, outcome, fh_incident_uuid, http_status, response, " +
+        "id, sent_at, level_sent, outcome, fh_incident_uuid, http_status, response, decision_reason, " +
           "sites(name, timezone, armed_from, armed_to, armed_days, cooldown_seconds), " +
           "zones(name, location), " +
           "detections!dispatches_triggered_by_detection_fkey(id, detected_at, object_class, confidence, cameras(name), zones(name))",
@@ -119,7 +123,14 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
   const timeZone = site?.timezone;
   const point = parsePointEwkbHex(zone?.location ?? null);
 
-  const level = explainLevel(detection?.object_class ?? null, dispatch.level_sent);
+  // Zapsaný důvod má přednost. Rekonstrukce ze současných pravidel je
+  // jen náhrada pro zásahy z doby před migrací 20260825120000 — a musí
+  // to u sebe říct, protože pravidla se od té doby mohla změnit.
+  const reason = dispatch.decision_reason;
+  const level = reason
+    ? levelFromReason(reason)
+    : explainLevel(detection?.object_class ?? null, dispatch.level_sent);
+  const conditions = reason ? conditionsFromReason(reason) : null;
   const outcome = explainOutcome(dispatch.outcome, {
     armedWindow: site ? formatArmedWindow(site.armed_from, site.armed_to) : undefined,
     armedDays: site ? formatArmedDays(site.armed_days) : undefined,
@@ -174,14 +185,29 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
             </span>
           </div>
           <p className="mt-2 text-sm text-[var(--text-muted)]">{level.text}</p>
+
+          {conditions ? (
+            <ul className="mt-3 space-y-1 text-sm text-[var(--text-muted)]">
+              {conditions.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+
           <p className="mt-3 text-sm font-medium">{outcome.title}</p>
           <p className="mt-1 text-sm text-[var(--text-muted)]">{outcome.text}</p>
-          {/* Databáze si důvod rozhodnutí neukládá — dopočítává se ze
-              stejných pravidel, podle kterých ingest rozhodoval. */}
-          <p className="mt-3 text-xs text-[var(--text-muted)]">
-            Odvozeno z nastavení lokality a třídy objektu; databáze si
-            samotné rozhodnutí neukládá.
-          </p>
+
+          {reason ? (
+            <p className="mt-3 text-xs text-[var(--text-muted)]">
+              Zaznamenáno při rozhodování {formatDateTime(reason.decided_at, timeZone)}.
+            </p>
+          ) : (
+            <p className="mt-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]">
+              Rekonstrukce. Tenhle zásah vznikl dřív, než se důvod začal
+              ukládat, takže je dopočítaný z dnešních pravidel — pokud se
+              mezitím změnila, nemusí odpovídat tomu, co se tehdy stalo.
+            </p>
+          )}
         </Step>
 
         {/* ── Odeslání ────────────────────────────────────────── */}

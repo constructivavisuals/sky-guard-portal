@@ -11,8 +11,12 @@ import type {
 /** Okno, ve kterém detekce osoby v jiné zóně eskaluje stupeň na maximum. */
 export const PERSON_ESCALATION_WINDOW_SECONDS = 60;
 
-/** Základní stupeň podle toho, co kamera viděla. */
-const BASE_LEVEL_BY_CLASS: Record<DetectionObjectClass, DispatchLevel> = {
+/**
+ * Základní stupeň podle toho, co kamera viděla. Vystavené, aby si
+ * stejné číslo mohl uložit i decision_reason — jinak by se údaj
+ * o rozhodnutí počítal jinde než rozhodnutí samotné.
+ */
+export const BASE_LEVEL_BY_CLASS: Record<DetectionObjectClass, DispatchLevel> = {
   person: 5,
   vehicle: 2,
   unknown: 1,

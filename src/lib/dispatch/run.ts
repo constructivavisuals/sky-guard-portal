@@ -3,11 +3,13 @@ import { supabaseAdmin } from "../supabase-admin.ts";
 import {
   DETECTION_OBJECT_CLASS_LABELS,
   type DetectionObjectClass,
+  type DecisionReason,
   type DispatchInsert,
   type DispatchOutcome,
 } from "../../types/database.ts";
 
 import {
+  BASE_LEVEL_BY_CLASS,
   PERSON_ESCALATION_WINDOW_SECONDS,
   decideDispatch,
   resolveDispatchLevel,
@@ -168,11 +170,41 @@ async function prepareDispatchRow(
     at: context.detectedAt,
   });
 
+  // Důvod se ukládá spolu se zásahem. Databáze si dřív pamatovala jen
+  // výsledek, takže detail zásahu musel rozhodnutí rekonstruovat — a po
+  // každé změně pravidel by staré zásahy vyprávěly novou verzi.
+  const elapsedSeconds = lastSentAt
+    ? (context.detectedAt.getTime() - lastSentAt.getTime()) / 1000
+    : null;
+
+  const reason: DecisionReason = {
+    object_class: context.objectClass,
+    base_level: BASE_LEVEL_BY_CLASS[context.objectClass],
+    level_sent: level,
+    escalated: recentPerson,
+    escalation: recentPerson
+      ? {
+          reason: "person_in_other_zone",
+          window_seconds: PERSON_ESCALATION_WINDOW_SECONDS,
+        }
+      : null,
+    armed,
+    zone_enabled: context.zoneEnabled,
+    cooldown_seconds: context.siteCooldownSeconds,
+    seconds_since_last_sent: elapsedSeconds === null ? null : Math.round(elapsedSeconds),
+    cooldown_remaining_seconds:
+      elapsedSeconds === null
+        ? null
+        : Math.max(0, Math.round(context.siteCooldownSeconds - elapsedSeconds)),
+    decided_at: new Date().toISOString(),
+  };
+
   const base = {
     site_id: context.siteId,
     zone_id: context.zoneId,
     triggered_by_detection: context.detectionId,
     level_sent: level,
+    decision_reason: reason,
   };
 
   if (!decision.send) {

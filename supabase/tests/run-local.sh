@@ -40,8 +40,14 @@ $DB -f "$REPO/supabase/migrations/20260824120000_perimeter_schema.sql" >/dev/nul
 echo "== migrace 2: site_grants =="
 $DB -f "$REPO/supabase/migrations/20260824180000_site_grants.sql" >/dev/null
 
+echo "== migrace 3: decision_reason a dronové detekce =="
+$DB -f "$REPO/supabase/migrations/20260825120000_decision_reason_and_drone_detections.sql" >/dev/null
+
 echo "== RLS testy =="
 $DB -f "$REPO/supabase/tests/rls_site_grants.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR|CHYBA' || true
+
+echo "== testy dronových detekcí a decision_reason =="
+$DB -f "$REPO/supabase/tests/drone_detections.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR' || true
 
 echo "== shoda site_is_armed() v SQL a isSiteArmed() v TypeScriptu =="
 # Ostrý režim počítají dvě nezávislé implementace: databáze při

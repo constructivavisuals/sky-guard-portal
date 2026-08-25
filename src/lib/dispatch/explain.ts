@@ -1,5 +1,6 @@
 import {
   DETECTION_OBJECT_CLASS_LABELS,
+  type DecisionReason,
   type DetectionObjectClass,
   type DispatchOutcome,
 } from "../../types/database.ts";
@@ -124,4 +125,69 @@ export function explainOutcome(
 /** Odkaz na mapu pro souřadnice zóny. */
 export function mapUrl(latitude: number, longitude: number): string {
   return `https://mapy.cz/zakladni?source=coor&id=${longitude},${latitude}&x=${longitude}&y=${latitude}&z=17`;
+}
+
+// ── Vysvětlení z uloženého důvodu ────────────────────────────────
+
+/**
+ * Totéž co explainLevel, ale ze zapsaného rozhodnutí — žádné
+ * dopočítávání, takže platí i po změně pravidel.
+ */
+export function levelFromReason(reason: DecisionReason): LevelExplanation {
+  const label =
+    reason.object_class === null
+      ? null
+      : DETECTION_OBJECT_CLASS_LABELS[reason.object_class].toLowerCase();
+
+  if (reason.escalated) {
+    const window = reason.escalation?.window_seconds;
+    return {
+      base: reason.base_level,
+      sent: reason.level_sent,
+      escalated: true,
+      text: label
+        ? `Základ pro ${label} je ${reason.base_level}. Zvýšeno na ${reason.level_sent}, protože se ${window ? `během ${window} s ` : ""}v jiné zóně pohybovala osoba.`
+        : `Zvýšeno na ${reason.level_sent} kvůli pohybu osoby v jiné zóně.`,
+    };
+  }
+
+  return {
+    base: reason.base_level,
+    sent: reason.level_sent,
+    escalated: false,
+    text: label
+      ? `Stupeň ${reason.level_sent} odpovídá tomu, co kamera viděla (${label}).`
+      : `Stupeň ${reason.level_sent} zadaný ručně.`,
+  };
+}
+
+/** Stav střežení a cooldown tak, jak byly v okamžiku rozhodnutí. */
+export function conditionsFromReason(reason: DecisionReason): string[] {
+  const out: string[] = [];
+
+  out.push(
+    reason.armed
+      ? "Lokalita byla v ostrém režimu."
+      : "Lokalita v tu chvíli nestřežila.",
+  );
+
+  if (!reason.zone_enabled) {
+    out.push("Zóna byla vypnutá, takže se chovala jako mimo režim.");
+  }
+
+  if (reason.seconds_since_last_sent === null) {
+    out.push(
+      `Na lokalitě do té doby žádný zásah neodešel, cooldown ${reason.cooldown_seconds} s se neuplatnil.`,
+    );
+  } else if ((reason.cooldown_remaining_seconds ?? 0) > 0) {
+    out.push(
+      `Od předchozího zásahu uplynulo ${reason.seconds_since_last_sent} s z ${reason.cooldown_seconds} s, zbývalo ${reason.cooldown_remaining_seconds} s.`,
+    );
+  } else {
+    out.push(
+      `Od předchozího zásahu uplynulo ${reason.seconds_since_last_sent} s, cooldown ${reason.cooldown_seconds} s byl vyčerpaný.`,
+    );
+  }
+
+  return out;
 }

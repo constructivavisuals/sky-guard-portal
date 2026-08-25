@@ -105,6 +105,9 @@ export async function POST(request: NextRequest): Promise<Response> {
   const { data: detection, error: detectionError } = await db
     .from("detections")
     .insert({
+      // Ingest z kamer; dronové detekce půjdou jinou cestou, až se
+      // budou tahat data z FlightHubu.
+      source: "camera",
       camera_id: camera.id,
       zone_id: camera.zone_id,
       detected_at: payload.detectedAt.toISOString(),
