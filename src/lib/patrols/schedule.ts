@@ -68,37 +68,42 @@ export function zonedTimeToUtc(
   return new Date(naive - second * 60_000);
 }
 
-/** Nástěnné datum v zóně, rozložené na složky. */
-function zonedParts(at: Date, timeZone: string) {
+/**
+ * Kalendářní datum posunuté o dny.
+ *
+ * Schválně přes UTC aritmetiku, ne přičítáním 24 hodin k okamžiku: den
+ * s posunem času má 23 nebo 25 hodin, takže by se jeden kalendářní den
+ * přeskočil úplně.
+ */
+export function shiftZonedDate(
+  at: Date,
+  timeZone: string,
+  days: number,
+): { year: number; month: number; day: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
-    hourCycle: "h23",
-    weekday: "short",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(at);
+  const value = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((part) => part.type === type)?.value);
 
-  const value = (type: Intl.DateTimeFormatPartTypes): string =>
-    parts.find((part) => part.type === type)?.value ?? "";
-
+  const shifted = new Date(
+    Date.UTC(value("year"), value("month") - 1, value("day") + days),
+  );
   return {
-    year: Number(value("year")),
-    month: Number(value("month")),
-    day: Number(value("day")),
-    weekday: value("weekday"),
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
   };
 }
 
-const ISO_WEEKDAY: Record<string, IsoWeekday> = {
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
-  Sun: 7,
-};
+/** ISO den v týdnu pro kalendářní datum. */
+export function isoWeekdayOf(year: number, month: number, day: number): IsoWeekday {
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return (weekday === 0 ? 7 : weekday) as IsoWeekday;
+}
 
 function toMinutes(hhmmss: string): number {
   const [hours, minutes] = hhmmss.split(":");
@@ -133,10 +138,9 @@ export function patrolRunsBetween(
   // Kandidátní dny: den před začátkem intervalu (kvůli oknu přes
   // půlnoc), den samotný a den následující.
   for (let shift = -1; shift <= 1; shift++) {
-    const base = new Date(after.getTime() + shift * 24 * 60 * 60_000);
-    const { year, month, day, weekday } = zonedParts(base, patrol.timezone);
-    const iso = ISO_WEEKDAY[weekday];
-    if (!iso || !days.has(iso)) continue;
+    const { year, month, day } = shiftZonedDate(after, patrol.timezone, shift);
+    const iso = isoWeekdayOf(year, month, day);
+    if (!days.has(iso)) continue;
 
     for (let offset = 0; offset < windowLength; offset += patrol.interval_minutes) {
       const minute = from + offset;
