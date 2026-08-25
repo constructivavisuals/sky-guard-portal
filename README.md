@@ -100,6 +100,8 @@ chmod 600 /etc/sky-guard.env
 
 Doména v příkladu je zástupná — nahradit skutečnou.
 
-Endpoint vrací 200 se souhrnem, co naplánoval a co přeskočil (dron mimo
-dok, baterie pod 40 %, zaplněné úložiště). `-f` v curlu zajistí, že
-crontab pošle mail, když přijde 401 nebo 500.
+Endpoint vrací souhrn, co naplánoval, co přeskočil (dron mimo dok,
+baterie pod 40 %, zaplněné úložiště) a co selhalo. Přeskočení je
+normální provozní stav a končí stavem 200; jakékoli **selhání vrací
+500**, aby `-f` v curlu poslalo mail. Bez toho by běh, ve kterém
+selhalo plánování všech hlídek, prošel tiše.

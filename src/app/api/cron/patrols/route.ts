@@ -91,7 +91,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   for (const patrol of patrols ?? []) {
     const site = patrol.sites;
     if (!site) {
-      report.skipped += 1;
+      // Hlídka bez lokality by neměla vzniknout — cizí klíč to hlídá.
+      // Když se to přesto stane, nesmí to zmizet do statistiky.
+      console.error("Hlídka bez lokality", { patrol_id: patrol.id });
+      report.failed += 1;
       continue;
     }
 
@@ -270,5 +273,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     }
   }
 
-  return Response.json(report, { status: 200 });
+  // Nenulové failed musí být vidět v HTTP stavu. Cron volá někdo
+  // zvenčí přes `curl -f` (viz README) a ten upozorní jen na chybový
+  // stav — se stem by běh, ve kterém selhalo plánování všech hlídek,
+  // prošel tiše. Přeskočené hlídky chybou nejsou: dron mimo dok nebo
+  // vybitá baterie jsou normální provozní stavy.
+  return Response.json(report, { status: report.failed > 0 ? 500 : 200 });
 }
