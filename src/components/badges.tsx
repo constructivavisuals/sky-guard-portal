@@ -18,20 +18,20 @@ function Pill({
   children: React.ReactNode;
 }) {
   const tones = {
-    neutral: "border-[var(--border)] text-[var(--text-muted)]",
+    neutral: "border-[var(--line-strong)] text-[var(--text-muted)]",
     success:
-      "border-[var(--success)]/40 text-[var(--success)] bg-[var(--success)]/10",
+      "border-[var(--success)]/35 text-[var(--success)] bg-[var(--success)]/[0.08]",
     warning:
-      "border-[var(--warning)]/40 text-[var(--warning)] bg-[var(--warning)]/10",
+      "border-[var(--warning)]/40 text-[var(--warning)] bg-[var(--warning)]/[0.1]",
     danger:
-      "border-[var(--danger)]/40 text-[var(--danger)] bg-[var(--danger)]/10",
+      "border-[var(--danger)]/40 text-[var(--danger)] bg-[var(--danger)]/[0.1]",
     accent:
-      "border-[var(--accent)]/40 text-[var(--accent)] bg-[var(--accent)]/10",
+      "border-[var(--accent-bright)]/40 text-[var(--accent-bright)] bg-[var(--accent-bright)]/[0.08]",
   } as const;
 
   return (
     <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${tones[tone]}`}
+      className={`inline-flex h-6 items-center whitespace-nowrap rounded-[var(--radius-pill)] border px-2.5 text-[11px] font-medium uppercase tracking-[0.08em] ${tones[tone]}`}
     >
       {children}
     </span>

@@ -9,10 +9,13 @@ import { Topbar, type GuardState } from "./topbar.tsx";
 
 // App shell pro přihlášené.
 //
+// Obsah jde od kraje ke kraji a nemá vlastní odsazení — to si nese
+// každý blok sám. Jen tak můžou vlasové linky mezi bloky procházet
+// celou šířkou, což je celý princip vzhledu ze sky-guard.cz. Kontejner
+// s maximální šířkou a odsazením by každou linku useknul.
+//
 // Nad lg je sidebar součástí layoutu, pod lg ho nahrazuje spodní
-// navigace — vzor z constructiva-portal. Šuplík s hamburgerem tu byl
-// dřív, ale na mobilu je spodní lišta dosažitelná palcem a nepotřebuje
-// dvojí klepnutí.
+// navigace — vzor z constructiva-portal.
 
 export function Shell({
   children,
@@ -30,7 +33,7 @@ export function Shell({
   profile: CurrentProfile | null;
 }) {
   return (
-    <div className="flex min-h-dvh lg:h-dvh lg:overflow-hidden">
+    <div className="flex min-h-dvh bg-[var(--bg)] lg:h-dvh lg:overflow-hidden">
       <Sidebar profile={profile} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -40,12 +43,15 @@ export function Shell({
           selectedSiteId={selectedSiteId}
           guardState={guardState}
         />
-        <main className="flex-1 lg:overflow-y-auto">
+        <main className="flex flex-1 flex-col lg:overflow-y-auto">
           {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg
               už žádná není. */}
-          <div className="mx-auto w-full max-w-[1280px] p-5 pb-28 sm:p-8 sm:pb-28 lg:pb-8">
-            {children}
-          </div>
+          <div className="pb-24 lg:pb-0">{children}</div>
+
+          {/* Prázdné místo pod obsahem není prázdné — pokračují v něm
+              svislé linky mřížky. Na mobilu ne: tam je plocha úzká
+              a linky by z ní udělaly mříž. */}
+          <div className="hidden flex-1 rule-field lg:block" aria-hidden="true" />
         </main>
       </div>
 

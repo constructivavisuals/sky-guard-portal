@@ -32,7 +32,7 @@ export function SiteSwitcher({
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex items-center gap-2 rounded-lg px-2 sm:px-3 h-9 text-sm font-medium hover:bg-[var(--surface-2)] transition min-w-0 disabled:opacity-60 disabled:pointer-events-none"
+        className="inline-flex h-9 min-w-0 items-center gap-2 border border-[var(--line-strong)] px-3 text-sm font-medium tracking-tight transition hover:bg-[var(--surface-2)] disabled:pointer-events-none disabled:opacity-60"
       >
         <span className="truncate">{label}</span>
         <ChevronDown
@@ -51,7 +51,7 @@ export function SiteSwitcher({
           />
           <div
             role="menu"
-            className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl"
+            className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden border border-[var(--line-strong)] bg-[var(--surface)] shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
           >
             <Option
               siteId={ALL_SITES}
@@ -59,7 +59,7 @@ export function SiteSwitcher({
               active={selectedId === null}
               onSubmit={() => setOpen(false)}
             />
-            <div className="my-1 h-px bg-[var(--border)]" />
+            <div className="h-px bg-[var(--line)]" />
             {sites.map((site) => (
               <Option
                 key={site.id}
@@ -94,7 +94,7 @@ function Option({
         type="submit"
         role="menuitem"
         aria-current={active ? "true" : undefined}
-        className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 h-9 text-left text-sm transition ${
+        className={`flex h-10 w-full items-center justify-between gap-2 border-b border-[var(--line)] px-4 text-left text-sm tracking-tight transition last:border-b-0 ${
           active
             ? "bg-[var(--surface-2)] font-medium"
             : "text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"

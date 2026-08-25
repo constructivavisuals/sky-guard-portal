@@ -168,7 +168,7 @@ export default async function Page({ searchParams }: PageProps<"/zasahy">) {
                       <summary className="cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text)]">
                         Detail chyby
                       </summary>
-                      <pre className="mt-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-xs leading-relaxed text-[var(--text-muted)]">
+                      <pre className="mt-2 overflow-x-auto border border-[var(--line)] bg-[var(--bg)] p-3 font-mono text-xs leading-relaxed text-[var(--text-muted)]">
                         {JSON.stringify(row.response, null, 2)}
                       </pre>
                     </details>

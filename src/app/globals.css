@@ -2,52 +2,76 @@
 
 /* ═══════════════════════════════════════════════════════════════
    Sky Guard — design tokeny
-   Tmavé UI. Barvy se odsud nekopírují do komponent; komponenty
-   sahají výhradně na proměnné, ať jde brand změnit na jednom místě.
+   
+   Hodnoty jsou převzaté ze sky-guard.cz, aby portál a web mluvily
+   stejným jazykem. Barvy se odsud nekopírují do komponent; komponenty
+   sahají výhradně na proměnné.
+
+   Řeč tvarů: web stojí na vlasových linkách, které procházejí napříč
+   celou plochou a bloky do nich zapadají. Proto tady NENÍ radius na
+   panelech — zaoblený roh by linku přerušil. Zaoblení nosí jen to, co
+   z mřížky vystupuje: tlačítka, odznaky, avatary.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  /* Plochy odspodu nahoru: pozadí → karta → vyvýšená plocha */
-  --bg: #08090c;
-  --surface: #0e1014;
-  --surface-2: #14171d;
-  --border: #1e2229;
+  /* Plochy odspodu nahoru. Rozdíly jsou schválně malé — hloubku
+     nedělá jas plochy, ale linka mezi nimi. */
+  --bg: #08070e;
+  --surface: #0d0d13;
+  --surface-2: #17171d;
+  --surface-3: #202026;
 
-  --text: #ffffff;
-  --text-muted: #a0a6b0;
+  /* Vlasová linka. Jediná barva, ze které je celá mřížka. */
+  --line: rgba(95, 95, 113, 0.22);
+  --line-strong: rgba(95, 95, 113, 0.42);
+  /* Alias kvůli komponentám, které psaly --border. */
+  --border: var(--line);
 
-  /* --accent je UI modrá (tlačítka, odkazy, aktivní stavy),
-     --accent-deep je modrá z loga (znak, sytější plochy). */
-  --accent: #2563eb;
-  --accent-deep: #0e4ba0;
+  --text: #f5f5f5;
+  /* Souvislý text; na plné bílé se dlouho nečte dobře. */
+  --text-dim: #d5d5d5;
+  --text-muted: #8a8a9c;
 
+  /* --accent je modrá z webu (tlačítka, aktivní stavy),
+     --accent-bright je její svítivá varianta pro záři a hover. */
+  --accent: #024aa8;
+  --accent-bright: #0099ff;
+
+  /* Sky Construction oranžová. V portálu nese význam „vyžaduje
+     pozornost“ — je to táž barva, tak ať nemá dva významy. */
+  --warning: #ff8605;
   --danger: #e5484d;
-  --warning: #f5a524;
-  --success: #30a46c;
+  --success: #00ffb2;
 
-  /* Záře primární akce. Vyhrazená: smí ji nosit jen primární tlačítko
-     a aktivní poplach — jinde ztrácí význam signálu. */
-  --glow-accent: 0 0 24px rgba(37, 99, 235, 0.45);
-  --glow-danger: 0 0 24px rgba(229, 72, 77, 0.45);
+  /* Záře je vyhrazený signál: primární akce a aktivní poplach. */
+  --glow-accent: 0 0 28px rgba(0, 153, 255, 0.35);
+  --glow-warning: 0 0 28px rgba(255, 134, 5, 0.32);
+  --glow-danger: 0 0 28px rgba(229, 72, 77, 0.35);
+  --glow-success: 0 0 24px rgba(0, 255, 178, 0.28);
 
-  --radius-card: 12px;
+  /* Panely jsou hranaté. Pilulky mají vlastní token. */
+  --radius-card: 0px;
+  --radius-pill: 999px;
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
-  --color-border: var(--border);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-border: var(--line);
   --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
   --color-text-muted: var(--text-muted);
   --color-accent: var(--accent);
-  --color-accent-deep: var(--accent-deep);
+  --color-accent-bright: var(--accent-bright);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
   --color-success: var(--success);
 
   /* Písmo se vyměňuje na jednom místě — v layout.tsx u next/font. */
-  --font-sans: var(--font-figtree);
+  --font-sans: var(--font-dm-sans);
 }
 
 /* UI je navržené tmavé; světlý režim systému ho nepřebarvuje. */
@@ -67,22 +91,76 @@ body {
 
 /* Viditelný fokus na klávesnici — v tmavém UI se ztratí snadno. */
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 1px solid var(--accent-bright);
+  outline-offset: -1px;
+}
+
+/* ── Mřížka, která pokračuje i tam, kde nic není ────────────────
+   Podstata vzhledu z webu: svislé linky nekončí u posledního bloku,
+   jdou dál prázdnou plochou pod ním. Kreslí se na pozadí po čtvrtinách
+   šířky, což je rastr, na kterém stojí i mřížky uvnitř bloků — linka
+   pod obsahem tak navazuje na linku v obsahu.
+
+   Schválně jen POD obsahem, ne za ním: svislá linka procházející
+   odstavcem vypadá jako chyba vykreslení, ne jako mřížka. */
+.rule-field {
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0,
+    transparent calc(var(--col, 25%) - 1px),
+    var(--line) calc(var(--col, 25%) - 1px),
+    var(--line) var(--col, 25%)
+  );
 }
 
 /* ── Mřížky bez mezer, oddělené vlasovými linkami ──────────────
-   Buňky nemají gap; dělí je 1px rámeček, který se u krajních buněk
-   překrývá se sousedem, takže nikde nevznikne dvojitá linka. */
+   Buňky nemají gap; dělí je 1px rámeček. Krajní linky si bere
+   kontejner, takže nikde nevznikne dvojitá. */
 .hairline-grid {
   display: grid;
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+  /* Záporné okraje schovají krajní linku pod souseda. Bez nich by na
+     pravém okraji visela linka navíc a pod mřížkou by se zdvojila
+     s linkou dalšího bloku.
+
+     Podstatné je, že linky kreslí BUŇKY, ne podklad kontejneru:
+     v mřížce, kde je obsazená jen část buněk, by podklad prosvítal
+     jako světlá plocha místo tenké linky. */
+  margin-right: -1px;
+  margin-bottom: -1px;
 }
 
 .hairline-grid > * {
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  /* Položky mřížky mají výchozí min-width auto; bez tohohle by je
+     široký obsah roztáhl nad šířku sloupce. */
+  min-width: 0;
+}
+
+/* ── Sloupec stránky: bloky nalepené na sebe, dělené linkou ────── */
+.stack-rules > * + * {
+  border-top: 1px solid var(--line);
+}
+
+/* Jemné zesvětlení pod horní hranou panelu. Na webu tenhle přechod
+   dělá dojem, že linka je vyrytá do plochy, ne nalepená na ni. */
+.sheen {
+  position: relative;
+}
+
+.sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 255, 255, 0.07) 20%,
+    rgba(255, 255, 255, 0.07) 80%,
+    transparent
+  );
+  pointer-events: none;
 }
 
 /* ── Tabulka, která se pod sm překlopí na karty ──────────────────
@@ -110,17 +188,17 @@ body {
     width: 100%;
   }
 
+  /* Karty se nalepí na sebe a dělí je jedna linka — stejně jako bloky
+     ve zbytku portálu. Žádné mezery, žádné zaoblení. */
   .stack-table tr {
     position: relative;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
+    border-top: 1px solid var(--line);
     background: var(--surface);
-    margin-bottom: 0.75rem;
-    padding: 0.25rem 0;
+    padding: 0.375rem 0;
   }
 
-  .stack-table tr:last-child {
-    margin-bottom: 0;
+  .stack-table tr:first-child {
+    border-top: 0;
   }
 
   .stack-table td {
@@ -128,7 +206,7 @@ body {
     align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.5rem 0.875rem;
+    padding: 0.375rem 1rem;
     text-align: left;
     white-space: normal;
   }
@@ -146,7 +224,9 @@ body {
     content: attr(data-label);
     flex: 0 0 auto;
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     line-height: 1.5rem;
   }
 
@@ -167,18 +247,12 @@ body {
   /* Řádek s rozbalitelným detailem je v tabulce samostatné <tr>, ale
      patří k záznamu nad ním — v kartách se proto slepí do jedné, jinak
      by detail chyby vypadal jako cizí záznam. */
-  .stack-table tr[data-continues] {
-    margin-bottom: 0;
-    border-bottom: 0;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    padding-bottom: 0;
-  }
-
   .stack-table tr[data-continuation] {
     border-top: 0;
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
     padding-top: 0;
+  }
+
+  .stack-table tr[data-continues] {
+    padding-bottom: 0;
   }
 }

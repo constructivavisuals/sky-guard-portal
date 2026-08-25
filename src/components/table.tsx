@@ -1,8 +1,12 @@
 import type { ComponentProps, ReactNode } from "react";
 
 // Tabulka v duchu design systému: žádné mezery mezi buňkami, dělí je
-// vlasové linky. Na úzkém displeji se posouvá vodorovně uvnitř vlastního
-// rámečku, aby se nerozjela celá stránka.
+// vlasové linky, které navazují na linky mezi bloky stránky. Proto tu
+// není ani rámeček, ani zaoblení — tabulka sedí přímo v bloku a její
+// řádky pokračují v témž rastru.
+//
+// Na úzkém displeji se pod sm překlápí na karty; vodorovné posouvání
+// se prstem neovládá dobře, viz .stack-table v globals.css.
 
 export function DataTable({
   head,
@@ -14,10 +18,10 @@ export function DataTable({
   caption?: string;
 }) {
   return (
-    <div className="sm:overflow-x-auto sm:rounded-[var(--radius-card)] sm:border sm:border-[var(--border)] sm:bg-[var(--surface)]">
+    <div className="sm:overflow-x-auto">
       <table className="stack-table w-full border-collapse text-sm sm:min-w-[720px]">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
-        <thead className="bg-[var(--surface-2)] text-left">
+        <thead className="text-left">
           <tr>{head}</tr>
         </thead>
         <tbody>{children}</tbody>
@@ -30,7 +34,7 @@ export function Th({ className = "", ...props }: ComponentProps<"th">) {
   return (
     <th
       scope="col"
-      className={`border-b border-[var(--border)] px-4 py-3 font-medium text-[var(--text-muted)] whitespace-nowrap ${className}`}
+      className={`whitespace-nowrap border-b border-[var(--line)] bg-[var(--surface-2)] px-5 py-3 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)] ${className}`}
       {...props}
     />
   );
@@ -39,7 +43,7 @@ export function Th({ className = "", ...props }: ComponentProps<"th">) {
 export function Tr({ className = "", ...props }: ComponentProps<"tr">) {
   return (
     <tr
-      className={`border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface-2)]/50 ${className}`}
+      className={`border-b border-[var(--line)] transition-colors last:border-b-0 hover:bg-[var(--surface-2)]/60 ${className}`}
       {...props}
     />
   );
@@ -58,7 +62,7 @@ export function Td({
   return (
     <td
       data-label={label}
-      className={`px-4 py-3 align-top ${className}`}
+      className={`px-5 py-3.5 align-top ${className}`}
       {...props}
     />
   );

@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import { MapPin, ShieldAlert, Users } from "lucide-react";
 
 import { DataTable, Td, Th, Tr } from "@/components/table.tsx";
-import { Card, EmptyState, IconBadge, PageHeader } from "@/components/ui.tsx";
+import {
+  BlockTitle,
+  EmptyState,
+  IconBadge,
+  PageHeader,
+  Section,
+} from "@/components/ui.tsx";
 import { orDash, plural } from "@/lib/format.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { isAdmin, profileInitial } from "@/lib/profile.ts";
@@ -82,10 +88,9 @@ export default async function Page() {
         description="Účet a rozsah přístupu."
       />
 
-      <div className="space-y-6">
-        <Card className="p-5">
-          <h2 className="text-sm font-medium text-[var(--text-muted)]">Můj účet</h2>
-          <div className="mt-4 flex items-center gap-4">
+      <Section>
+          <BlockTitle>Můj účet</BlockTitle>
+          <div className="flex items-center gap-4">
             <span
               className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-lg font-semibold text-white"
               aria-hidden="true"
@@ -93,7 +98,7 @@ export default async function Page() {
               {profileInitial(profile)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-medium">
+              <p className="truncate text-lg tracking-tight">
                 {profile.fullName ?? profile.email ?? "Bez jména"}
               </p>
               <p className="truncate text-sm text-[var(--text-muted)]">
@@ -103,24 +108,22 @@ export default async function Page() {
               </p>
             </div>
           </div>
-        </Card>
+        </Section>
 
-        <Card className="p-5">
-          <h2 className="text-sm font-medium text-[var(--text-muted)]">
-            Přístup k lokalitám
-          </h2>
+        <Section>
+          <BlockTitle>Přístup k lokalitám</BlockTitle>
           {failed ? (
-            <p className="mt-3 text-sm text-[var(--danger)]">
+            <p className="text-sm text-[var(--danger)]">
               Seznam se nepodařilo načíst.
             </p>
           ) : sites.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--text-muted)]">
+            <p className="text-sm leading-relaxed text-[var(--text-muted)]">
               Zatím nemáte přístup k žádné lokalitě. O přidělení požádejte
               správce portálu.
             </p>
           ) : (
             <>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
+              <p className="text-sm text-[var(--text-muted)]">
                 {admin
                   ? "Jako administrátor vidíte všechny lokality."
                   : plural(sites.length, "lokalita", "lokality", "lokalit")}
@@ -142,26 +145,30 @@ export default async function Page() {
               </ul>
             </>
           )}
-        </Card>
+        </Section>
 
         {/* Přehled uživatelů je jen pro čtení — udělovat granty se bude
             jinde. RLS na profiles i site_grants stejně nikomu jinému
             než adminovi tenhle dotaz nezodpoví. */}
         {admin ? (
-          <Card className="p-5">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
-              <h2 className="text-sm font-medium text-[var(--text-muted)]">
-                Uživatelé
-              </h2>
-            </div>
+          <>
+            <Section className="pb-0 sm:pb-0">
+              <BlockTitle className="mb-0">
+                <span className="inline-flex items-center gap-2">
+                  <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                  Uživatelé
+                </span>
+              </BlockTitle>
+            </Section>
 
             {users.length === 0 ? (
-              <p className="mt-3 text-sm text-[var(--text-muted)]">
-                Žádní uživatelé.
-              </p>
+              <Section>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Žádní uživatelé.
+                </p>
+              </Section>
             ) : (
-              <div className="mt-4">
+              <div className="border-b border-[var(--line)]">
                 <DataTable
                   caption="Uživatelé portálu a jejich přístup k lokalitám"
                   head={
@@ -193,9 +200,8 @@ export default async function Page() {
                 </DataTable>
               </div>
             )}
-          </Card>
+          </>
         ) : null}
-      </div>
     </>
   );
 }

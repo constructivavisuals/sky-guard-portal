@@ -5,21 +5,39 @@
 // portál vypadá zaseklý. Next tuhle kostru navíc umí předstáhnout,
 // takže se objeví okamžitě.
 //
-// Schválně obecná: sedí na tabulku, seznam karet i přehled. Konkrétnější
-// kostra by u jiné stránky mátla víc, než by pomohla.
+// Kopíruje rastr stránky: hlavička, blok, mřížka. Kdyby to byly jen
+// obdélníky někde uprostřed, obsah by po dorenderování poskočil.
 
 export default function Loading() {
   return (
     <div className="animate-pulse" aria-busy="true" aria-label="Načítá se">
-      <div className="mb-6">
-        <div className="h-7 w-40 rounded-lg bg-[var(--surface-2)]" />
-        <div className="mt-2 h-4 w-64 rounded bg-[var(--surface-2)]" />
+      <header className="border-b border-[var(--line)] px-5 py-6 sm:px-8 sm:py-8">
+        <div className="h-8 w-48 bg-[var(--surface-2)]" />
+        <div className="mt-3 h-3.5 w-64 bg-[var(--surface-2)]" />
+      </header>
+
+      <div className="border-b border-[var(--line)] px-5 py-5 sm:px-8 sm:py-6">
+        <div className="h-3 w-24 bg-[var(--surface-2)]" />
+        <div className="mt-4 h-5 w-3/4 bg-[var(--surface-2)]" />
+        <div className="mt-3 h-5 w-1/2 bg-[var(--surface-2)]" />
       </div>
 
-      <div className="space-y-4">
-        <div className="h-28 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]" />
-        <div className="h-20 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]" />
-        <div className="h-56 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]" />
+      <div className="hairline-grid grid-cols-2 sm:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="px-5 py-6 sm:px-6">
+            <div className="h-3 w-16 bg-[var(--surface-2)]" />
+            <div className="mt-3 h-6 w-12 bg-[var(--surface-2)]" />
+          </div>
+        ))}
+      </div>
+
+      <div className="border-b border-[var(--line)] px-5 py-5 sm:px-8 sm:py-6">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3 py-3">
+            <div className="h-8 w-8 shrink-0 rounded-full bg-[var(--surface-2)]" />
+            <div className="h-4 flex-1 bg-[var(--surface-2)]" />
+          </div>
+        ))}
       </div>
     </div>
   );

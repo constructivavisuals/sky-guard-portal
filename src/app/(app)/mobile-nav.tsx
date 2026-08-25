@@ -63,7 +63,7 @@ export function MobileNav() {
         // pb: nad domovský indikátor iPhonu. pl/pr: krajní ikony jinak
         // lezou pod zaoblení displeje a na šířku pod výřez — spodní
         // inset tenhle problém neřeší, je svislý.
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur-lg pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur-lg pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]"
       >
         {PRIMARY.map(({ href, label, icon: Icon }) => (
           <Link
@@ -71,14 +71,14 @@ export function MobileNav() {
             href={href}
             prefetch
             aria-current={isActive(pathname, href) ? "page" : undefined}
-            className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 rounded-lg px-1 transition-transform duration-100 active:scale-95 ${
+            className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 px-1 transition-transform duration-100 active:scale-95 ${
               isActive(pathname, href)
-                ? "text-[var(--accent)]"
+                ? "text-[var(--accent-bright)]"
                 : "text-[var(--text-muted)]"
             }`}
           >
             <Icon className="h-5 w-5" aria-hidden="true" />
-            <span className="text-[10px] font-medium leading-none">{label}</span>
+            <span className="text-[10px] font-medium leading-none tracking-tight">{label}</span>
           </Link>
         ))}
 
@@ -90,14 +90,14 @@ export function MobileNav() {
           }}
           aria-expanded={moreOpen}
           aria-haspopup="menu"
-          className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 rounded-lg px-1 transition-transform duration-100 active:scale-95 ${
+          className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 px-1 transition-transform duration-100 active:scale-95 ${
             moreActive || moreOpen
-              ? "text-[var(--accent)]"
+              ? "text-[var(--accent-bright)]"
               : "text-[var(--text-muted)]"
           }`}
         >
           <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
-          <span className="text-[10px] font-medium leading-none">Více</span>
+          <span className="text-[10px] font-medium leading-none tracking-tight">Více</span>
         </button>
       </nav>
     </>
@@ -124,21 +124,21 @@ function MoreSheet({
       <div
         role="menu"
         aria-label="Další navigace"
-        className="relative rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] pb-[max(1rem,env(safe-area-inset-bottom))]"
+        className="relative border-t border-[var(--line-strong)] bg-[var(--bg)] pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
         <div className="flex h-14 items-center justify-between px-4">
-          <h2 className="text-sm font-medium text-[var(--text-muted)]">Více</h2>
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">Více</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Zavřít"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+            className="inline-flex h-9 w-9 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
-        <ul className="px-3 pb-2">
+        <ul className="border-t border-[var(--line)]">
           {SECONDARY.map(({ href, label, icon: Icon }) => (
             <li key={href}>
               <Link
@@ -146,7 +146,7 @@ function MoreSheet({
                 prefetch
                 onClick={onClose}
                 aria-current={isActive(pathname, href) ? "page" : undefined}
-                className={`flex min-h-[48px] items-center gap-3 rounded-lg px-3 text-sm transition ${
+                className={`flex min-h-[52px] items-center gap-3 border-b border-[var(--line)] px-5 text-sm tracking-tight transition ${
                   isActive(pathname, href)
                     ? "bg-[var(--surface-2)] font-medium text-[var(--text)]"
                     : "text-[var(--text-muted)] active:bg-[var(--surface-2)]"
@@ -161,11 +161,11 @@ function MoreSheet({
 
         {/* Odhlášení sedí tady — v sidebaru, kde je na desktopu, se
             uživatel na mobilu k ničemu nedostane. */}
-        <div className="mt-1 border-t border-[var(--border)] px-3 pt-2">
+        <div>
           <form action="/auth/odhlaseni" method="post">
             <button
               type="submit"
-              className="flex min-h-[48px] w-full items-center gap-3 rounded-lg px-3 text-sm text-[var(--text-muted)] transition active:bg-[var(--surface-2)]"
+              className="flex min-h-[52px] w-full items-center gap-3 px-5 text-sm tracking-tight text-[var(--text-muted)] transition active:bg-[var(--surface-2)]"
             >
               <LogOut className="h-5 w-5 shrink-0" aria-hidden="true" />
               Odhlásit se

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Cctv, Clock, MapPin, ShieldCheck } from "lucide-react";
 
-import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
+import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatArmedDays, formatArmedWindow, orDash, plural } from "@/lib/format.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { isAdmin } from "@/lib/profile.ts";
@@ -96,11 +96,10 @@ export default async function Page() {
           description="Založte první lokalitu s dockem, zónami a kamerami."
         />
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        // Mřížka bez mezer; buňky dělí vlasová linka a na čtvrtinovém
+        // rastru navazuje na linky pokračující pod obsahem.
+        <ul className="hairline-grid sm:grid-cols-2">
           {sites.map((site) => (
-            // min-w-0: položky mřížky mají výchozí min-width auto, takže
-            // by je široký obsah karty roztáhl nad šířku kontejneru
-            // a posunul celou stránku do stran.
             <li key={site.id} className="min-w-0">
               <SiteCard
                 site={site}
@@ -128,9 +127,10 @@ function SiteCard({
   admin: boolean;
 }) {
   const stateStyles = {
-    armed: "border-[var(--success)]/40 text-[var(--success)] bg-[var(--success)]/10",
-    disarmed: "border-[var(--border)] text-[var(--text-muted)]",
-    unknown: "border-[var(--border)] text-[var(--text-muted)]",
+    armed:
+      "border-[var(--success)]/35 text-[var(--success)] bg-[var(--success)]/[0.08]",
+    disarmed: "border-[var(--line-strong)] text-[var(--text-muted)]",
+    unknown: "border-[var(--line-strong)] text-[var(--text-muted)]",
   } as const;
   const stateLabels = {
     armed: "Střeženo",
@@ -139,13 +139,22 @@ function SiteCard({
   } as const;
 
   return (
-    <Card
-      className={`h-full p-5 ${current ? "border-[var(--accent)]/50" : ""}`}
-    >
+    <div className="relative h-full px-5 py-5 sm:px-6">
+      {/* Vybraná lokalita má svislý pruh, ne obarvený rámeček —
+          rámeček by rozbil linku mřížky. */}
+      {current ? (
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 left-0 w-[2px] bg-[var(--accent-bright)]"
+        />
+      ) : null}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-medium truncate">
-            <Link href={`/lokality/${site.id}`} className="hover:underline">
+          <h2 className="truncate text-base tracking-tight">
+            <Link
+              href={`/lokality/${site.id}`}
+              className="transition hover:text-[var(--accent-bright)]"
+            >
               {site.name}
             </Link>
           </h2>
@@ -155,7 +164,7 @@ function SiteCard({
         </div>
         <div className="flex shrink-0 items-center gap-1">
         <span
-          className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 h-7 text-xs font-medium ${stateStyles[state]}`}
+          className={`inline-flex h-7 shrink-0 items-center gap-2 rounded-[var(--radius-pill)] border px-2.5 text-[11px] font-medium uppercase tracking-[0.08em] ${stateStyles[state]}`}
         >
           <span
             className={`h-1.5 w-1.5 rounded-full ${
@@ -201,7 +210,7 @@ function SiteCard({
           {plural(site.cameras[0]?.count ?? 0, "kamera", "kamery", "kamer")}
         </Row>
       </dl>
-    </Card>
+    </div>
   );
 }
 

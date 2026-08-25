@@ -39,29 +39,42 @@ export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
     <nav
       aria-label="Hlavní navigace"
       // Pod lg sidebar vůbec není — navigaci tam přebírá spodní lišta.
-      className="hidden lg:flex h-full w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]"
+      className="hidden h-full w-[236px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--bg)] lg:flex"
     >
-      <div className="flex h-16 items-center px-5 border-b border-[var(--border)]">
+      <div className="flex h-16 items-center border-b border-[var(--line)] px-6">
         <Logo />
       </div>
 
-      <ul className="flex-1 overflow-y-auto p-3 space-y-1">
+      {/* Položky jsou řádky dělené vlasovou linkou, ne odsazené
+          pilulky — stejný rytmus jako seznamy na webu. Aktivní řádek
+          drží svislý pruh v akcentu; záře patří primární akci
+          a poplachu, ne navigaci. */}
+      <ul className="flex-1 overflow-y-auto">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
-            <li key={href}>
+            <li key={href} className="border-b border-[var(--line)]">
               <Link
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-3 rounded-lg px-3 h-10 text-sm transition ${
+                className={`group relative flex h-12 items-center gap-3 pl-6 pr-4 text-[13px] tracking-tight transition ${
                   active
-                    ? // Aktivní položka je plocha, ne záře — ta patří
-                      // primární akci a poplachu.
-                      "bg-[var(--surface-2)] text-[var(--text)] font-medium"
-                    : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                    ? "bg-[var(--surface-2)] font-medium text-[var(--text)]"
+                    : "text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
                 }`}
               >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span
+                  aria-hidden="true"
+                  className={`absolute inset-y-0 left-0 w-[2px] transition ${
+                    active ? "bg-[var(--accent-bright)]" : "bg-transparent"
+                  }`}
+                />
+                <Icon
+                  className={`h-4 w-4 shrink-0 transition ${
+                    active ? "text-[var(--accent-bright)]" : ""
+                  }`}
+                  aria-hidden="true"
+                />
                 {label}
               </Link>
             </li>
@@ -80,20 +93,23 @@ export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
  */
 function UserBlock({ profile }: { profile: CurrentProfile }) {
   return (
-    <div className="mt-auto border-t border-[var(--border)] p-3">
+    <div className="mt-auto border-t border-[var(--line)] px-5 py-4">
       <div className="flex items-center gap-3">
         <span
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[13px] font-medium text-white"
           aria-hidden="true"
         >
           {profileInitial(profile)}
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm" title={profile.email ?? undefined}>
+          <p
+            className="truncate text-[13px] tracking-tight"
+            title={profile.email ?? undefined}
+          >
             {profile.email ?? "Bez e-mailu"}
           </p>
-          <p className="truncate text-xs text-[var(--text-muted)]">
+          <p className="truncate text-[11px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
             {USER_ROLE_LABELS[profile.role]}
           </p>
         </div>
@@ -103,7 +119,7 @@ function UserBlock({ profile }: { profile: CurrentProfile }) {
             type="submit"
             aria-label="Odhlásit se"
             title="Odhlásit se"
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
           >
             <LogOut className="h-4 w-4" aria-hidden="true" />
           </button>

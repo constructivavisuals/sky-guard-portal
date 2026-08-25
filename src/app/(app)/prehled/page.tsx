@@ -16,8 +16,16 @@ import type { ReactNode } from "react";
 
 import { AreaMap } from "@/components/area-map.tsx";
 import { DispatchOutcomeShortBadge, ObjectClassBadge } from "@/components/badges.tsx";
-import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
 import {
+  BlockTitle,
+  EmptyState,
+  Metric,
+  PageHeader,
+  Section,
+} from "@/components/ui.tsx";
+import {
+  BATTERY_WARNING_PERCENT,
+  STORAGE_WARNING_PERCENT,
   cameraWarnings,
   dockWarnings,
   formatUntil,
@@ -248,18 +256,12 @@ export default async function Page() {
     <>
       <PageHeader title="Přehled" description={site.name} />
 
-      {/* Dva sloupce až od lg. Bez podkladu by pravý sloupec zůstal
-          prázdný, tak se mřížka v tom případě vůbec nezakládá.
-          min-w-0: položky mřížky mají výchozí min-width auto, takže by
-          je široký obsah roztáhl nad šířku sloupce. */}
-      <div
-        className={
-          hasMap
-            ? "grid items-start gap-4 lg:grid-cols-2"
-            : ""
-        }
-      >
-        <div className="min-w-0 space-y-4">
+      {/* Dva sloupce až od lg, dělené svislou vlasovou linkou, která
+          jde od horní hrany bloku k dolní — bez mezery, aby navázala
+          na linky nad ní i pod ní. Bez podkladu by pravý sloupec zůstal
+          prázdný, tak se mřížka v tom případě vůbec nezakládá. */}
+      <div className={hasMap ? "lg:grid lg:grid-cols-2" : ""}>
+        <div className={hasMap ? "min-w-0 lg:border-r lg:border-[var(--line)]" : "min-w-0"}>
           <StatusBar
             site={site}
             armed={armed}
@@ -291,19 +293,26 @@ export default async function Page() {
         </div>
 
         {hasMap ? (
-          // Timeline vlevo může být dlouhá; mapa při rolování zůstane.
-          <div className="min-w-0 lg:sticky lg:top-6">
-            <Card className="p-4">
-              <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
-                Areál
-              </h2>
+          <div className="flex min-w-0 flex-col">
+            {/* Časová osa vlevo může být dlouhá; mapa při rolování
+                zůstane na místě. */}
+            <Section flush className="p-5 sm:p-6 lg:sticky lg:top-0">
+              <BlockTitle>Areál</BlockTitle>
               {/* Bod doku se tahá z FlightHubu, takže mapa dorazí až
                   po zbytku stránky. Rámeček drží místo, aby se pod ním
                   nic neposunulo. */}
               <Suspense fallback={<AreaMapSkeleton site={site} />}>
                 <AreaMapCard site={site} />
               </Suspense>
-            </Card>
+            </Section>
+
+            {/* Pod mapou pokračuje mřížka dál, ať plocha nekončí
+                v prázdnu. */}
+            <div
+              aria-hidden="true"
+              className="hidden flex-1 rule-field lg:block"
+              style={{ "--col": "50%" } as React.CSSProperties}
+            />
           </div>
         ) : null}
       </div>
@@ -311,7 +320,13 @@ export default async function Page() {
   );
 }
 
-/** Jedna věta o tom, jestli systém právě hlídá. */
+/**
+ * Věta o tom, jestli systém právě hlídá, a pod ní mřížka údajů.
+ *
+ * Věta je jediné velké písmo na stránce — je to hlavní sdělení
+ * přehledu. Údaje pod ní jsou mřížka buněk dělených vlasovou linkou,
+ * stejný rytmus jako mřížka výhod na sky-guard.cz.
+ */
 function StatusBar({
   site,
   armed,
@@ -327,9 +342,7 @@ function StatusBar({
   lastPatrolFlightAt: Date | null;
   dockFacts: ReactNode;
 }) {
-  const sentence = armed
-    ? "Areál je právě střežený."
-    : "Areál právě nestřeží.";
+  const sentence = armed ? "Areál je právě střežený." : "Areál právě nestřeží.";
   const switchNote =
     until && becomes
       ? becomes === "armed"
@@ -338,35 +351,52 @@ function StatusBar({
       : null;
 
   return (
-    <Card
-      className={`p-4 ${armed ? "border-[var(--success)]/40" : ""}`}
-    >
-      <div className="flex items-start gap-2.5">
+    <>
+      <Section className="relative">
+        {/* Svislý pruh v barvě stavu. Nahrazuje obarvený rámeček karty:
+            rámeček by přerušil linku, pruh do mřížky zapadne. */}
         <span
-          className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-            armed ? "bg-[var(--success)]" : "bg-[var(--text-muted)]"
-          }`}
           aria-hidden="true"
+          className={`absolute inset-y-0 left-0 w-[3px] ${
+            armed ? "bg-[var(--success)]" : "bg-[var(--line-strong)]"
+          }`}
         />
-        <div className="min-w-0">
-          <p className="text-base font-medium">
-            {sentence}{" "}
-            {switchNote ? (
-              <span className="text-[var(--text-muted)]">{switchNote}</span>
-            ) : null}
+        <div className="flex items-center gap-3">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              armed
+                ? "bg-[var(--success)] shadow-[var(--glow-success)]"
+                : "bg-[var(--text-muted)]"
+            }`}
+            aria-hidden="true"
+          />
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            Stav střežení
           </p>
-
-          <dl className="mt-3 grid gap-y-1.5">
-            {dockFacts}
-            <Fact icon={<Plane className="h-4 w-4" aria-hidden="true" />} label="Poslední hlídka">
-              {lastPatrolFlightAt
-                ? formatDateTime(lastPatrolFlightAt.toISOString(), site.timezone)
-                : "Zatím žádná"}
-            </Fact>
-          </dl>
         </div>
+        <p className="mt-3 text-xl font-normal leading-snug tracking-tight sm:text-2xl">
+          {sentence}
+          {switchNote ? (
+            <span className="text-[var(--text-muted)]"> {switchNote}</span>
+          ) : null}
+        </p>
+      </Section>
+
+      <div className="hairline-grid grid-cols-2">
+        {dockFacts}
+        {/* Přes celou šířku, aby v mřížce nezůstala prázdná buňka —
+            ta by se prokreslila jako světlý obdélník bez obsahu. */}
+        <Metric
+          className="col-span-2"
+          label="Poslední hlídka"
+          icon={<Plane className="h-3.5 w-3.5" aria-hidden="true" />}
+        >
+          {lastPatrolFlightAt
+            ? formatDateTime(lastPatrolFlightAt.toISOString(), site.timezone)
+            : "Zatím žádná"}
+        </Metric>
       </div>
-    </Card>
+    </>
   );
 }
 
@@ -384,34 +414,60 @@ async function DockFacts({ dockSn }: { dockSn: string | null }) {
   const dock = cached.result.ok ? cached.result.state : null;
   const chyba = cached.result.ok ? null : cached.result.message;
 
+  const baterie = dock?.batteryPercent;
+  const uloziste = dock?.storageUsedPercent;
+
   return (
     <>
-      <Fact icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Dron">
+      <Metric
+        label="Dron"
+        icon={<ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />}
+        tone={dock?.droneInDock === false ? "warning" : undefined}
+      >
         {dock ? (dock.droneInDock ? "V doku" : "Mimo dok") : "Stav neznámý"}
-      </Fact>
-      <Fact icon={<BatteryMedium className="h-4 w-4" aria-hidden="true" />} label="Baterie">
-        {typeof dock?.batteryPercent === "number"
-          ? `${Math.round(dock.batteryPercent)} %`
-          : "—"}
-      </Fact>
-      <Fact icon={<HardDrive className="h-4 w-4" aria-hidden="true" />} label="Úložiště">
-        {typeof dock?.storageUsedPercent === "number"
-          ? `zaplněno ${Math.round(dock.storageUsedPercent)} %`
-          : "—"}
-      </Fact>
-      <Fact icon={<CloudSun className="h-4 w-4" aria-hidden="true" />} label="Počasí">
+      </Metric>
+
+      <Metric
+        label="Baterie"
+        icon={<BatteryMedium className="h-3.5 w-3.5" aria-hidden="true" />}
+        tone={
+          typeof baterie === "number" && baterie < BATTERY_WARNING_PERCENT
+            ? "warning"
+            : undefined
+        }
+      >
+        {typeof baterie === "number" ? `${Math.round(baterie)} %` : "—"}
+      </Metric>
+
+      <Metric
+        label="Úložiště"
+        icon={<HardDrive className="h-3.5 w-3.5" aria-hidden="true" />}
+        tone={
+          typeof uloziste === "number" && uloziste > STORAGE_WARNING_PERCENT
+            ? "warning"
+            : undefined
+        }
+      >
+        {typeof uloziste === "number" ? `${Math.round(uloziste)} %` : "—"}
+      </Metric>
+
+      <Metric
+        label="Počasí"
+        icon={<CloudSun className="h-3.5 w-3.5" aria-hidden="true" />}
+      >
         {dock?.conditions
           ? `${formatWindSpeed(dock.conditions.wind_speed)} · ${formatRainfall(dock.conditions.rainfall)} · ${formatTemperature(dock.conditions.environment_temperature)}`
           : "—"}
-      </Fact>
+      </Metric>
+
       {chyba ? (
-        <p className="text-xs text-[var(--text-muted)]">
+        <div className="col-span-2 px-5 py-3 text-xs text-[var(--warning)] sm:px-6">
           Stav doku se nepodařilo načíst: {chyba}
-        </p>
+        </div>
       ) : cached.ageMs > 5_000 ? (
-        <p className="text-xs text-[var(--text-muted)]">
-          Stav doku odečtený před {Math.round(cached.ageMs / 1000)} s.
-        </p>
+        <div className="col-span-2 px-5 py-3 text-xs text-[var(--text-muted)] sm:px-6">
+          Odečteno před {Math.round(cached.ageMs / 1000)} s.
+        </div>
       ) : null}
     </>
   );
@@ -419,21 +475,33 @@ async function DockFacts({ dockSn }: { dockSn: string | null }) {
 
 /** Místo pro údaje z doku, dokud nedorazí. */
 function DockFactsSkeleton({ hasDock }: { hasDock: boolean }) {
-  const zatim = hasDock ? "Načítá se" : "Lokalita nemá dok";
+  const zatim = hasDock ? "Načítá se" : "Bez doku";
   return (
     <>
-      <Fact icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Dron">
+      <Metric
+        label="Dron"
+        icon={<ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />}
+      >
         <span className="text-[var(--text-muted)]">{zatim}</span>
-      </Fact>
-      <Fact icon={<BatteryMedium className="h-4 w-4" aria-hidden="true" />} label="Baterie">
+      </Metric>
+      <Metric
+        label="Baterie"
+        icon={<BatteryMedium className="h-3.5 w-3.5" aria-hidden="true" />}
+      >
         <span className="text-[var(--text-muted)]">—</span>
-      </Fact>
-      <Fact icon={<HardDrive className="h-4 w-4" aria-hidden="true" />} label="Úložiště">
+      </Metric>
+      <Metric
+        label="Úložiště"
+        icon={<HardDrive className="h-3.5 w-3.5" aria-hidden="true" />}
+      >
         <span className="text-[var(--text-muted)]">—</span>
-      </Fact>
-      <Fact icon={<CloudSun className="h-4 w-4" aria-hidden="true" />} label="Počasí">
+      </Metric>
+      <Metric
+        label="Počasí"
+        icon={<CloudSun className="h-3.5 w-3.5" aria-hidden="true" />}
+      >
         <span className="text-[var(--text-muted)]">—</span>
-      </Fact>
+      </Metric>
     </>
   );
 }
@@ -477,128 +545,122 @@ function AreaMapSkeleton({ site }: { site: SiteRow }) {
   const bounds = siteBounds(site);
   return (
     <div
-      className="animate-pulse rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]"
+      className="animate-pulse border border-[var(--line)] bg-[var(--surface-2)]"
       style={{ aspectRatio: bounds ? String(boundsAspectRatio(bounds)) : "16 / 10" }}
       aria-hidden="true"
     />
   );
 }
 
-function Fact({
-  icon,
-  label,
-  children,
-}: {
-  icon: ReactNode;
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex items-baseline gap-2 text-sm">
-      <span className="text-[var(--text-muted)]" aria-hidden="true">
-        {icon}
-      </span>
-      <dt className="text-[var(--text-muted)]">{label}</dt>
-      <dd className="min-w-0 truncate">{children}</dd>
-    </div>
-  );
-}
-
+/**
+ * Varování. Oranžová je táž jako Sky Construction na webu — v portálu
+ * má jediný význam: vyžaduje pozornost.
+ */
 function Warnings({ items }: { items: Warning[] }) {
   return (
-    <div
-      role="alert"
-      className="rounded-[var(--radius-card)] border border-[var(--warning)]/40 bg-[var(--warning)]/10 p-3.5"
-    >
+    <Section role="alert" className="relative bg-[var(--warning)]/[0.05]">
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-0 left-0 w-[3px] bg-[var(--warning)]"
+      />
       <div className="flex items-center gap-2 text-[var(--warning)]">
-        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-        <h2 className="text-sm font-medium">Vyžaduje pozornost</h2>
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <h2 className="text-[11px] font-medium uppercase tracking-[0.14em]">
+          Vyžaduje pozornost
+        </h2>
       </div>
-      <ul className="mt-1.5 space-y-1 text-sm text-[var(--warning)]">
+      <ul className="mt-3 space-y-2 text-sm leading-relaxed text-[var(--text-dim)]">
         {items.map((item) => (
-          <li key={item.key}>{item.text}</li>
+          <li key={item.key} className="flex gap-2.5">
+            <span
+              aria-hidden="true"
+              className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-[var(--warning)]"
+            />
+            {item.text}
+          </li>
         ))}
       </ul>
-    </div>
+    </Section>
   );
 }
 
-/** Čísla za dnešek. Vedle sebe, ne dlaždice. */
+/** Čísla za dnešek jako mřížka buněk, ne dlaždice s mezerami. */
 function Numbers({
   counts,
 }: {
   counts: { detections: number; dispatches: number; suppressed: number; flights: number };
 }) {
+  const cells = [
+    { label: "Detekcí", value: counts.detections, muted: false },
+    { label: "Zásahů", value: counts.dispatches, muted: false },
+    { label: "Potlačených", value: counts.suppressed, muted: true },
+    { label: "Letů", value: counts.flights, muted: false },
+  ];
+
   return (
-    <Card className="p-4">
-      <h2 className="text-sm font-medium text-[var(--text-muted)]">Dnes</h2>
-      <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-        <Stat label="detekcí" value={counts.detections} />
-        <Stat label="zásahů" value={counts.dispatches} />
-        <Stat label="z toho potlačených" value={counts.suppressed} muted />
-        <Stat label="letů" value={counts.flights} />
-      </dl>
-    </Card>
+    <>
+      <Section className="pb-0 sm:pb-0">
+        <BlockTitle className="mb-0">Dnes</BlockTitle>
+      </Section>
+      <div className="hairline-grid grid-cols-2">
+        {cells.map((cell) => (
+          <div key={cell.label} className="px-5 py-5 sm:px-6">
+            <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              {cell.label}
+            </div>
+            <div
+              className={`mt-2 text-3xl font-normal tabular-nums tracking-tight ${
+                cell.muted ? "text-[var(--text-muted)]" : "text-[var(--text)]"
+              }`}
+            >
+              {cell.value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
-/** Jedno číslo s popiskem. Nesmí se jmenovat Number — zastínilo by
- * globální Number(), který výš převádí složky data. */
-function Stat({
-  label,
-  value,
-  muted,
-}: {
-  label: string;
-  value: number;
-  muted?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <dd
-        className={`text-xl font-semibold tabular-nums ${muted ? "text-[var(--text-muted)]" : ""}`}
-      >
-        {value}
-      </dd>
-      <dt className="text-sm text-[var(--text-muted)]">{label}</dt>
-    </div>
-  );
-}
-
+/**
+ * Poslední události jako seznam řádků dělených vlasovou linkou —
+ * stejný vzor jako seznam otázek na webu. Svislá spojnice mezi
+ * ikonami tu byla dřív; v mřížce by konkurovala linkám, které nesou
+ * strukturu, takže zmizela.
+ */
 function Timeline({ events, timeZone }: { events: EventRow[]; timeZone: string }) {
   return (
-    <Card className="p-4">
-      <h2 className="text-sm font-medium text-[var(--text-muted)]">Poslední události</h2>
+    <>
+      <Section className="pb-0 sm:pb-0">
+        <BlockTitle className="mb-0">Poslední události</BlockTitle>
+      </Section>
+
       {events.length === 0 ? (
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
-          Na téhle lokalitě se zatím nic nestalo. Detekce a zásahy se objeví,
-          jakmile začne ingest posílat data.
-        </p>
+        <Section>
+          <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+            Na téhle lokalitě se zatím nic nestalo. Detekce a zásahy se objeví,
+            jakmile začne ingest posílat data.
+          </p>
+        </Section>
       ) : (
-        <ol className="mt-3 space-y-0">
-          {events.map((event, index) => (
-            <li key={event.id} className="relative flex gap-3 pb-3 last:pb-0">
-              {index < events.length - 1 ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute left-[15px] top-8 bottom-0 w-px bg-[var(--border)]"
-                />
-              ) : null}
-              <span className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)]">
-                {event.kind === "detection" ? (
-                  <ScanEye className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <Send className="h-4 w-4" aria-hidden="true" />
-                )}
-              </span>
+        <ol className="border-b border-[var(--line)]">
+          {events.map((event) => (
+            <li key={event.id} className="border-t border-[var(--line)]">
               <Link
                 href={event.href}
-                className="min-w-0 flex-1 rounded-lg px-2 py-1 -mx-2 transition hover:bg-[var(--surface-2)]"
+                className="flex items-center gap-4 px-5 py-4 transition hover:bg-[var(--surface-2)] sm:px-8"
               >
-                <span className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--line-strong)] text-[var(--text-muted)]">
+                  {event.kind === "detection" ? (
+                    <ScanEye className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Send className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm">
                   {event.label}
                 </span>
-                <span className="mt-0.5 block text-xs text-[var(--text-muted)]">
+                <span className="shrink-0 text-xs tabular-nums text-[var(--text-muted)]">
                   {formatDateTime(event.at, timeZone)}
                 </span>
               </Link>
@@ -606,6 +668,6 @@ function Timeline({ events, timeZone }: { events: EventRow[]; timeZone: string }
           ))}
         </ol>
       )}
-    </Card>
+    </>
   );
 }

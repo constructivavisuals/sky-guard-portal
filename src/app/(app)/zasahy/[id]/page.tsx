@@ -14,7 +14,11 @@ import {
 import type { ReactNode } from "react";
 
 import { DispatchOutcomeBadge, LevelBadge, ObjectClassBadge } from "@/components/badges.tsx";
-import { Card, EmptyState, IconBadge, PageHeader } from "@/components/ui.tsx";
+import {
+  EmptyState,
+  IconBadge,
+  PageHeader,
+} from "@/components/ui.tsx";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import {
   conditionsFromReason,
@@ -102,7 +106,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
   if (failed) {
     return (
       <>
-        <BackLink />
+        <BackLink href="/zasahy" label="Zásahy" />
         <PageHeader title="Detail zásahu" />
         <EmptyState
           icon={<Send className="h-5 w-5" aria-hidden="true" />}
@@ -142,7 +146,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
 
   return (
     <>
-      <BackLink />
+      <BackLink href="/zasahy" label="Zásahy" />
       <PageHeader
         title="Detail zásahu"
         description={`${orDash(site?.name)} · ${orDash(zone?.name)}`}
@@ -211,7 +215,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
               Zaznamenáno při rozhodování {formatDateTime(reason.decided_at, timeZone)}.
             </p>
           ) : (
-            <p className="mt-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]">
+            <p className="mt-3 border border-[var(--warning)]/40 bg-[var(--warning)]/[0.08] px-3 py-2 text-xs text-[var(--warning)]">
               Rekonstrukce. Tenhle zásah vznikl dřív, než se důvod začal
               ukládat, takže je dopočítaný z dnešních pravidel — pokud se
               mezitím změnila, nemusí odpovídat tomu, co se tehdy stalo.
@@ -253,7 +257,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
               <summary className="cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text)]">
                 Detail chyby
               </summary>
-              <pre className="mt-2 max-w-full overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-xs leading-relaxed text-[var(--text-muted)]">
+              <pre className="mt-2 max-w-full overflow-x-auto border border-[var(--line)] bg-[var(--bg)] p-3 font-mono text-xs leading-relaxed text-[var(--text-muted)]">
                 {JSON.stringify(dispatch.response, null, 2)}
               </pre>
             </details>
@@ -316,15 +320,17 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
   );
 }
 
-function BackLink() {
+function BackLink({ href, label }: { href: string; label: string }) {
   return (
-    <Link
-      href="/zasahy"
-      className="mb-4 inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] transition hover:text-[var(--text)]"
-    >
-      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-      Zpět na zásahy
-    </Link>
+    <div className="border-b border-[var(--line)] px-5 py-2.5 sm:px-8">
+      <Link
+        href={href}
+        className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)] transition hover:text-[var(--text)]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+        {label}
+      </Link>
+    </div>
   );
 }
 
@@ -351,7 +357,7 @@ function Step({
       {!last ? (
         <span
           aria-hidden="true"
-          className="absolute left-5 top-10 bottom-0 w-px bg-[var(--border)]"
+          className="absolute bottom-0 left-5 top-10 w-px bg-[var(--line)]"
         />
       ) : null}
 
@@ -359,7 +365,7 @@ function Step({
         <IconBadge tone="accent">{icon}</IconBadge>
       </div>
 
-      <Card className={`min-w-0 flex-1 p-4 ${muted ? "opacity-60" : ""}`}>
+      <div className={`min-w-0 flex-1 border border-[var(--line)] bg-[var(--surface)] p-4 ${muted ? "opacity-60" : ""}`}>
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h2 className="text-sm font-medium">{title}</h2>
           {time ? (
@@ -369,7 +375,7 @@ function Step({
           ) : null}
         </div>
         <div className="mt-3">{children}</div>
-      </Card>
+      </div>
     </li>
   );
 }

@@ -30,8 +30,9 @@ export interface FormState {
 
 export const EMPTY_FORM_STATE: FormState = { ok: false, errors: {}, attempt: 0 };
 
+// Pole je hranaté jako zbytek mřížky; kulaté jsou jen akce.
 const inputClass =
-  "w-full h-10 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] px-3 text-sm placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] aria-[invalid=true]:border-[var(--danger)]";
+  "w-full h-11 bg-[var(--surface-2)] border border-[var(--line-strong)] px-3.5 text-sm tracking-tight placeholder:text-[var(--text-muted)] focus:border-[var(--accent-bright)] focus:outline-none aria-[invalid=true]:border-[var(--danger)]";
 
 export function Field({
   label,
@@ -57,7 +58,7 @@ export function Field({
 
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium mb-1.5">
+      <label htmlFor={id} className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
         {label}
       </label>
       {children({
@@ -168,7 +169,7 @@ export function CheckboxField({
           name={name}
           type="checkbox"
           defaultChecked={defaultChecked}
-          className="h-4 w-4 rounded border-[var(--border)] bg-[var(--surface-2)] accent-[var(--accent)]"
+          className="h-4 w-4 border-[var(--line-strong)] bg-[var(--surface-2)] accent-[var(--accent-bright)]"
         />
         {label}
       </label>
@@ -201,12 +202,12 @@ export function WeekdayField({
 
   return (
     <fieldset>
-      <legend className="block text-sm font-medium mb-1.5">Dny střežení</legend>
+      <legend className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">Dny střežení</legend>
       <div className="flex flex-wrap gap-1.5">
         {days.map(([value, label]) => (
           <label
             key={value}
-            className="cursor-pointer select-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 h-9 inline-flex items-center text-sm transition has-checked:border-[var(--accent)] has-checked:bg-[var(--accent)] has-checked:text-white"
+            className="inline-flex h-9 cursor-pointer select-none items-center border border-[var(--line-strong)] bg-[var(--surface-2)] px-3 text-sm transition has-checked:border-[var(--accent-bright)] has-checked:bg-[var(--accent)] has-checked:text-white"
           >
             <input
               type="checkbox"
@@ -232,7 +233,7 @@ export function FormError({ error }: { error?: string }) {
   return (
     <p
       role="alert"
-      className="rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]"
+      className="border border-[var(--danger)]/40 bg-[var(--danger)]/[0.1] px-3.5 py-2.5 text-sm text-[var(--danger)]"
     >
       {error}
     </p>
@@ -286,15 +287,15 @@ export function FormDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-lg rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
+        className="w-full max-w-lg border border-[var(--line-strong)] bg-[var(--surface)] shadow-[0_24px_80px_rgba(0,0,0,0.7)]"
       >
-        <div className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 h-14">
-          <h2 className="font-medium">{title}</h2>
+        <div className="flex h-14 items-center justify-between gap-4 border-b border-[var(--line)] px-5">
+          <h2 className="text-sm font-medium tracking-tight">{title}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Zavřít"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+            className="inline-flex h-9 w-9 items-center justify-center text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>

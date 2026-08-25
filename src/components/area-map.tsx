@@ -49,7 +49,7 @@ export function AreaMap({
 }) {
   if (!imageUrl || !boundsAreUsable(bounds)) {
     return (
-      <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-8 text-center">
+      <div className="border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] p-8 text-center">
         <p className="text-sm text-[var(--text-muted)]">
           Lokalita nemá nahraný podklad areálu. Doplňte obrázek a souřadnice
           rohů v nastavení lokality.
@@ -89,7 +89,7 @@ export function AreaMap({
   return (
     <div>
       <div
-        className="relative overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]"
+        className="relative overflow-hidden border border-[var(--line-strong)] bg-[var(--surface-2)]"
         style={{ aspectRatio: String(boundsAspectRatio(bounds)) }}
       >
         {/* fill + objectFit: fill — podklad se musí roztáhnout přesně na
@@ -132,7 +132,7 @@ export function AreaMap({
                 className={
                   sector.muted
                     ? "fill-[var(--text-muted)]/10 stroke-[var(--text-muted)]/30"
-                    : "fill-[var(--accent)]/20 stroke-[var(--accent)]/50"
+                    : "fill-[var(--accent-bright)]/[0.16] stroke-[var(--accent-bright)]/60"
                 }
                 // Tloušťka je v metrech jako zbytek soustavy; bez toho
                 // by čára rostla s velikostí výřezu.
@@ -166,12 +166,12 @@ function Marker({
   position: { x: number; y: number };
 }) {
   const tone = point.muted
-    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]"
+    ? "border-[var(--line-strong)] bg-[var(--surface)] text-[var(--text-muted)]"
     : point.kind === "dock"
-      ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+      ? "border-[var(--accent-bright)] bg-[var(--accent)] text-white shadow-[var(--glow-accent)]"
       : point.kind === "camera"
-        ? "border-[var(--accent)] bg-[var(--surface)] text-[var(--accent)]"
-        : "border-[var(--success)] bg-[var(--success)] text-white";
+        ? "border-[var(--accent-bright)] bg-[var(--surface)] text-[var(--accent-bright)]"
+        : "border-[var(--success)] bg-[var(--success)] text-[#00291c]";
 
   const icon: ReactNode =
     point.kind === "dock" ? (

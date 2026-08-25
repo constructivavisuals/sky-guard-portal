@@ -1,14 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Figtree } from "next/font/google";
+import { DM_Sans } from "next/font/google";
 
 import { ServiceWorkerRegistration } from "@/components/service-worker.tsx";
 
 import "./globals.css";
 
 // Jediné místo, kde se mění písmo celé aplikace. Komponenty sahají na
-// --font-sans z globals.css, ne přímo na Figtree.
-const sans = Figtree({
-  variable: "--font-figtree",
+// --font-sans z globals.css, ne přímo na DM Sans.
+//
+// DM Sans je písmo z sky-guard.cz. Portál je jeho pokračování za
+// přihlášením, takže musí sedět i typograficky.
+const sans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin", "latin-ext"],
   display: "swap",
 });
@@ -38,7 +41,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#08090C",
+  themeColor: "#08070E",
   colorScheme: "dark",
   // Kvůli black-translucent stavovému řádku na iOS musí obsah sahat
   // pod výřez; odsazení si řeší layout přes safe-area.

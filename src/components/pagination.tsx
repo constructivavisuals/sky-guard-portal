@@ -34,14 +34,14 @@ export function Pagination({
   const last = Math.min(page * size, total);
 
   const linkClass =
-    "inline-flex h-9 items-center rounded-lg border border-[var(--border)] px-3 text-sm hover:bg-[var(--surface-2)] transition";
+    "inline-flex h-9 items-center rounded-[var(--radius-pill)] border border-[var(--line-strong)] px-4 text-[13px] tracking-tight transition hover:border-[var(--text-muted)] hover:bg-[var(--surface-2)]";
   const disabledClass =
-    "inline-flex h-9 items-center rounded-lg border border-[var(--border)] px-3 text-sm opacity-40 pointer-events-none";
+    "inline-flex h-9 items-center rounded-[var(--radius-pill)] border border-[var(--line)] px-4 text-[13px] tracking-tight opacity-40 pointer-events-none";
 
   return (
     <nav
       aria-label="Stránkování"
-      className="mt-4 flex items-center justify-between gap-4 text-sm"
+      className="flex flex-wrap items-center justify-between gap-4 border-t border-[var(--line)] px-5 py-4 text-[13px] sm:px-8"
     >
       <p className="text-[var(--text-muted)]">
         {first}–{last} z {total}

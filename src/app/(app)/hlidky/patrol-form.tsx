@@ -69,7 +69,7 @@ export function PatrolForm({
           type="button"
           onClick={show}
           aria-label={`Upravit hlídku ${patrol.name}`}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-transparent text-[var(--text-muted)] transition hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
         >
           <Pencil className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -259,7 +259,7 @@ function IntervalField({
         required
       />
       {tooShort ? (
-        <p className="mt-1 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]">
+        <p className="mt-1 border border-[var(--warning)]/40 bg-[var(--warning)]/[0.08] px-3 py-2 text-xs text-[var(--warning)]">
           Kratší odstup než {CHARGE_WARNING_MINUTES} minut nemusí stačit na
           nabití dronu. Hlídka se uloží, ale cron ji při nízké baterii
           přeskočí.

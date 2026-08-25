@@ -14,7 +14,12 @@ import {
 import type { ReactNode } from "react";
 
 import { ObjectClassBadge } from "@/components/badges.tsx";
-import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
+import {
+  BlockTitle,
+  EmptyState,
+  PageHeader,
+  Section,
+} from "@/components/ui.tsx";
 import {
   durationBetween,
   formatConfidence,
@@ -107,7 +112,7 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
   if (failed) {
     return (
       <>
-        <BackLink />
+        <BackLink href="/lety" label="Lety" />
         <PageHeader title="Detail letu" />
         <EmptyState
           icon={<Plane className="h-5 w-5" aria-hidden="true" />}
@@ -128,20 +133,20 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
 
   return (
     <>
-      <BackLink />
+      <BackLink href="/lety" label="Lety" />
       <PageHeader
         title="Detail letu"
         description={`${orDash(flight.sites?.name)} · ${FLIGHT_KIND_LABELS[flight.kind]}`}
         action={
-          <span className="inline-flex items-center rounded-full border border-[var(--border)] px-3 h-8 text-xs font-medium text-[var(--text-muted)]">
+          <span className="inline-flex items-center rounded-full border border-[var(--line)] px-3 h-8 text-xs font-medium text-[var(--text-muted)]">
             {FLIGHT_STATUS_LABELS[flight.status]}
           </span>
         }
       />
 
       <div className="space-y-4">
-        <Card className="p-5">
-          <h2 className="text-sm font-medium text-[var(--text-muted)]">Průběh</h2>
+        <Section>
+          <BlockTitle>Průběh</BlockTitle>
           <dl className="mt-4 space-y-2 text-sm">
             <Row label="Start">{formatDateTime(flight.started_at, timeZone)}</Row>
             <Row label="Konec">{formatDateTime(flight.ended_at, timeZone)}</Row>
@@ -155,12 +160,12 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
               </Row>
             ) : null}
           </dl>
-        </Card>
+        </Section>
 
-        <Card className="p-5">
+        <Section>
           <div className="flex items-center gap-2">
             <CloudSun className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
-            <h2 className="text-sm font-medium text-[var(--text-muted)]">Podmínky</h2>
+            <BlockTitle>Podmínky</BlockTitle>
           </div>
           {flight.conditions ? (
             <>
@@ -183,16 +188,16 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
               neodečítají vůbec.
             </p>
           )}
-        </Card>
+        </Section>
 
-        <Card className="p-5">
+        <Section>
           <div className="flex items-center gap-2">
             {flight.kind === "patrol" ? (
               <Route className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
             ) : (
               <Send className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
             )}
-            <h2 className="text-sm font-medium text-[var(--text-muted)]">Původ</h2>
+            <BlockTitle>Původ</BlockTitle>
           </div>
           <dl className="mt-4 space-y-2 text-sm">
             {flight.kind === "patrol" ? (
@@ -236,14 +241,12 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
               </Row>
             ) : null}
           </dl>
-        </Card>
+        </Section>
 
-        <Card className="p-5">
+        <Section>
           <div className="flex items-center gap-2">
             <ScanEye className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
-            <h2 className="text-sm font-medium text-[var(--text-muted)]">
-              Detekce za letu
-            </h2>
+            <BlockTitle>Detekce za letu</BlockTitle>
           </div>
           {detections.length === 0 ? (
             <p className="mt-3 text-sm text-[var(--text-muted)]">
@@ -270,15 +273,13 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
               })}
             </ul>
           )}
-        </Card>
+        </Section>
 
         {/* Trajektorie a média — místo v detailu, obsah přijde z DJI. */}
-        <Card className="p-5 opacity-60">
+        <Section className="opacity-60">
           <div className="flex items-center gap-2">
             <Images className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
-            <h2 className="text-sm font-medium text-[var(--text-muted)]">
-              Trajektorie a záznam
-            </h2>
+            <BlockTitle>Trajektorie a záznam</BlockTitle>
           </div>
           <p className="mt-3 text-sm text-[var(--text-muted)]">
             Trasa letu na mapě a pořízené snímky se doplní, až se budou
@@ -288,21 +289,23 @@ export default async function Page({ params }: PageProps<"/lety/[id]">) {
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
             Připravovaný krok
           </p>
-        </Card>
+        </Section>
       </div>
     </>
   );
 }
 
-function BackLink() {
+function BackLink({ href, label }: { href: string; label: string }) {
   return (
-    <Link
-      href="/lety"
-      className="mb-4 inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] transition hover:text-[var(--text)]"
-    >
-      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-      Zpět na lety
-    </Link>
+    <div className="border-b border-[var(--line)] px-5 py-2.5 sm:px-8">
+      <Link
+        href={href}
+        className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)] transition hover:text-[var(--text)]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+        {label}
+      </Link>
+    </div>
   );
 }
 

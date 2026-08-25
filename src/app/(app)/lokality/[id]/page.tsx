@@ -5,7 +5,12 @@ import { ArrowLeft, Cctv, Clock, MapPin, ShieldCheck, Warehouse } from "lucide-r
 import type { ReactNode } from "react";
 
 import { AreaMap } from "@/components/area-map.tsx";
-import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
+import {
+  BlockTitle,
+  EmptyState,
+  PageHeader,
+  Section,
+} from "@/components/ui.tsx";
 import { AREA_MAP_SITE_COLUMNS, loadAreaMap, type AreaMapData } from "@/lib/area-map-data.ts";
 import { formatArmedDays, formatArmedWindow, orDash, plural } from "@/lib/format.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
@@ -80,7 +85,7 @@ export default async function Page({ params }: PageProps<"/lokality/[id]">) {
   if (failed || !site) {
     return (
       <>
-        <BackLink />
+        <BackLink href="/lokality" label="Lokality" />
         <PageHeader title="Detail lokality" />
         <EmptyState
           icon={<MapPin className="h-5 w-5" aria-hidden="true" />}
@@ -93,7 +98,7 @@ export default async function Page({ params }: PageProps<"/lokality/[id]">) {
 
   return (
     <>
-      <BackLink />
+      <BackLink href="/lokality" label="Lokality" />
       <PageHeader
         title={site.name}
         description={orDash(site.address)}
@@ -119,69 +124,83 @@ export default async function Page({ params }: PageProps<"/lokality/[id]">) {
         }
       />
 
-      <div className="space-y-6">
-        <Card className="p-5">
-          <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">Areál</h2>
-          <AreaMap
-            imageUrl={map?.imageUrl ?? null}
-            bounds={map?.bounds ?? null}
-            points={map?.points ?? []}
-            siteName={site.name}
-          />
-        </Card>
-
-        <Card className="p-5">
-          <h2 className="text-sm font-medium text-[var(--text-muted)]">Lokalita</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            <Row icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Stav">
+      {/* Dva sloupce jako na přehledu: údaje vlevo, podklad vpravo.
+          Na celou šířku by mapa areálu vyšla nesmyslně velká. */}
+      <div className="lg:grid lg:grid-cols-2">
+        <div className="min-w-0 lg:border-r lg:border-[var(--line)]">
+          <Section>
+            <BlockTitle>Lokalita</BlockTitle>
+            <dl className="text-sm">
+            <Row icon={<ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />} label="Stav">
               {armed === null
                 ? "Stav neznámý"
                 : armed
                   ? "Právě střeženo"
                   : "Právě nestřeženo"}
             </Row>
-            <Row icon={<Clock className="h-4 w-4" aria-hidden="true" />} label="Okno střežení">
+            <Row icon={<Clock className="h-3.5 w-3.5" aria-hidden="true" />} label="Okno střežení">
               {formatArmedWindow(site.armed_from, site.armed_to)}
               <span className="text-[var(--text-muted)]">
                 {" · "}
                 {formatArmedDays(site.armed_days)}
               </span>
             </Row>
-            <Row icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Zóny">
+            <Row icon={<ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />} label="Zóny">
               <Link href="/zony" className="hover:underline">
                 {plural(site.zones[0]?.count ?? 0, "zóna", "zóny", "zón")}
               </Link>
             </Row>
-            <Row icon={<Cctv className="h-4 w-4" aria-hidden="true" />} label="Kamery">
+            <Row icon={<Cctv className="h-3.5 w-3.5" aria-hidden="true" />} label="Kamery">
               <Link href="/kamery" className="hover:underline">
                 {plural(site.cameras[0]?.count ?? 0, "kamera", "kamery", "kamer")}
               </Link>
             </Row>
             {/* Sériová čísla vidí jen admin, stejně jako u kamer. */}
             {admin ? (
-              <Row icon={<Warehouse className="h-4 w-4" aria-hidden="true" />} label="Dok">
+              <Row icon={<Warehouse className="h-3.5 w-3.5" aria-hidden="true" />} label="Dok">
                 <span className="font-mono text-xs">{orDash(site.dock_sn)}</span>
               </Row>
             ) : null}
-          </dl>
-        </Card>
+            </dl>
+          </Section>
+        </div>
+
+        <div className="flex min-w-0 flex-col">
+          <Section flush className="p-5 sm:p-6 lg:sticky lg:top-0">
+            <BlockTitle>Areál</BlockTitle>
+            <AreaMap
+              imageUrl={map?.imageUrl ?? null}
+              bounds={map?.bounds ?? null}
+              points={map?.points ?? []}
+              siteName={site.name}
+            />
+          </Section>
+          <div
+            aria-hidden="true"
+            className="hidden flex-1 rule-field lg:block"
+            style={{ "--col": "50%" } as React.CSSProperties}
+          />
+        </div>
       </div>
     </>
   );
 }
 
-function BackLink() {
+function BackLink({ href, label }: { href: string; label: string }) {
   return (
-    <Link
-      href="/lokality"
-      className="mb-4 inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] transition hover:text-[var(--text)]"
-    >
-      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-      Lokality
-    </Link>
+    <div className="border-b border-[var(--line)] px-5 py-2.5 sm:px-8">
+      <Link
+        href={href}
+        className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)] transition hover:text-[var(--text)]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+        {label}
+      </Link>
+    </div>
   );
 }
 
+/** Řádek údaje: popisek vlevo, hodnota vpravo, oddělené linkou. */
 function Row({
   icon,
   label,
@@ -192,12 +211,12 @@ function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[var(--text-muted)]" aria-hidden="true">
-        {icon}
-      </span>
-      <dt className="text-[var(--text-muted)]">{label}</dt>
-      <dd className="min-w-0">{children}</dd>
+    <div className="flex items-baseline justify-between gap-4 border-b border-[var(--line)] py-3 last:border-b-0">
+      <dt className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--text-muted)]">
+        <span aria-hidden="true">{icon}</span>
+        {label}
+      </dt>
+      <dd className="min-w-0 text-right">{children}</dd>
     </div>
   );
 }

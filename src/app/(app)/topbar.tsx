@@ -8,7 +8,7 @@ import { SiteSwitcher } from "./site-switcher.tsx";
  *
  * `unknown` je samostatný stav schválně: když se stav nepodaří zjistit
  * (nedostupná databáze, žádná lokalita), nesmí to vypadat stejně jako
- * ověřené „nestřeženo“. Obojí je šedé, ale popisek se liší.
+ * ověřené „nestřeženo“. Obojí je tlumené, ale popisek se liší.
  */
 export type GuardState = "armed" | "disarmed" | "alarm" | "unknown";
 
@@ -22,9 +22,9 @@ const GUARD_LABELS: Record<GuardState, string> = {
 function GuardBadge({ state }: { state: GuardState }) {
   const styles: Record<GuardState, string> = {
     armed:
-      "border-[var(--success)]/40 text-[var(--success)] bg-[var(--success)]/10",
-    disarmed: "border-[var(--border)] text-[var(--text-muted)]",
-    unknown: "border-[var(--border)] text-[var(--text-muted)]",
+      "border-[var(--success)]/40 text-[var(--success)] bg-[var(--success)]/[0.08]",
+    disarmed: "border-[var(--line-strong)] text-[var(--text-muted)]",
+    unknown: "border-[var(--line-strong)] text-[var(--text-muted)]",
     alarm:
       "border-[var(--danger)] text-white bg-[var(--danger)] shadow-[var(--glow-danger)]",
   };
@@ -33,15 +33,15 @@ function GuardBadge({ state }: { state: GuardState }) {
   // zůstává ve stromu pro odečítač i tehdy, když není vidět.
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-2 rounded-full border h-8 px-2 sm:px-3 text-xs font-semibold ${styles[state]}`}
+      className={`inline-flex h-7 shrink-0 items-center gap-2 rounded-[var(--radius-pill)] border px-2 text-[11px] font-medium uppercase tracking-[0.1em] sm:px-3 ${styles[state]}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
           state === "armed"
             ? "bg-[var(--success)]"
             : state === "alarm"
-              ? "bg-white animate-pulse"
-              : // nestřeženo i neznámý stav jsou šedé
+              ? "animate-pulse bg-white"
+              : // nestřeženo i neznámý stav jsou tlumené
                 "bg-[var(--text-muted)]"
         }`}
         aria-hidden="true"
@@ -63,8 +63,8 @@ export function Topbar({
   guardState: GuardState;
 }) {
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-3 sm:px-6">
-      <div className="flex items-center gap-1 sm:gap-3 min-w-0">
+    <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--bg)] px-4 sm:px-8">
+      <div className="flex min-w-0 items-center gap-3">
         {/* S jedinou lokalitou není z čeho vybírat — přepínač by
             nabízel „Všechny lokality“ a tutéž jednu. */}
         {siteOptions.length > 1 ? (
@@ -74,13 +74,12 @@ export function Topbar({
             label={siteName}
           />
         ) : (
-          <span className="truncate px-2 sm:px-3 text-sm font-medium">
+          <span className="truncate text-sm font-medium tracking-tight">
             {siteName}
           </span>
         )}
         <GuardBadge state={guardState} />
       </div>
-
     </header>
   );
 }

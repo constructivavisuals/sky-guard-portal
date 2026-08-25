@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { AlertCircle } from "lucide-react";
 
-import { Button, Card } from "@/components/ui.tsx";
+import { Button } from "@/components/ui.tsx";
 import { createClient } from "@/lib/supabase/client.ts";
 
 export function LoginForm() {
@@ -53,9 +53,9 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="p-8">
-      <h1 className="text-xl font-semibold tracking-tight">Přihlášení</h1>
-      <p className="mt-1 text-sm text-[var(--text-muted)]">
+    <div className="px-8 py-8">
+      <h1 className="text-2xl font-normal tracking-tight">Přihlášení</h1>
+      <p className="mt-1.5 text-sm text-[var(--text-muted)]">
         Přístup jen pro pověřené osoby.
       </p>
 
@@ -84,9 +84,9 @@ export function LoginForm() {
         {error ? (
           <p
             role="alert"
-            className="flex items-start gap-2 text-sm text-[var(--danger)]"
+            className="flex items-start gap-2 border border-[var(--danger)]/40 bg-[var(--danger)]/[0.08] px-3 py-2.5 text-sm text-[var(--danger)]"
           >
-            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {error}
           </p>
         ) : null}
@@ -95,7 +95,7 @@ export function LoginForm() {
           {pending ? "Přihlašuji…" : "Přihlásit se"}
         </Button>
       </form>
-    </Card>
+    </div>
   );
 }
 
@@ -116,7 +116,7 @@ function Field({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium mb-1.5">
+      <label htmlFor={id} className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
         {label}
       </label>
       <input
@@ -127,7 +127,7 @@ function Field({
         autoComplete={autoComplete}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full h-11 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] px-3 text-sm placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+        className="h-11 w-full border border-[var(--line-strong)] bg-[var(--surface-2)] px-3.5 text-sm tracking-tight placeholder:text-[var(--text-muted)] focus:border-[var(--accent-bright)] focus:outline-none"
       />
     </div>
   );
