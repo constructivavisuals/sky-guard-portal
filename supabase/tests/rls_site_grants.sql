@@ -122,7 +122,7 @@ INSERT INTO dispatches (id, site_id, zone_id, level_sent, outcome, fh_incident_u
 
 -- Třetí let je bez dispatche (ruční mise) — nemá lokalitu, takže na něj
 -- podle flight_is_visible() dosáhne jen admin.
-INSERT INTO flights (id, dispatch_id, fh_task_id, status) VALUES
+INSERT INTO flights (id, dispatch_id, fh_task_uuid, status) VALUES
   ('00000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000041', 'task-1', 'completed'),
   ('00000000-0000-0000-0000-000000000052', '00000000-0000-0000-0000-000000000042', 'task-2', 'completed'),
   ('00000000-0000-0000-0000-000000000053', NULL, 'task-3', 'completed');

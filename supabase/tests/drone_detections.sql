@@ -80,7 +80,7 @@ INSERT INTO dispatches (id, site_id, zone_id, level_sent, outcome, fh_incident_u
   ('00000000-0000-0000-0000-000000000041', '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000011', 5, 'sent', 'incident-1');
 
-INSERT INTO flights (id, dispatch_id, fh_task_id, status) VALUES
+INSERT INTO flights (id, dispatch_id, fh_task_uuid, status) VALUES
   ('00000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000041', 'task-1', 'completed');
 
 -- Detekce, kterou pořídil dron za letu: bez kamery, bez zóny.
@@ -170,7 +170,7 @@ RESET ROLE;
 -- Se sloupcem site_id musí lokalitu dodat ten, kdo detekci zakládá —
 -- a od té chvíle se řídí grantem jako všechno ostatní. Je to změna
 -- chování, ne chyba: detekce teď svou lokalitu zná.
-INSERT INTO flights (id, dispatch_id, fh_task_id, status) VALUES
+INSERT INTO flights (id, dispatch_id, fh_task_uuid, status) VALUES
   ('00000000-0000-0000-0000-000000000052', NULL, 'task-sirota', 'completed');
 
 SELECT public.test_expect_rejected(

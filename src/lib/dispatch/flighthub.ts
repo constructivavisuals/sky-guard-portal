@@ -184,31 +184,23 @@ export async function listWaylines(): Promise<
   }
 }
 
+/**
+ * Odpověď má tvar `{ data: { list: [{ id, name }] } }` — uuid trasy je
+ * pod klíčem `id`, ne `wayline_uuid`. Ověřeno proti skutečnému API.
+ */
 function extractWaylines(body: unknown): Wayline[] {
-  const candidates: unknown[] = [];
-  const push = (value: unknown) => {
-    if (Array.isArray(value)) candidates.push(...value);
-  };
-
-  if (Array.isArray(body)) push(body);
-  if (typeof body === "object" && body !== null) {
-    const record = body as Record<string, unknown>;
-    push(record.list);
-    push(record.data);
-    const data = record.data;
-    if (typeof data === "object" && data !== null) {
-      const nested = data as Record<string, unknown>;
-      push(nested.list);
-      push(nested.records);
-    }
-  }
+  if (typeof body !== "object" || body === null) return [];
+  const data = (body as { data?: unknown }).data;
+  if (typeof data !== "object" || data === null) return [];
+  const list = (data as { list?: unknown }).list;
+  if (!Array.isArray(list)) return [];
 
   const out: Wayline[] = [];
-  for (const item of candidates) {
+  for (const item of list) {
     if (typeof item !== "object" || item === null) continue;
     const record = item as Record<string, unknown>;
-    const uuid = record.wayline_uuid ?? record.uuid ?? record.id;
-    const name = record.name ?? record.wayline_name ?? record.title;
+    const uuid = record.id;
+    const name = record.name;
     if (typeof uuid === "string" && uuid !== "") {
       out.push({ uuid, name: typeof name === "string" && name ? name : uuid });
     }
@@ -328,5 +320,104 @@ export async function createFlightTask(
       },
       ok: false,
     };
+  }
+}
+
+// ── Stav doku a dronu ────────────────────────────────────────────
+
+export interface DroneStatus {
+  online: boolean;
+  /** Nabití v procentech, null když ho API nehlásí. */
+  batteryPercent: number | null;
+}
+
+export type DeviceStatusResult =
+  | { ok: true; status: DroneStatus }
+  | { ok: false; message: string };
+
+/**
+ * Procenta baterie. Klíč se mezi verzemi API liší, takže se zkouší
+ * několik obvyklých — na rozdíl od tras, kde je tvar ověřený.
+ * Když se netrefíme, vrátí se null a cron let nezablokuje kvůli údaji,
+ * který neumí přečíst.
+ */
+function readBatteryPercent(drone: Record<string, unknown>): number | null {
+  const direct = drone.capacity_percent ?? drone.battery_percent;
+  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+
+  const battery = drone.battery;
+  if (typeof battery === "object" && battery !== null) {
+    const record = battery as Record<string, unknown>;
+    for (const key of ["capacity_percent", "percent", "remaining_percent"]) {
+      const value = record[key];
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+    }
+  }
+  return null;
+}
+
+/** Najde dok podle sériového čísla a vrátí stav dronu, který v něm sedí. */
+export async function getDroneStatus(
+  dockSn: string,
+): Promise<DeviceStatusResult> {
+  let config: FlightHubConfig;
+  try {
+    config = flightHubConfig();
+  } catch (error) {
+    return { ok: false, message: safeErrorMessage(error) };
+  }
+
+  try {
+    const response = await fetch(`${config.host}/openapi/v0.1/project/device`, {
+      headers: {
+        "X-User-Token": config.userToken,
+        "x-project-uuid": config.projectUuid,
+      },
+      signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { ok: false, message: `FlightHub odpověděl ${response.status}.` };
+    }
+
+    const body: unknown = await response.json();
+    const data =
+      typeof body === "object" && body !== null
+        ? (body as { data?: unknown }).data
+        : null;
+    const list =
+      typeof data === "object" && data !== null
+        ? (data as { list?: unknown }).list
+        : null;
+
+    if (!Array.isArray(list)) {
+      return { ok: false, message: "Odpověď nemá očekávaný tvar data.list." };
+    }
+
+    for (const item of list) {
+      if (typeof item !== "object" || item === null) continue;
+      const record = item as Record<string, unknown>;
+      const sn = record.sn ?? record.device_sn;
+      if (sn !== dockSn) continue;
+
+      const drone = record.drone;
+      if (typeof drone !== "object" || drone === null) {
+        return { ok: false, message: "Dok nehlásí připojený dron." };
+      }
+
+      const droneRecord = drone as Record<string, unknown>;
+      return {
+        ok: true,
+        status: {
+          online: droneRecord.device_online_status === true,
+          batteryPercent: readBatteryPercent(droneRecord),
+        },
+      };
+    }
+
+    return { ok: false, message: `Dok ${dockSn} není v projektu.` };
+  } catch (error) {
+    return { ok: false, message: safeErrorMessage(error) };
   }
 }

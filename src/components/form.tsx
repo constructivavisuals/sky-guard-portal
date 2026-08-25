@@ -91,6 +91,8 @@ export function TextField(props: {
   required?: boolean;
   placeholder?: string;
   inputMode?: "text" | "decimal" | "numeric";
+  /** Když je potřeba na hodnotu reagovat (živé varování u intervalu). */
+  onChange?: (value: string) => void;
 }) {
   const { type = "text", defaultValue, required, placeholder, inputMode } = props;
   return (
@@ -103,6 +105,11 @@ export function TextField(props: {
           placeholder={placeholder}
           inputMode={inputMode}
           defaultValue={defaultValue ?? ""}
+          onChange={
+            props.onChange
+              ? (event) => props.onChange?.(event.target.value)
+              : undefined
+          }
         />
       )}
     </Field>

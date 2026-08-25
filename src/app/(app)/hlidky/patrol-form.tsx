@@ -184,15 +184,9 @@ function PatrolDialog({
           defaultValue={keepDays(patrol?.days ?? [1, 2, 3, 4, 5])}
         />
 
-        <TextField
-          label="Interval mezi starty (min)"
-          name="interval_minutes"
-          type="number"
-          inputMode="numeric"
+        <IntervalField
           error={e.interval_minutes}
-          defaultValue={keep("interval_minutes", patrol?.interval_minutes ?? 60)}
-          hint="Časy se počítají v časovém pásmu lokality."
-          required
+          defaultValue={String(keep("interval_minutes", patrol?.interval_minutes ?? 60))}
         />
 
         <CheckboxField
@@ -210,5 +204,49 @@ function PatrolDialog({
         </div>
       </form>
     </FormDialog>
+  );
+}
+
+/** Pod touhle hranicí se dron nestihne mezi lety dobít. */
+const CHARGE_WARNING_MINUTES = 45;
+
+/**
+ * Interval s varováním u krátkých hodnot. Není to chyba — hlídku po
+ * 30 minutách si někdo nastavit může, jen se dron nemusí stihnout
+ * nabít a cron ho pak pro nízkou baterii přeskočí.
+ */
+function IntervalField({
+  error,
+  defaultValue,
+}: {
+  error?: string;
+  defaultValue: string;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  const minutes = Number.parseInt(value, 10);
+  const tooShort =
+    Number.isFinite(minutes) && minutes > 0 && minutes < CHARGE_WARNING_MINUTES;
+
+  return (
+    <div>
+      <TextField
+        label="Interval mezi starty (min)"
+        name="interval_minutes"
+        type="number"
+        inputMode="numeric"
+        error={error}
+        defaultValue={value}
+        onChange={setValue}
+        hint={error ? undefined : "Časy se počítají v časovém pásmu lokality."}
+        required
+      />
+      {tooShort ? (
+        <p className="mt-1 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]">
+          Kratší odstup než {CHARGE_WARNING_MINUTES} minut nemusí stačit na
+          nabití dronu. Hlídka se uloží, ale cron ji při nízké baterii
+          přeskočí.
+        </p>
+      ) : null}
+    </div>
   );
 }

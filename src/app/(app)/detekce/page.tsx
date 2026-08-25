@@ -29,7 +29,7 @@ interface DetectionRow {
   sites: { name: string; timezone: string } | null;
   cameras: { name: string } | null;
   zones: { name: string } | null;
-  flights: { id: string; fh_task_id: string | null } | null;
+  flights: { id: string; fh_task_uuid: string | null } | null;
   // Vazba dispatches.triggered_by_detection → detections.id je 1:N,
   // PostgREST proto vrací pole. Prakticky bývá nejvýš jeden.
   dispatches: { outcome: DispatchOutcome }[];
@@ -56,7 +56,7 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
       .select(
         "id, detected_at, source, object_class, confidence, location, " +
           "sites(name, timezone), cameras(name), zones(name), " +
-          "flights(id, fh_task_id), " +
+          "flights(id, fh_task_uuid), " +
           "dispatches!dispatches_triggered_by_detection_fkey(outcome)",
         { count: "exact" },
       )
@@ -154,8 +154,8 @@ function Where({ row }: { row: DetectionRow }) {
     return (
       <div className="min-w-0">
         <p className="truncate">
-          {row.flights?.fh_task_id
-            ? `Let ${row.flights.fh_task_id}`
+          {row.flights?.fh_task_uuid
+            ? `Let ${row.flights.fh_task_uuid}`
             : "Let bez označení"}
         </p>
         <p className="text-xs tabular-nums text-[var(--text-muted)]">

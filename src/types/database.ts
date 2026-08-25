@@ -296,7 +296,6 @@ export type Flight = {
   fh_task_uuid: string | null;
   /** null = let mimo portál (ruční mise, test z FlightHubu). */
   dispatch_id: string | null;
-  fh_task_id: string | null;
   started_at: string | null;
   ended_at: string | null;
   status: FlightStatus;

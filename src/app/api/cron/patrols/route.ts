@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
-import { createFlightTask } from "@/lib/dispatch/flighthub.ts";
+import { createFlightTask, getDroneStatus } from "@/lib/dispatch/flighthub.ts";
 import { patrolRunsBetween } from "@/lib/patrols/schedule.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 import type { IsoWeekday } from "@/types/database.ts";
@@ -24,6 +24,13 @@ const HORIZON_MINUTES = 10;
 
 /** Kolik smí FlightHub start odložit, než ho zahodí. */
 const LATEST_BEGIN_SLACK_MINUTES = 5;
+
+/**
+ * Pod tímhle nabitím se hlídka neplánuje. Dron by nemusel doletět
+ * a vracel by se do doku nedokončený, což je horší než hlídka
+ * vynechaná — na tu se aspoň dá reagovat.
+ */
+const MIN_BATTERY_PERCENT = 40;
 
 interface PatrolRow {
   id: string;
@@ -95,6 +102,9 @@ export async function GET(request: NextRequest): Promise<Response> {
       continue;
     }
 
+    // Stav dronu se ptáme až tady, tedy jednou na hlídku a jen když
+    // má dok sériové číslo. Kdyby se ptalo na začátku, volalo by se to
+    // i pro hlídky, které stejně nic neplánují.
     const runs = patrolRunsBetween(
       {
         window_from: patrol.window_from,
@@ -106,6 +116,44 @@ export async function GET(request: NextRequest): Promise<Response> {
       now,
       until,
     );
+
+    if (runs.length === 0) continue;
+
+    // Dron musí být online a nabitý. Kontroluje se před založením
+    // úlohy, ne po něm — naplánovaný let, na který dron nevyletí,
+    // vypadá v přehledu jako by proběhl.
+    const device = await getDroneStatus(site.dock_sn);
+    if (!device.ok) {
+      console.warn("Stav dronu se nepodařilo zjistit", {
+        patrol_id: patrol.id,
+        dock_sn: site.dock_sn,
+        message: device.message,
+      });
+      report.skipped += runs.length;
+      continue;
+    }
+
+    if (!device.status.online) {
+      console.warn("Hlídka přeskočena — dron je offline", {
+        patrol_id: patrol.id,
+        site: site.name,
+        dock_sn: site.dock_sn,
+      });
+      report.skipped += runs.length;
+      continue;
+    }
+
+    const battery = device.status.batteryPercent;
+    if (battery !== null && battery < MIN_BATTERY_PERCENT) {
+      console.warn("Hlídka přeskočena — nízká baterie", {
+        patrol_id: patrol.id,
+        site: site.name,
+        battery_percent: battery,
+        minimum: MIN_BATTERY_PERCENT,
+      });
+      report.skipped += runs.length;
+      continue;
+    }
 
     for (const beginAt of runs) {
       const iso = beginAt.toISOString();

@@ -64,7 +64,7 @@ SELECT public.test_expect_rejected('dvě hlídky téhož jména na lokalitě',
 
 -- ── Lety ─────────────────────────────────────────────────────────
 
-INSERT INTO flights (id, fh_task_id, status) VALUES
+INSERT INTO flights (id, fh_task_uuid, status) VALUES
   ('00000000-0000-0000-0000-000000000051', 'task-stary', 'completed');
 
 SELECT public.test_expect('stávající let má kind dispatch',
