@@ -59,6 +59,60 @@ function jsonError(status: number, error: string, detail?: unknown) {
   );
 }
 
+const CAMERA_BASE_COLUMNS =
+  "id, site_id, zone_id, serial_number, " +
+  "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)";
+
+/** Sloupce klíče přibyly migrací 20260829120000. */
+const CAMERA_KEY_COLUMNS =
+  "id, site_id, zone_id, serial_number, ingest_secret_hash, ingest_key_version, " +
+  "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)";
+
+/**
+ * Dohledá kameru; nejdřív se sloupci klíče, a když ta migrace ještě
+ * nedoběhla, znovu bez nich.
+ *
+ * Bez téhle záchytné větve stačí nasadit kód dřív než migraci
+ * a PostgREST odmítne celý dotaz kvůli neznámému sloupci — ingest by
+ * na každou detekci vrátil 500 a přestal přijímat cokoli. Kamera bez
+ * vlastního klíče se pak ověří společným INGEST_SECRET, což je přesně
+ * to, co dělá i kamera, které klíč zatím nikdo nevygeneroval.
+ */
+async function najitKameru(
+  db: ReturnType<typeof supabaseAdmin>,
+  serial: string,
+): Promise<{ camera: CameraLookupRow | null; error: string | null }> {
+  const sKlicem = await db
+    .from("cameras")
+    .select(CAMERA_KEY_COLUMNS)
+    .eq("serial_number", serial)
+    .maybeSingle<CameraLookupRow>();
+
+  if (!sKlicem.error) {
+    return { camera: sKlicem.data, error: null };
+  }
+
+  const bezKlice = await db
+    .from("cameras")
+    .select(CAMERA_BASE_COLUMNS)
+    .eq("serial_number", serial)
+    .maybeSingle<CameraLookupRow>();
+
+  if (bezKlice.error) {
+    return { camera: null, error: bezKlice.error.message };
+  }
+
+  console.warn(
+    "Sloupce ingest klíče v databázi chybí — ověřuji společným tajemstvím",
+  );
+  return {
+    camera: bezKlice.data
+      ? { ...bezKlice.data, ingest_secret_hash: null, ingest_key_version: 1 }
+      : null,
+    error: null,
+  };
+}
+
 /**
  * Ověření podpisu klíčem té kamery, za kterou se požadavek vydává.
  *
@@ -151,19 +205,14 @@ export async function POST(request: NextRequest): Promise<Response> {
   const { payload } = parsed;
   const db = supabaseAdmin();
 
-  const { data: camera, error: cameraError } = await db
-    .from("cameras")
-    .select(
-      "id, site_id, zone_id, serial_number, ingest_secret_hash, ingest_key_version, " +
-        "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)",
-    )
-    .eq("serial_number", payload.cameraSerial)
-    .maybeSingle<CameraLookupRow>();
+  const lookup = await najitKameru(db, payload.cameraSerial);
 
-  if (cameraError) {
-    console.error("Vyhledání kamery selhalo", { message: cameraError.message });
+  if (lookup.error) {
+    console.error("Vyhledání kamery selhalo", { message: lookup.error });
     return jsonError(500, "lookup_failed");
   }
+
+  const camera = lookup.camera;
 
   const check = verifyForCamera({
     rawBody,
