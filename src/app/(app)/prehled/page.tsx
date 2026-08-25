@@ -308,11 +308,11 @@ export default async function Page() {
       <div
         className={
           hasMap
-            ? "grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+            ? "grid items-start gap-4 lg:grid-cols-2"
             : ""
         }
       >
-        <div className="min-w-0 space-y-6">
+        <div className="min-w-0 space-y-4">
           <StatusBar
             site={site}
             armed={armed}
@@ -384,9 +384,9 @@ function StatusBar({
 
   return (
     <Card
-      className={`p-5 ${armed ? "border-[var(--success)]/40" : ""}`}
+      className={`p-4 ${armed ? "border-[var(--success)]/40" : ""}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2.5">
         <span
           className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
             armed ? "bg-[var(--success)]" : "bg-[var(--text-muted)]"
@@ -401,7 +401,7 @@ function StatusBar({
             ) : null}
           </p>
 
-          <dl className="mt-4 grid gap-x-8 gap-y-2 sm:grid-cols-2">
+          <dl className="mt-3 grid gap-y-1.5">
             <Fact icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Dron">
               {dock
                 ? dock.droneInDock
@@ -436,11 +436,11 @@ function StatusBar({
           </dl>
 
           {dockError ? (
-            <p className="mt-3 text-xs text-[var(--text-muted)]">
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
               Stav doku se nepodařilo načíst: {dockError}
             </p>
           ) : dock && dockAgeMs > 5_000 ? (
-            <p className="mt-3 text-xs text-[var(--text-muted)]">
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
               Stav doku odečtený před {Math.round(dockAgeMs / 1000)} s.
             </p>
           ) : null}
@@ -474,13 +474,13 @@ function Warnings({ items }: { items: Warning[] }) {
   return (
     <div
       role="alert"
-      className="rounded-[var(--radius-card)] border border-[var(--warning)]/40 bg-[var(--warning)]/10 p-4"
+      className="rounded-[var(--radius-card)] border border-[var(--warning)]/40 bg-[var(--warning)]/10 p-3.5"
     >
       <div className="flex items-center gap-2 text-[var(--warning)]">
         <AlertTriangle className="h-4 w-4" aria-hidden="true" />
         <h2 className="text-sm font-medium">Vyžaduje pozornost</h2>
       </div>
-      <ul className="mt-2 space-y-1 text-sm text-[var(--warning)]">
+      <ul className="mt-1.5 space-y-1 text-sm text-[var(--warning)]">
         {items.map((item) => (
           <li key={item.key}>{item.text}</li>
         ))}
@@ -496,9 +496,9 @@ function Numbers({
   counts: { detections: number; dispatches: number; suppressed: number; flights: number };
 }) {
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <h2 className="text-sm font-medium text-[var(--text-muted)]">Dnes</h2>
-      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-3">
+      <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
         <Stat label="detekcí" value={counts.detections} />
         <Stat label="zásahů" value={counts.dispatches} />
         <Stat label="z toho potlačených" value={counts.suppressed} muted />
@@ -533,17 +533,17 @@ function Stat({
 
 function Timeline({ events, timeZone }: { events: EventRow[]; timeZone: string }) {
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <h2 className="text-sm font-medium text-[var(--text-muted)]">Poslední události</h2>
       {events.length === 0 ? (
-        <p className="mt-3 text-sm text-[var(--text-muted)]">
+        <p className="mt-2 text-sm text-[var(--text-muted)]">
           Na téhle lokalitě se zatím nic nestalo. Detekce a zásahy se objeví,
           jakmile začne ingest posílat data.
         </p>
       ) : (
-        <ol className="mt-4 space-y-0">
+        <ol className="mt-3 space-y-0">
           {events.map((event, index) => (
-            <li key={event.id} className="relative flex gap-3 pb-4 last:pb-0">
+            <li key={event.id} className="relative flex gap-3 pb-3 last:pb-0">
               {index < events.length - 1 ? (
                 <span
                   aria-hidden="true"
