@@ -42,6 +42,7 @@ export function Shell({
           siteOptions={siteOptions}
           selectedSiteId={selectedSiteId}
           guardState={guardState}
+          profile={profile}
         />
         <main className="flex flex-1 flex-col lg:overflow-y-auto">
           {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg

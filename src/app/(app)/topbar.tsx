@@ -1,3 +1,4 @@
+import { isOperator, type CurrentProfile } from "@/lib/profile.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
 import { SiteSwitcher } from "./site-switcher.tsx";
@@ -56,18 +57,27 @@ export function Topbar({
   siteOptions,
   selectedSiteId,
   guardState,
+  profile,
 }: {
   siteName: string;
   siteOptions: SiteOption[];
   selectedSiteId: string | null;
   guardState: GuardState;
+  profile: CurrentProfile | null;
 }) {
+  // Admin a operátor přepínač mají vždycky — i s jedinou lokalitou
+  // potřebují volbu „Všechny lokality“, protože pracují napříč areály
+  // a bez ní by se k nefiltrovanému pohledu nedostali.
+  //
+  // Klientovi s jedinou lokalitou by nabízel jeho areál a „všechny“,
+  // což je totéž; pro něj tam zůstává jen název. S víc lokalitami ho
+  // dostane taky, jinak by mezi nimi neměl jak přepnout.
+  const showSwitcher = isOperator(profile) || siteOptions.length > 1;
+
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--bg)] px-4 sm:px-8">
       <div className="flex min-w-0 items-center gap-3">
-        {/* S jedinou lokalitou není z čeho vybírat — přepínač by
-            nabízel „Všechny lokality“ a tutéž jednu. */}
-        {siteOptions.length > 1 ? (
+        {showSwitcher ? (
           <SiteSwitcher
             sites={siteOptions}
             selectedId={selectedSiteId}

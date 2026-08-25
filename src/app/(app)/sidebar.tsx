@@ -138,13 +138,18 @@ function UserBlock({ profile }: { profile: CurrentProfile }) {
         </span>
 
         <div className="min-w-0 flex-1">
+          {/* Jméno, když ho profil má, jinak celý e-mail. Dřív se
+              ořezával na šířku panelu, takže z „info@sky-guard.cz“
+              zbyl kus bez významu — a to je jediné, podle čeho člověk
+              pozná, pod kým je přihlášený. Radši dva řádky než půlka
+              slova; break-words láme i adresu bez mezer. */}
           <p
-            className="truncate text-[13px] tracking-tight"
+            className="break-words text-[13px] leading-snug tracking-tight"
             title={profile.email ?? undefined}
           >
-            {profile.email ?? "Bez e-mailu"}
+            {profile.fullName ?? profile.email ?? "Bez e-mailu"}
           </p>
-          <p className="truncate text-[11px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
+          <p className="mt-0.5 truncate text-[11px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
             {USER_ROLE_LABELS[profile.role]}
           </p>
         </div>

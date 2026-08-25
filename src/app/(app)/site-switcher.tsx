@@ -88,7 +88,16 @@ function Option({
   onSubmit: () => void;
 }) {
   return (
-    <form action={selectSite} onSubmit={onSubmit}>
+    // Akce se obaluje, aby se menu zavřelo AŽ po jejím doběhnutí.
+    // Zavírání v onSubmit odpojilo formulář dřív, než React stihl
+    // serverovou akci odeslat — nabídka se zavřela, cookie se
+    // nenastavila a vypadalo to, že přepnutí nic nedělá.
+    <form
+      action={async (formData: FormData) => {
+        await selectSite(formData);
+        onSubmit();
+      }}
+    >
       <input type="hidden" name="siteId" value={siteId} />
       <button
         type="submit"
