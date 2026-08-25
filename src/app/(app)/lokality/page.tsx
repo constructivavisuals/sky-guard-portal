@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Cctv, Clock, MapPin, ShieldCheck } from "lucide-react";
 
 import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
@@ -145,7 +146,11 @@ function SiteCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-medium truncate">{site.name}</h2>
+          <h2 className="font-medium truncate">
+            <Link href={`/lokality/${site.id}`} className="hover:underline">
+              {site.name}
+            </Link>
+          </h2>
           <p className="mt-0.5 text-sm text-[var(--text-muted)] truncate">
             {orDash(site.address)}
           </p>

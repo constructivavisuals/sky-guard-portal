@@ -185,6 +185,15 @@ export type Site = {
   armed_days: IsoWeekday[];
   /** Minimální odstup mezi zásahy; kratší → outcome suppressed_cooldown. */
   cooldown_seconds: number;
+  /**
+   * Statický podklad areálu a jeho rohy. Migrace 20260828120000.
+   * Buď je vyplněná celá čtveřice rohů, nebo žádný — hlídá CHECK.
+   */
+  map_image_url: string | null;
+  map_nw_lat: number | null;
+  map_nw_lon: number | null;
+  map_se_lat: number | null;
+  map_se_lon: number | null;
   created_at: string;
   updated_at: string;
 };

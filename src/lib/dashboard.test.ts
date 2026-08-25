@@ -12,6 +12,8 @@ const ZDRAVY: DockState = {
   storageUsedPercent: 30,
   remainUpload: 0,
   conditions: null,
+  latitude: 50.3305,
+  longitude: 15.4256,
 };
 
 describe("dockWarnings", () => {

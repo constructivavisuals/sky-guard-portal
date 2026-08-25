@@ -349,6 +349,9 @@ export interface DockState {
   remainUpload: number | null;
   /** Odečet počasí z doku; ukládá se k letu. */
   conditions: FlightConditions | null;
+  /** Kde dok stojí. Kreslí se z toho bod na podkladu areálu. */
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export type DockStateResult =
@@ -375,6 +378,7 @@ function record(value: unknown): Record<string, unknown> | null {
  *   device_state.storage.total / .used
  *   device_state.media_file_detail.remain_upload
  *   device_state.wind_speed / .rainfall / .environment_temperature
+ *   device_state.latitude / .longitude
  */
 export async function getDockState(dockSn: string): Promise<DockStateResult> {
   let config: FlightHubConfig;
@@ -453,6 +457,8 @@ export async function getDockState(dockSn: string): Promise<DockStateResult> {
       storageUsedPercent,
       remainUpload: numberOrNull(media?.remain_upload),
       conditions,
+      latitude: numberOrNull(deviceState.latitude),
+      longitude: numberOrNull(deviceState.longitude),
     },
   };
 }

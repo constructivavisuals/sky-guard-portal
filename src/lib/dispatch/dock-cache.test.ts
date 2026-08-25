@@ -14,6 +14,8 @@ const OK: DockStateResult = {
     storageUsedPercent: 30,
     remainUpload: 0,
     conditions: null,
+    latitude: 50.3305,
+    longitude: 15.4256,
   },
 };
 

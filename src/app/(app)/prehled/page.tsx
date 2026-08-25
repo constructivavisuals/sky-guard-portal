@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { AreaMap } from "@/components/area-map.tsx";
 import { DispatchOutcomeShortBadge, ObjectClassBadge } from "@/components/badges.tsx";
 import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
 import {
@@ -22,6 +23,11 @@ import {
   type PatrolHealth,
   type Warning,
 } from "@/lib/dashboard.ts";
+import {
+  AREA_MAP_SITE_COLUMNS,
+  loadAreaMap,
+  type AreaMapData,
+} from "@/lib/area-map-data.ts";
 import { getDockStateCached } from "@/lib/dispatch/dock-cache.ts";
 import type { DockState } from "@/lib/dispatch/flighthub.ts";
 import {
@@ -51,6 +57,11 @@ interface SiteRow {
   armed_from: string;
   armed_to: string;
   armed_days: IsoWeekday[];
+  map_image_url: string | null;
+  map_nw_lat: number | null;
+  map_nw_lon: number | null;
+  map_se_lat: number | null;
+  map_se_lon: number | null;
 }
 
 interface PatrolRow {
@@ -108,6 +119,7 @@ export default async function Page() {
   let armed = false;
   let counts = { detections: 0, dispatches: 0, suppressed: 0, flights: 0 };
   let events: EventRow[] = [];
+  let map: AreaMapData | null = null;
   let failed = false;
 
   try {
@@ -115,7 +127,9 @@ export default async function Page() {
 
     const { data: siteRow, error: siteError } = await supabase
       .from("sites")
-      .select("id, name, timezone, dock_sn, armed_from, armed_to, armed_days")
+      .select(
+        `id, name, timezone, dock_sn, armed_from, armed_to, armed_days, ${AREA_MAP_SITE_COLUMNS}`,
+      )
       .eq("id", selected.id)
       .maybeSingle<SiteRow>();
 
@@ -222,6 +236,15 @@ export default async function Page() {
       if (cached.result.ok) dock = cached.result.state;
       else dockError = cached.result.message;
     }
+
+    if (site) {
+      // Dok už načtený je; předává se, aby se jeho stav nečetl podruhé.
+      map = await loadAreaMap(supabase, site, {
+        dockLocation: dock
+          ? { latitude: dock.latitude, longitude: dock.longitude }
+          : null,
+      });
+    }
   } catch {
     failed = true;
   }
@@ -274,6 +297,20 @@ export default async function Page() {
         />
 
         {warnings.length > 0 ? <Warnings items={warnings} /> : null}
+
+        {map?.imageUrl ? (
+          <Card className="p-5">
+            <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
+              Areál
+            </h2>
+            <AreaMap
+              imageUrl={map.imageUrl}
+              bounds={map.bounds}
+              points={map.points}
+              siteName={site.name}
+            />
+          </Card>
+        ) : null}
 
         <Numbers counts={counts} />
 
