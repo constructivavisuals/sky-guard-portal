@@ -75,6 +75,9 @@ run_test_file function_grants.sql
 echo "== zpevnění ingestu =="
 run_test_file ingest_hardening.sql
 
+echo "== evidence vjezdů =="
+run_test_file vehicle_passages.sql
+
 echo "== kontrola seedu Vysoké Veselí =="
 run_test_file seed_vysoke_veseli.sql
 
