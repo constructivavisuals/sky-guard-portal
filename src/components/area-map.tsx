@@ -1,7 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
-import { Cctv, Radar, Warehouse } from "lucide-react";
-import type { ReactNode } from "react";
 
 import {
   boundsAreUsable,
@@ -10,8 +7,13 @@ import {
   fieldOfViewDegrees,
   projectPoint,
   sectorPath,
+  type AreaMapPoint,
   type MapBounds,
 } from "@/lib/area-map.ts";
+
+import { AreaMapMarkers } from "./area-map-markers.tsx";
+
+export type { AreaMapPoint };
 
 // Statický podklad areálu s body.
 //
@@ -20,21 +22,6 @@ import {
 // obrázek podle poměru stran oříznul nebo zvětšil a body by se rozešly
 // s tím, co je pod nimi vidět.
 
-export interface AreaMapPoint {
-  id: string;
-  latitude: number;
-  longitude: number;
-  label: string;
-  kind: "dock" | "zone" | "camera";
-  /** Vypnutá zóna nebo offline kamera se kreslí utlumeně. */
-  muted?: boolean;
-  href?: string;
-  /** Kam kamera kouká. Bez azimutu se kreslí jen bod bez výseče. */
-  azimuth?: number | null;
-  /** Ohnisko v mm; zorný úhel se z něj dopočítává. */
-  focalMm?: number | null;
-  rangeM?: number | null;
-}
 
 export function AreaMap({
   imageUrl,
@@ -125,26 +112,44 @@ export function AreaMap({
             preserveAspectRatio="none"
             aria-hidden="true"
           >
+            {/* Každá výseč se kreslí dvakrát: nejdřív tmavý obrys, pak
+                světlý přes něj. Samotná světlá čára mizela na bílých
+                střechách, samotná tmavá v zeleni — přes sebe drží
+                kontrast na obojím. Tloušťky jsou v metrech jako zbytek
+                soustavy, jinak by čára rostla s velikostí výřezu. */}
+            {sectors.map((sector) => (
+              <path
+                key={`${sector.id}-obrys`}
+                d={sector.path}
+                fill="none"
+                className="stroke-black/70"
+                strokeWidth={2.4}
+                strokeLinejoin="round"
+              />
+            ))}
             {sectors.map((sector) => (
               <path
                 key={sector.id}
                 d={sector.path}
                 className={
                   sector.muted
-                    ? "fill-[var(--text-muted)]/10 stroke-[var(--text-muted)]/30"
-                    : "fill-[var(--accent-bright)]/[0.16] stroke-[var(--accent-bright)]/60"
+                    ? "fill-[var(--accent-bright)]/[0.14] stroke-[var(--accent-bright)]/80"
+                    : "fill-[var(--accent-bright)]/35 stroke-[var(--accent-bright)]"
                 }
-                // Tloušťka je v metrech jako zbytek soustavy; bez toho
-                // by čára rostla s velikostí výřezu.
-                strokeWidth={0.5}
+                strokeWidth={1.1}
+                strokeLinejoin="round"
+                // Kamera, která nehlásí, má týž záběr — jen o něm nikdo
+                // neví jistě. Čárkovaně, ne jinou barvou: modrá na
+                // podkladu znamená pokrytí kamerou a nemá mít dva
+                // významy. Teď jsou navíc offline všechny, takže by
+                // jiná barva neodlišila nic.
+                strokeDasharray={sector.muted ? "3 2" : undefined}
               />
             ))}
           </svg>
         ) : null}
 
-        {placed.map(({ point, position }) => (
-          <Marker key={point.id} point={point} position={position} />
-        ))}
+        <AreaMapMarkers placed={placed} />
       </div>
 
       {skipped > 0 ? (
@@ -155,72 +160,5 @@ export function AreaMap({
         </p>
       ) : null}
     </div>
-  );
-}
-
-function Marker({
-  point,
-  position,
-}: {
-  point: AreaMapPoint;
-  position: { x: number; y: number };
-}) {
-  const tone = point.muted
-    ? "border-[var(--line-strong)] bg-[var(--surface)] text-[var(--text-muted)]"
-    : point.kind === "dock"
-      ? "border-[var(--accent-bright)] bg-[var(--accent)] text-white shadow-[var(--glow-accent)]"
-      : point.kind === "camera"
-        ? "border-[var(--accent-bright)] bg-[var(--surface)] text-[var(--accent-bright)]"
-        : "border-[var(--success)] bg-[var(--success)] text-[#00291c]";
-
-  const icon: ReactNode =
-    point.kind === "dock" ? (
-      <Warehouse className="h-3.5 w-3.5" aria-hidden="true" />
-    ) : point.kind === "camera" ? (
-      <Cctv className="h-3.5 w-3.5" aria-hidden="true" />
-    ) : (
-      <Radar className="h-3.5 w-3.5" aria-hidden="true" />
-    );
-
-  const body = (
-    <>
-      <span
-        className={`inline-flex h-6 w-6 items-center justify-center rounded-full border-2 shadow-lg ${tone}`}
-      >
-        {icon}
-      </span>
-      <span className="pointer-events-none absolute left-1/2 top-7 -translate-x-1/2 whitespace-nowrap rounded bg-black/75 px-1.5 py-0.5 text-[10px] text-white">
-        {point.label}
-      </span>
-    </>
-  );
-
-  // -translate-*: souřadnice určuje střed bodu, ne jeho levý horní roh.
-  const style = {
-    left: `${position.x * 100}%`,
-    top: `${position.y * 100}%`,
-  } as const;
-
-  if (point.href) {
-    return (
-      <Link
-        href={point.href}
-        style={style}
-        aria-label={point.label}
-        className="absolute -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-110 focus-visible:scale-110"
-      >
-        {body}
-      </Link>
-    );
-  }
-
-  return (
-    <span
-      style={style}
-      className="absolute -translate-x-1/2 -translate-y-1/2"
-      aria-label={point.label}
-    >
-      {body}
-    </span>
   );
 }

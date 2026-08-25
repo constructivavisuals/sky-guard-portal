@@ -3,8 +3,7 @@
 // Zóny a kamery jdou z databáze přes RLS, dok z FlightHubu (přes 60s
 // cache, aby se stav doku nečetl dvakrát na jedné obrazovce).
 
-import type { MapBounds } from "@/lib/area-map.ts";
-import type { AreaMapPoint } from "@/components/area-map.tsx";
+import type { AreaMapPoint, MapBounds } from "@/lib/area-map.ts";
 import { getDockStateCached } from "@/lib/dispatch/dock-cache.ts";
 import { parsePointEwkbHex } from "@/lib/geo.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -69,6 +68,11 @@ export async function loadAreaMap(
     .returns<{ id: string; name: string; location: string | null; enabled: boolean }[]>();
 
   for (const zone of zones ?? []) {
+    // Vypnutá zóna se nekreslí vůbec. Detekce z ní zásah nespustí,
+    // takže na mapě střežení nemá co dělat — utlumený bod by jen
+    // přidával šum k tomu, co se doopravdy hlídá.
+    if (!zone.enabled) continue;
+
     const at = parsePointEwkbHex(zone.location);
     if (!at) continue;
     points.push({
@@ -77,7 +81,6 @@ export async function loadAreaMap(
       longitude: at.longitude,
       label: zone.name,
       kind: "zone",
-      muted: !zone.enabled,
       href: "/zony",
     });
   }

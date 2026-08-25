@@ -22,6 +22,23 @@ export interface MapBounds {
   seLon: number;
 }
 
+/** Bod na podkladu areálu. */
+export interface AreaMapPoint {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+  kind: "dock" | "zone" | "camera";
+  /** Offline kamera se kreslí utlumeně. */
+  muted?: boolean;
+  href?: string;
+  /** Kam kamera kouká. Bez azimutu se kreslí jen bod bez výseče. */
+  azimuth?: number | null;
+  /** Ohnisko v mm; zorný úhel se z něj dopočítává. */
+  focalMm?: number | null;
+  rangeM?: number | null;
+}
+
 export interface MapPosition {
   /** Podíl šířky rámečku, 0 vlevo. */
   x: number;
