@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server.ts";
 import {
   databaseErrorToFieldErrors,
   parseCameraForm,
+  parsePatrolForm,
   parseSiteForm,
   parseZoneForm,
   type FieldErrors,
@@ -144,6 +145,34 @@ export async function saveCamera(
   const { error } = id
     ? await supabase.from("cameras").update(parsed.value).eq("id", id)
     : await supabase.from("cameras").insert(parsed.value);
+
+  if (error)
+    return { ...failed(error.message, error.code), values: snapshot(data), attempt };
+
+  revalidatePath("/", "layout");
+  return { ok: true, errors: {}, attempt };
+}
+
+// ── Hlídky ───────────────────────────────────────────────────────
+
+export async function savePatrol(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  const attempt = (_prev.attempt ?? 0) + 1;
+  if (!(await requireAdmin()))
+    return { ...DENIED, values: snapshot(data), attempt };
+
+  const parsed = parsePatrolForm(data);
+  if (!parsed.ok)
+    return { ok: false, errors: parsed.errors, values: snapshot(data), attempt };
+
+  const id = String(data.get("id") ?? "");
+  const supabase = await createClient();
+
+  const { error } = id
+    ? await supabase.from("patrols").update(parsed.value).eq("id", id)
+    : await supabase.from("patrols").insert(parsed.value);
 
   if (error)
     return { ...failed(error.message, error.code), values: snapshot(data), attempt };

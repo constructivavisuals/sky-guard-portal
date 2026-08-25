@@ -11,9 +11,10 @@ export const config = {
     /*
      * Vše kromě statických assetů a ingest API.
      *
-     * /api/ingest/* má vlastní autentizaci HMAC podpisem — kamery
-     * nemají session cookie a middleware by je odkláněl na /login.
+     * /api/ingest/* má vlastní autentizaci HMAC podpisem a /api/cron/*
+     * sdílené tajemství od Vercelu — ani jedno nemá session cookie
+     * a middleware by je odkláněl na /login.
      */
-    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|api/ingest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|api/ingest|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Plane,
   Radar,
+  Route,
   ScanEye,
   Send,
   Settings,
@@ -29,6 +30,7 @@ const PRIMARY = [
 ] as const;
 
 const SECONDARY = [
+  { href: "/hlidky", label: "Hlídky", icon: Route },
   { href: "/lokality", label: "Lokality", icon: MapPin },
   { href: "/zony", label: "Zóny", icon: Radar },
   { href: "/kamery", label: "Kamery", icon: Cctv },

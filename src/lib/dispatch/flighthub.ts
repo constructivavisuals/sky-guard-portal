@@ -138,3 +138,195 @@ export async function triggerWorkflow(
     };
   }
 }
+
+// ── Trasy a plánované úlohy ──────────────────────────────────────
+
+export interface Wayline {
+  uuid: string;
+  name: string;
+}
+
+/**
+ * Seznam tras z FlightHubu pro výběr ve formuláři hlídky.
+ *
+ * Tvar odpovědi z API neznáme napevno, takže se čte obranně: hledá se
+ * pole objektů s uuid a jménem pod několika obvyklými klíči. Když se
+ * netrefíme, vrátí se prázdno a formulář to řekne — lepší než spadnout.
+ */
+export async function listWaylines(): Promise<
+  { ok: true; waylines: Wayline[] } | { ok: false; message: string }
+> {
+  let config: FlightHubConfig;
+  try {
+    config = flightHubConfig();
+  } catch (error) {
+    return { ok: false, message: safeErrorMessage(error) };
+  }
+
+  try {
+    const response = await fetch(`${config.host}/openapi/v0.1/wayline`, {
+      headers: {
+        "X-User-Token": config.userToken,
+        "x-project-uuid": config.projectUuid,
+      },
+      signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { ok: false, message: `FlightHub odpověděl ${response.status}.` };
+    }
+
+    const body: unknown = await response.json();
+    return { ok: true, waylines: extractWaylines(body) };
+  } catch (error) {
+    return { ok: false, message: safeErrorMessage(error) };
+  }
+}
+
+function extractWaylines(body: unknown): Wayline[] {
+  const candidates: unknown[] = [];
+  const push = (value: unknown) => {
+    if (Array.isArray(value)) candidates.push(...value);
+  };
+
+  if (Array.isArray(body)) push(body);
+  if (typeof body === "object" && body !== null) {
+    const record = body as Record<string, unknown>;
+    push(record.list);
+    push(record.data);
+    const data = record.data;
+    if (typeof data === "object" && data !== null) {
+      const nested = data as Record<string, unknown>;
+      push(nested.list);
+      push(nested.records);
+    }
+  }
+
+  const out: Wayline[] = [];
+  for (const item of candidates) {
+    if (typeof item !== "object" || item === null) continue;
+    const record = item as Record<string, unknown>;
+    const uuid = record.wayline_uuid ?? record.uuid ?? record.id;
+    const name = record.name ?? record.wayline_name ?? record.title;
+    if (typeof uuid === "string" && uuid !== "") {
+      out.push({ uuid, name: typeof name === "string" && name ? name : uuid });
+    }
+  }
+  return out;
+}
+
+export interface FlightTaskInput {
+  name: string;
+  /** Sériové číslo DOCKU, ne dronu. */
+  dockSn: string;
+  waylineUuid: string;
+  timeZone: string;
+  /** Kdy má let začít. */
+  beginAt: Date;
+  /** Dokdy se smí start odložit. */
+  latestBeginAt: Date;
+}
+
+export interface FlightTaskResult {
+  taskUuid: string | null;
+  httpStatus: number | null;
+  response: Json;
+  ok: boolean;
+}
+
+/** Vytáhne UUID úlohy z odpovědi, ať má jakýkoli tvar. */
+function readTaskUuid(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const record = body as Record<string, unknown>;
+  const direct = record.task_uuid;
+  if (typeof direct === "string" && direct) return direct;
+
+  const data = record.data;
+  if (typeof data === "object" && data !== null) {
+    const nested = data as Record<string, unknown>;
+    for (const key of ["task_uuid", "uuid", "id"]) {
+      const value = nested[key];
+      if (typeof value === "string" && value) return value;
+    }
+  }
+  return null;
+}
+
+/** Naplánuje let po trase. Protějšek triggerWorkflow pro hlídky. */
+export async function createFlightTask(
+  input: FlightTaskInput,
+): Promise<FlightTaskResult> {
+  let config: FlightHubConfig;
+  try {
+    config = flightHubConfig();
+  } catch (error) {
+    return {
+      taskUuid: null,
+      httpStatus: null,
+      response: { error: "configuration_error", message: safeErrorMessage(error) },
+      ok: false,
+    };
+  }
+
+  const body = {
+    name: input.name,
+    // sn je dock, ne dron — dron se odvozuje od doku na straně DJI.
+    sn: input.dockSn,
+    wayline_uuid: input.waylineUuid,
+    time_zone: input.timeZone,
+    rth_altitude: 100,
+    rth_mode: "optimal",
+    wayline_precision_type: "gps",
+    out_of_control_action_in_flight: "return_home",
+    resumable_status: "auto",
+    task_type: "timed",
+    begin_at: Math.floor(input.beginAt.getTime() / 1000),
+    latest_begin_at: Math.floor(input.latestBeginAt.getTime() / 1000),
+  };
+
+  try {
+    const response = await fetch(`${config.host}/openapi/v0.1/flight-task`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Token": config.userToken,
+        "x-project-uuid": config.projectUuid,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
+    });
+
+    const text = await response.text();
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = { non_json_body: text.slice(0, 2_000) };
+    }
+
+    const taskUuid = readTaskUuid(parsed);
+    return {
+      taskUuid,
+      httpStatus: response.status,
+      response: (parsed ?? {}) as Json,
+      // Za naplánovaný se let počítá jen s potvrzeným UUID — HTTP 200
+      // s chybovým kódem v těle je pořád selhání.
+      ok: response.ok && taskUuid !== null,
+    };
+  } catch (error) {
+    const timedOut =
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+    return {
+      taskUuid: null,
+      httpStatus: null,
+      response: {
+        error: timedOut ? "timeout" : "network_error",
+        message: safeErrorMessage(error),
+        timeout_ms: FLIGHTHUB_TIMEOUT_MS,
+      },
+      ok: false,
+    };
+  }
+}

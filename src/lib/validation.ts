@@ -267,6 +267,9 @@ export function databaseErrorToFieldErrors(
   if (message.includes("idx_zones_site_name")) {
     return { name: "Zóna s tímto názvem na lokalitě už existuje." };
   }
+  if (message.includes("idx_patrols_site_name")) {
+    return { name: "Hlídka s tímto názvem na lokalitě už existuje." };
+  }
   if (message.includes("idx_cameras_site_name")) {
     return { name: "Kamera s tímto názvem na lokalitě už existuje." };
   }
@@ -274,4 +277,72 @@ export function databaseErrorToFieldErrors(
     return { serial_number: "Kamera s tímto sériovým číslem už existuje." };
   }
   return { _form: "Hodnota už je obsazená jiným záznamem." };
+}
+
+// ── Hlídka ───────────────────────────────────────────────────────
+
+export interface PatrolFormValue {
+  site_id: string;
+  name: string;
+  wayline_uuid: string;
+  enabled: boolean;
+  window_from: string;
+  window_to: string;
+  days: IsoWeekday[];
+  interval_minutes: number;
+}
+
+export function parsePatrolForm(data: FormData): Validated<PatrolFormValue> {
+  const errors: FieldErrors = {};
+
+  const siteId = text(data, "site_id");
+  if (!UUID.test(siteId)) errors.site_id = "Vyberte lokalitu.";
+
+  const name = text(data, "name");
+  if (!name) errors.name = "Zadejte název hlídky.";
+  else if (name.length > 200) errors.name = "Název je delší než 200 znaků.";
+
+  const wayline = text(data, "wayline_uuid");
+  if (!wayline) errors.wayline_uuid = "Vyberte trasu.";
+
+  const from = text(data, "window_from");
+  const to = text(data, "window_to");
+  if (!TIME.test(from)) errors.window_from = "Zadejte čas ve tvaru HH:MM.";
+  if (!TIME.test(to)) errors.window_to = "Zadejte čas ve tvaru HH:MM.";
+  if (!errors.window_from && !errors.window_to && from === to) {
+    errors.window_to = "Začátek a konec se nesmí shodovat, okno by nikdy neplatilo.";
+  }
+
+  const days = data
+    .getAll("days")
+    .map((value) => Number.parseInt(String(value), 10))
+    .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7);
+  const uniqueDays = [...new Set(days)].sort((a, b) => a - b) as IsoWeekday[];
+  if (uniqueDays.length === 0) errors.days = "Vyberte alespoň jeden den.";
+
+  const intervalRaw = text(data, "interval_minutes");
+  const interval = Number.parseInt(intervalRaw, 10);
+  if (intervalRaw === "" || !Number.isInteger(interval)) {
+    errors.interval_minutes = "Zadejte interval v minutách.";
+  } else if (interval < 1) {
+    errors.interval_minutes = "Interval musí být aspoň minuta.";
+  } else if (interval > 1440) {
+    errors.interval_minutes = "Interval delší než den nedává smysl.";
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    value: {
+      site_id: siteId,
+      name,
+      wayline_uuid: wayline,
+      enabled: data.get("enabled") !== null,
+      window_from: from.length === 5 ? `${from}:00` : from,
+      window_to: to.length === 5 ? `${to}:00` : to,
+      days: uniqueDays,
+      interval_minutes: interval,
+    },
+  };
 }

@@ -46,6 +46,9 @@ export const FLIGHT_STATUSES = [
 ] as const;
 export type FlightStatus = (typeof FLIGHT_STATUSES)[number];
 
+export const FLIGHT_KINDS = ["patrol", "dispatch"] as const;
+export type FlightKind = (typeof FLIGHT_KINDS)[number];
+
 export const MEDIA_KINDS = ["photo", "video"] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
@@ -88,6 +91,11 @@ export const FLIGHT_STATUS_LABELS: Record<FlightStatus, string> = {
   completed: "Dokončen",
   aborted: "Přerušen",
   failed: "Chyba",
+};
+
+export const FLIGHT_KIND_LABELS: Record<FlightKind, string> = {
+  patrol: "Hlídka",
+  dispatch: "Zásah",
 };
 
 export const MEDIA_KIND_LABELS: Record<MediaKind, string> = {
@@ -261,8 +269,31 @@ export type Dispatch = {
   created_at: string;
 };
 
+/** Pravidelná hlídka. Migrace 20260826120000. */
+export type Patrol = {
+  id: string;
+  site_id: string;
+  name: string;
+  /** Trasa ve FlightHubu; opaque string, ne validované UUID. */
+  wayline_uuid: string;
+  enabled: boolean;
+  /** `HH:MM:SS`. window_from > window_to = okno přes půlnoc. */
+  window_from: string;
+  window_to: string;
+  days: IsoWeekday[];
+  interval_minutes: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Flight = {
   id: string;
+  /** Hlídka podle plánu, nebo zásah z detekce. */
+  kind: FlightKind;
+  /** Vyplněné u letů hlídky. */
+  patrol_id: string | null;
+  /** UUID úlohy z FlightHubu, jedinečné. */
+  fh_task_uuid: string | null;
   /** null = let mimo portál (ruční mise, test z FlightHubu). */
   dispatch_id: string | null;
   fh_task_id: string | null;
@@ -323,7 +354,8 @@ export type DispatchInsert = Insertable<
   Dispatch,
   "site_id" | "zone_id" | "level_sent" | "outcome"
 >;
-export type FlightInsert = Insertable<Flight, never>;
+export type PatrolInsert = Insertable<Patrol, "site_id" | "name" | "wayline_uuid">;
+export type FlightInsert = Insertable<Flight, "kind">;
 export type MediaInsert = Insertable<Media, "flight_id" | "kind" | "r2_key">;
 export type SiteGrantInsert = Insertable<SiteGrant, "profile_id" | "site_id">;
 export type AuditLogInsert = Insertable<AuditLogEntry, "action">;
@@ -351,6 +383,7 @@ export type Database = {
       detections: TableShape<Detection, DetectionInsert, Updatable<Detection>>;
       dispatches: TableShape<Dispatch, DispatchInsert, Updatable<Dispatch>>;
       flights: TableShape<Flight, FlightInsert, Updatable<Flight>>;
+      patrols: TableShape<Patrol, PatrolInsert, Updatable<Patrol>>;
       media: TableShape<Media, MediaInsert, Updatable<Media>>;
       site_grants: TableShape<SiteGrant, SiteGrantInsert, Updatable<SiteGrant>>;
       // audit_log je append-only (hlídá DB trigger), proto prázdný Update.
@@ -378,6 +411,7 @@ export type Database = {
       detection_source: DetectionSource;
       dispatch_outcome: DispatchOutcome;
       flight_status: FlightStatus;
+      flight_kind: FlightKind;
       media_kind: MediaKind;
     };
   };
