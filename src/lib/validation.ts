@@ -1,8 +1,10 @@
 import {
   CAMERA_STATUSES,
+  USER_ROLES,
   type CameraStatus,
   type DispatchLevel,
   type IsoWeekday,
+  type UserRole,
 } from "../types/database.ts";
 
 // Validace formulářů. Čisté funkce nad FormData, aby šly testovat bez
@@ -283,6 +285,100 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
       longitude,
       azimuth,
       status: status as CameraStatus,
+    },
+  };
+}
+
+// ── Klient ───────────────────────────────────────────────────────
+
+export interface ClientFormValue {
+  email: string;
+  full_name: string | null;
+  company_name: string | null;
+  role: UserRole;
+  /** Lokality, na které klient uvidí. */
+  site_ids: string[];
+}
+
+/**
+ * Nejkratší přijímané heslo.
+ *
+ * Supabase pouští od šesti znaků; deset je vědomě přísnější, protože
+ * hesla tady zakládá administrátor pro někoho jiného a to svádí ke
+ * krátkým „dočasným“ heslům, která pak zůstanou napořád.
+ */
+export const MIN_PASSWORD_LENGTH = 10;
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** Heslo zvlášť: zakládá se s klientem, ale mění se i samostatně. */
+export function parsePassword(
+  raw: string,
+  field = "password",
+): Validated<string> {
+  if (raw === "") {
+    return { ok: false, errors: { [field]: "Zadejte heslo." } };
+  }
+  if (raw.length < MIN_PASSWORD_LENGTH) {
+    return {
+      ok: false,
+      errors: {
+        [field]: `Heslo musí mít aspoň ${MIN_PASSWORD_LENGTH} znaků.`,
+      },
+    };
+  }
+  if (raw.length > 72) {
+    // bcrypt delší heslo tiše useknе — radši ho odmítnout hned.
+    return { ok: false, errors: { [field]: "Heslo je delší než 72 znaků." } };
+  }
+  return { ok: true, value: raw };
+}
+
+export function parseClientForm(data: FormData): Validated<ClientFormValue> {
+  const errors: FieldErrors = {};
+
+  const email = text(data, "email").toLowerCase();
+  if (!email) errors.email = "Zadejte e-mail.";
+  else if (!EMAIL.test(email)) errors.email = "Tohle není platný e-mail.";
+  else if (email.length > 320) errors.email = "E-mail je nesmyslně dlouhý.";
+
+  const fullName = optionalText(data, "full_name");
+  if (fullName && fullName.length > 200) {
+    errors.full_name = "Jméno je delší než 200 znaků.";
+  }
+
+  const company = optionalText(data, "company_name");
+  if (company && company.length > 200) {
+    errors.company_name = "Název firmy je delší než 200 znaků.";
+  }
+
+  const role = text(data, "role");
+  if (!(USER_ROLES as readonly string[]).includes(role)) {
+    errors.role = "Vyberte roli.";
+  }
+
+  // Zaškrtávátka lokalit: nezaškrtnuté se ve FormData vůbec neobjeví.
+  const siteIds = data
+    .getAll("site_ids")
+    .filter((value): value is string => typeof value === "string");
+  if (siteIds.some((id) => !UUID.test(id))) {
+    errors.site_ids = "Neplatná lokalita.";
+  }
+
+  // Klient bez jediné lokality portál otevře a neuvidí nic. Není to
+  // chyba — třeba se teprve zakládá — ale admin to má vědět, tak se
+  // to hlásí u pole jako upozornění na straně UI, ne jako chyba tady.
+
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    value: {
+      email,
+      full_name: fullName,
+      company_name: company,
+      role: role as UserRole,
+      site_ids: [...new Set(siteIds)],
     },
   };
 }

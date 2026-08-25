@@ -71,6 +71,15 @@ END $$;
 -- Nové funkce mají EXECUTE pro PUBLIC už z výchozího nastavení, ale
 -- explicitně to nezávisí na tom, jak má projekt nastavená default
 -- privileges.
+CREATE FUNCTION public.test_expect_rejected_any(label TEXT, stmt TEXT)
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE stmt;
+  RAISE EXCEPTION 'FAIL  % — prošlo, ačkoli mělo být odmítnuto', label;
+EXCEPTION
+  WHEN check_violation THEN RAISE NOTICE 'ok    % — odmítnuto omezením', label;
+END $$;
+
 GRANT EXECUTE ON FUNCTION public.test_expect(TEXT, BIGINT, BIGINT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.test_expect_denied(TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.test_expect_no_effect(TEXT, TEXT) TO authenticated;
@@ -223,6 +232,28 @@ SELECT public.test_expect('po odebrání grantu: sites',      (SELECT count(*) F
 SELECT public.test_expect('po odebrání grantu: detections', (SELECT count(*) FROM detections), 0);
 
 RESET ROLE;
+
+-- ── Klientský profil: firma a logo (migrace 20260830120000) ─────
+
+SELECT test_expect_rejected_any('do logo_path nejde uložit URL', $sql$
+  UPDATE profiles SET logo_path = 'https://example.com/logo.png'
+   WHERE id = '00000000-0000-0000-0000-0000000000a1'
+$sql$);
+
+SELECT test_expect_rejected_any('prázdný název firmy neprojde', $sql$
+  UPDATE profiles SET company_name = ''
+   WHERE id = '00000000-0000-0000-0000-0000000000a1'
+$sql$);
+
+UPDATE profiles
+   SET company_name = 'Kralupy Development', logo_path = 'a1/logo.png'
+ WHERE id = '00000000-0000-0000-0000-0000000000a1';
+
+SELECT test_expect('cesta k logu i firma se uloží',
+  (SELECT count(*) FROM profiles
+    WHERE id = '00000000-0000-0000-0000-0000000000a1'
+      AND company_name = 'Kralupy Development'
+      AND logo_path = 'a1/logo.png'), 1);
 
 DO $$ BEGIN RAISE NOTICE 'VŠECHNY TESTY PROŠLY'; END $$;
 

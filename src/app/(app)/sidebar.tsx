@@ -12,10 +12,12 @@ import {
   Radar,
   Cctv,
   Settings,
+  Users,
   LogOut,
 } from "lucide-react";
 
 import { Logo } from "@/components/logo.tsx";
+import { logoUrl } from "@/lib/logo.ts";
 import type { CurrentProfile } from "@/lib/profile.ts";
 import { profileInitial } from "@/lib/profile.ts";
 import { USER_ROLE_LABELS } from "@/types/database.ts";
@@ -32,6 +34,18 @@ export const NAV_ITEMS = [
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
+/**
+ * Položky jen pro administrátora.
+ *
+ * Skrytí v UI není bezpečnost — na /klienti stojí zámek v samotné
+ * stránce (notFound pro neadmina) a na akcích, které sahají na Admin
+ * API. Tohle jen uklízí navigaci klientovi, který by tam stejně
+ * neprošel.
+ */
+const ADMIN_ITEMS = [
+  { href: "/klienti", label: "Klienti", icon: Users },
+] as const;
+
 export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
   const pathname = usePathname();
 
@@ -45,12 +59,33 @@ export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
         <Logo />
       </div>
 
+      {/* Logo klienta pod tím naším. Portál je jeho, ne náš katalog —
+          a zároveň je hned vidět, za koho je člověk přihlášený. */}
+      {profile?.logoPath ? (
+        <div className="flex items-center gap-3 border-b border-[var(--line)] px-6 py-4">
+          {/* Obyčejný <img>: adresa vzniká za běhu z proměnné prostředí,
+              takže by next/image potřeboval remotePatterns pro doménu,
+              která se mezi prostředími liší. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={logoUrl(profile.logoPath) ?? ""}
+            alt={profile.companyName ? `Logo ${profile.companyName}` : ""}
+            className="h-8 w-8 shrink-0 object-contain"
+          />
+          {profile.companyName ? (
+            <span className="truncate text-[13px] tracking-tight text-[var(--text-dim)]">
+              {profile.companyName}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* Položky jsou řádky dělené vlasovou linkou, ne odsazené
           pilulky — stejný rytmus jako seznamy na webu. Aktivní řádek
           drží svislý pruh v akcentu; záře patří primární akci
           a poplachu, ne navigaci. */}
       <ul className="flex-1 overflow-y-auto">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {[...NAV_ITEMS, ...(profile?.role === "admin" ? ADMIN_ITEMS : [])].map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <li key={href} className="border-b border-[var(--line)]">

@@ -157,6 +157,14 @@ export type Profile = {
   email: string | null;
   full_name: string | null;
   role: UserRole;
+  /** Firma, za kterou klient portál používá. Migrace 20260830120000. */
+  company_name: string | null;
+  /**
+   * Cesta k logu v bucketu `loga`, ne URL. Adresu skládá
+   * `logoUrl()` v lib/logo.ts — kdyby se uložila celá, po změně
+   * domény projektu by loga zmizela.
+   */
+  logo_path: string | null;
   created_at: string;
   updated_at: string;
 };

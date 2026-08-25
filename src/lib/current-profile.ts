@@ -25,7 +25,7 @@ export const getCurrentProfile = cache(async function getCurrentProfile(): Promi
 
     const { data } = await supabase
       .from("profiles")
-      .select("id, email, full_name, role")
+      .select("id, email, full_name, role, company_name, logo_path")
       .eq("id", userId)
       .maybeSingle();
 
@@ -38,6 +38,8 @@ export const getCurrentProfile = cache(async function getCurrentProfile(): Promi
         email: claimEmail,
         fullName: null,
         role: "viewer",
+        companyName: null,
+        logoPath: null,
       };
     }
 
@@ -49,6 +51,8 @@ export const getCurrentProfile = cache(async function getCurrentProfile(): Promi
       email: data.email ?? claimEmail,
       fullName: data.full_name,
       role: data.role,
+      companyName: data.company_name,
+      logoPath: data.logo_path,
     };
   } catch {
     return null;

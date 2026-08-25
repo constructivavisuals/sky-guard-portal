@@ -5,6 +5,8 @@ import {
   databaseErrorToFieldErrors,
   isValidTimeZone,
   parseCameraForm,
+  parseClientForm,
+  parsePassword,
   parseSiteForm,
   parseZoneForm,
 } from "./validation.ts";
@@ -305,5 +307,94 @@ describe("databaseErrorToFieldErrors", () => {
     const raw = 'duplicate key value violates unique constraint "idx_sites_name"';
     const e = databaseErrorToFieldErrors(raw, "23505");
     assert.equal(Object.values(e).some((m) => m.includes("duplicate key")), false);
+  });
+});
+
+describe("parsePassword", () => {
+  it("dost dlouhé heslo projde", () => {
+    const r = parsePassword("dostdlouhe1");
+    assert.ok(r.ok);
+    if (r.ok) assert.equal(r.value, "dostdlouhe1");
+  });
+
+  it("krátké heslo neprojde", () => {
+    const r = parsePassword("kratke");
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.errors.password, /10 znaků/);
+  });
+
+  it("prázdné heslo neprojde", () => {
+    assert.equal(parsePassword("").ok, false);
+  });
+
+  it("heslo delší než 72 znaků neprojde — bcrypt by ho usekl", () => {
+    assert.equal(parsePassword("a".repeat(73)).ok, false);
+    assert.equal(parsePassword("a".repeat(72)).ok, true);
+  });
+
+  it("chyba se dá klíčovat jiným polem", () => {
+    const r = parsePassword("x", "new_password");
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.ok(r.errors.new_password);
+  });
+});
+
+describe("parseClientForm", () => {
+  const valid = {
+    email: "Klient@Example.CZ",
+    full_name: "Josef Novák",
+    company_name: "Stavby s.r.o.",
+    role: "viewer",
+  };
+
+  it("platný vstup projde a e-mail se zmenší", () => {
+    const r = parseClientForm(form(valid));
+    assert.ok(r.ok);
+    assert.equal(r.value.email, "klient@example.cz");
+    assert.equal(r.value.role, "viewer");
+    assert.deepEqual(r.value.site_ids, []);
+  });
+
+  it("prázdné jméno i firma jsou null, ne prázdný řetězec", () => {
+    const r = parseClientForm(
+      form({ ...valid, full_name: "", company_name: "" }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.full_name, null);
+    assert.equal(r.value.company_name, null);
+  });
+
+  const bad: [string, Record<string, string>, string][] = [
+    ["chybí e-mail", { email: "" }, "email"],
+    ["e-mail bez zavináče", { email: "klient.example.cz" }, "email"],
+    ["e-mail bez domény", { email: "klient@example" }, "email"],
+    ["neznámá role", { role: "superadmin" }, "role"],
+    ["chybí role", { role: "" }, "role"],
+  ];
+
+  for (const [name, override, field] of bad) {
+    it(`${name} → chyba u ${field}`, () => {
+      const r = parseClientForm(form({ ...valid, ...override }));
+      assert.equal(r.ok, false);
+      if (!r.ok) assert.ok(r.errors[field]);
+    });
+  }
+
+  it("lokality se přebírají a duplicity se slučují", () => {
+    const data = form(valid);
+    data.append("site_ids", SITE_ID);
+    data.append("site_ids", SITE_ID);
+    data.append("site_ids", ZONE_ID);
+    const r = parseClientForm(data);
+    assert.ok(r.ok);
+    assert.deepEqual(r.value.site_ids.sort(), [SITE_ID, ZONE_ID].sort());
+  });
+
+  it("nesmyslná lokalita → chyba", () => {
+    const data = form(valid);
+    data.append("site_ids", "abc");
+    const r = parseClientForm(data);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.ok(r.errors.site_ids);
   });
 });

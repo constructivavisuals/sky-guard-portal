@@ -16,6 +16,9 @@ export interface CurrentProfile {
   email: string | null;
   fullName: string | null;
   role: UserRole;
+  /** Firma klienta a cesta k jeho logu. Migrace 20260830120000. */
+  companyName: string | null;
+  logoPath: string | null;
 }
 
 /** Administrátor portálu. Protějšek SQL funkce is_admin(). */

@@ -14,6 +14,7 @@ import {
   ScanEye,
   Send,
   Settings,
+  Users,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -37,16 +38,22 @@ const SECONDARY = [
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
+/** Jen pro administrátora; zámek je na stránce samotné. */
+const ADMIN_SECONDARY = [
+  { href: "/klienti", label: "Klienti", icon: Users },
+] as const;
+
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function MobileNav() {
+export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const [session, setSession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const moreActive = SECONDARY.some((item) => isActive(pathname, item.href));
+  const secondary = isAdmin ? [...SECONDARY, ...ADMIN_SECONDARY] : SECONDARY;
+  const moreActive = secondary.some((item) => isActive(pathname, item.href));
 
   return (
     <>
@@ -54,6 +61,7 @@ export function MobileNav() {
         <MoreSheet
           key={session}
           pathname={pathname}
+          items={secondary}
           onClose={() => setMoreOpen(false)}
         />
       ) : null}
@@ -107,9 +115,11 @@ export function MobileNav() {
 /** Vysunutý panel se zbytkem navigace a odhlášením. */
 function MoreSheet({
   pathname,
+  items,
   onClose,
 }: {
   pathname: string;
+  items: readonly { href: string; label: string; icon: typeof Settings }[];
   onClose: () => void;
 }) {
   return (
@@ -139,7 +149,7 @@ function MoreSheet({
         </div>
 
         <ul className="border-t border-[var(--line)]">
-          {SECONDARY.map(({ href, label, icon: Icon }) => (
+          {items.map(({ href, label, icon: Icon }) => (
             <li key={href}>
               <Link
                 href={href}

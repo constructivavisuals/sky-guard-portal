@@ -55,7 +55,7 @@ export function Shell({
         </main>
       </div>
 
-      <MobileNav />
+      <MobileNav isAdmin={profile?.role === "admin"} />
     </div>
   );
 }
