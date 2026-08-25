@@ -20,6 +20,11 @@ interface Entry {
 
 const cache = new Map<string, Entry>();
 
+// Rozdělaná volání. Přehled se na tentýž dok ptá ze tří míst naráz
+// (údaje ve stavovém pruhu, varování a bod na mapě) — bez tohohle by
+// z prázdné cache odešly tři požadavky do FlightHubu místo jednoho.
+const inflight = new Map<string, Promise<DockStateResult>>();
+
 export interface CachedDockState {
   result: DockStateResult;
   /** Stáří údaje v milisekundách. 0 u čerstvě staženého. */
@@ -49,7 +54,12 @@ export async function getDockStateCached(
     return { result: cached.result, ageMs: now() - cached.at };
   }
 
-  const result = await fetcher(dockSn);
+  let pending = inflight.get(dockSn);
+  if (!pending) {
+    pending = fetcher(dockSn).finally(() => inflight.delete(dockSn));
+    inflight.set(dockSn, pending);
+  }
+  const result = await pending;
 
   // Chyby se cachují taky, jen nakrátko — jinak by nedostupný FlightHub
   // znamenal volání při každém načtení stránky.

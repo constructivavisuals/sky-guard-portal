@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
@@ -5,7 +6,11 @@ import type { Database } from "../../types/database.ts";
 
 // Klient pro server komponenty a route handlery. Session čte z cookies,
 // takže platí RLS přihlášeného uživatele.
-export async function createClient() {
+//
+// cache(): layout, stránka i pomocné funkce si klienta berou nezávisle
+// na sobě. Bez memoizace by každé volání znovu četlo cookies a stavělo
+// nový klient — a hlavně by se rozpadla memoizace dotazů nad ním.
+export const createClient = cache(async function createClient() {
   const cookieStore = await cookies();
 
   return createServerClient<Database>(
@@ -29,4 +34,4 @@ export async function createClient() {
       },
     },
   );
-}
+});

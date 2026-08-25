@@ -8,7 +8,7 @@ import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
-import type { IsoWeekday } from "@/types/database.ts";
+import { isSiteArmed, type IsoWeekday } from "@/types/database.ts";
 
 import { SiteForm } from "./site-form.tsx";
 
@@ -60,18 +60,16 @@ export default async function Page() {
     if (error) failed = true;
     else {
       sites = data ?? [];
-      // Ostrý režim počítá databáze v zóně lokality, ne server.
-      const states = await Promise.all(
-        sites.map(async (site): Promise<[string, ArmedState]> => {
-          const { data: isArmed, error: rpcError } = await supabase.rpc(
-            "site_is_armed",
-            { p_site_id: site.id },
-          );
-          if (rpcError) return [site.id, "unknown"];
-          return [site.id, isArmed ? "armed" : "disarmed"];
-        }),
+      // Ostrý režim se počítá z okna, které lokalita už poslala s sebou.
+      // Dřív se na to volalo site_is_armed() zvlášť pro každý řádek —
+      // deset lokalit znamenalo deset dalších kol přes síť, a to jen
+      // kvůli tečce u názvu. Shodu se SQL hlídá paritní test.
+      armed = new Map(
+        sites.map((site) => [
+          site.id,
+          isSiteArmed(site) ? ("armed" as const) : ("disarmed" as const),
+        ]),
       );
-      armed = new Map(states);
     }
   } catch {
     failed = true;

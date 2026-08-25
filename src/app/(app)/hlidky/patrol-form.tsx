@@ -18,6 +18,7 @@ import type { Wayline } from "@/lib/dispatch/flighthub.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
 import { savePatrol } from "../entity-actions.ts";
+import { nacistTrasy } from "../wayline-actions.ts";
 
 export interface PatrolInitial {
   id: string;
@@ -37,20 +38,28 @@ function toTimeInput(value: string): string {
 
 export function PatrolForm({
   sites,
-  waylines,
-  waylineError,
   patrol,
 }: {
   sites: SiteOption[];
-  waylines: Wayline[];
-  waylineError: string | null;
   patrol?: PatrolInitial;
 }) {
   const [session, setSession] = useState(0);
   const [open, setOpen] = useState(false);
+  // Trasy se tahají až při otevření, ne při renderu stránky — je to
+  // volání do FlightHubu, které jinak zdržovalo každé zobrazení
+  // /hlidky o skoro vteřinu. Načítá se v obsluze kliknutí, ne v efektu.
+  const [waylines, setWaylines] = useState<Wayline[] | null>(null);
+  const [waylineError, setWaylineError] = useState<string | null>(null);
+
   const show = () => {
     setSession((value) => value + 1);
     setOpen(true);
+    if (waylines === null && waylineError === null) {
+      void nacistTrasy().then((result) => {
+        if (result.ok) setWaylines(result.waylines);
+        else setWaylineError(result.message);
+      });
+    }
   };
 
   return (
@@ -77,6 +86,7 @@ export function PatrolForm({
           sites={sites}
           waylines={waylines}
           waylineError={waylineError}
+          waylinesLoading={waylines === null && waylineError === null}
           patrol={patrol}
           onClose={() => setOpen(false)}
         />
@@ -89,12 +99,14 @@ function PatrolDialog({
   sites,
   waylines,
   waylineError,
+  waylinesLoading,
   patrol,
   onClose,
 }: {
   sites: SiteOption[];
-  waylines: Wayline[];
+  waylines: Wayline[] | null;
   waylineError: string | null;
+  waylinesLoading: boolean;
   patrol?: PatrolInitial;
   onClose: () => void;
 }) {
@@ -117,7 +129,7 @@ function PatrolDialog({
 
   // Trasa uložená u hlídky nemusí být v seznamu z FlightHubu — mohla
   // být přejmenovaná nebo smazaná. Ať ji formulář neztratí.
-  const options = waylines.map((w) => ({ value: w.uuid, label: w.name }));
+  const options = (waylines ?? []).map((w) => ({ value: w.uuid, label: w.name }));
   const current = patrol?.wayline_uuid;
   if (current && !options.some((o) => o.value === current)) {
     options.unshift({ value: current, label: `${current} (mimo seznam)` });
@@ -154,7 +166,13 @@ function PatrolDialog({
           name="wayline_uuid"
           error={e.wayline_uuid}
           defaultValue={keep("wayline_uuid", patrol?.wayline_uuid ?? "")}
-          placeholder={options.length ? "Vyberte trasu" : "Žádné trasy z FlightHubu"}
+          placeholder={
+            waylinesLoading
+              ? "Načítají se trasy…"
+              : options.length
+                ? "Vyberte trasu"
+                : "Žádné trasy z FlightHubu"
+          }
           options={options}
           hint="Načteno z FlightHubu."
         />

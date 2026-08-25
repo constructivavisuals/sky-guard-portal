@@ -1,20 +1,53 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 
 import { ALL_SITES, SITE_COOKIE, isSiteId, type SiteOption } from "./site.ts";
 import { createClient } from "./supabase/server.ts";
+import type { IsoWeekday } from "../types/database.ts";
 
 // Načtení lokalit a vyhodnocení té vybrané. Server-only — sahá na
 // cookies() i na databázi. Konstanty a typy jsou v site.ts, aby si je
 // mohl vzít i klientský přepínač.
+
+/**
+ * Řádek lokality tak, jak ho potřebuje shell a přehled.
+ *
+ * Sloupce pro ostrý režim tu jsou schválně: horní lišta i přehled si
+ * z nich stav dopočítají v TypeScriptu místo volání site_is_armed().
+ * Shodu obou implementací hlídá paritní test v run-local.sh, takže se
+ * tím ušetří dva síťové skoky na každé načtení stránky, aniž by hrozilo,
+ * že se odpovědi rozejdou.
+ */
+export interface SiteRow {
+  id: string;
+  name: string;
+  timezone: string;
+  dock_sn: string | null;
+  armed_from: string;
+  armed_to: string;
+  armed_days: IsoWeekday[];
+  map_image_url: string | null;
+  map_nw_lat: number | null;
+  map_nw_lon: number | null;
+  map_se_lat: number | null;
+  map_se_lon: number | null;
+}
 
 export interface SiteSelection {
   /** Lokality viditelné přihlášenému uživateli (přes RLS). */
   sites: SiteOption[];
   /** null = uživatel si vybral všechny lokality, nebo žádná neexistuje. */
   selected: SiteOption | null;
+  /** Celé řádky. Jen pro server — do přepínače v prohlížeči nepatří. */
+  rows: SiteRow[];
+  selectedRow: SiteRow | null;
   /** true, když se seznam nepodařilo načíst. */
   unavailable: boolean;
 }
+
+const SITE_COLUMNS =
+  "id, name, timezone, dock_sn, armed_from, armed_to, armed_days, " +
+  "map_image_url, map_nw_lat, map_nw_lon, map_se_lat, map_se_lon";
 
 /**
  * Načte lokality a vyhodnotí, která je vybraná.
@@ -23,37 +56,51 @@ export interface SiteSelection {
  * přihlášení ukazoval detekce ze všech areálů najednou. Explicitní
  * volbu „všechny“ drží cookie s hodnotou ALL_SITES.
  */
-export async function getSiteSelection(): Promise<SiteSelection> {
+// cache(): ptá se na to layout (přepínač a odznak střežení) i skoro
+// každá stránka. Bez memoizace by to byl další dotaz navíc, a hlavně
+// by si layout a stránka mohly vybrat jinou lokalitu, kdyby se mezi
+// jejich dotazy něco změnilo.
+export const getSiteSelection = cache(async function getSiteSelection(): Promise<SiteSelection> {
+  const prazdno: SiteSelection = {
+    sites: [], selected: null, rows: [], selectedRow: null, unavailable: true,
+  };
+
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("sites")
-      .select("id, name")
-      .order("name");
+      .select(SITE_COLUMNS)
+      .order("name")
+      .returns<SiteRow[]>();
 
-    if (error || !data) {
-      return { sites: [], selected: null, unavailable: true };
-    }
+    if (error || !data) return prazdno;
 
-    const sites: SiteOption[] = data;
-    if (sites.length === 0) {
-      return { sites, selected: null, unavailable: false };
+    const rows = data;
+    const sites: SiteOption[] = rows.map((row) => ({ id: row.id, name: row.name }));
+    if (rows.length === 0) {
+      return { sites, selected: null, rows, selectedRow: null, unavailable: false };
     }
 
     const preferred = (await cookies()).get(SITE_COOKIE)?.value;
     if (preferred === ALL_SITES) {
-      return { sites, selected: null, unavailable: false };
+      return { sites, selected: null, rows, selectedRow: null, unavailable: false };
     }
 
-    const selected =
-      (isSiteId(preferred) ? sites.find((s) => s.id === preferred) : undefined)
+    const selectedRow =
+      (isSiteId(preferred) ? rows.find((s) => s.id === preferred) : undefined)
       // Cookie může ukazovat na lokalitu, ke které uživatel přišel
       // o přístup — pak se tiše vrátíme na první viditelnou.
-      ?? sites[0];
+      ?? rows[0];
 
-    return { sites, selected, unavailable: false };
+    return {
+      sites,
+      selected: { id: selectedRow.id, name: selectedRow.name },
+      rows,
+      selectedRow,
+      unavailable: false,
+    };
   } catch {
     // Nenasazené schéma nebo chybějící konfigurace nesmí shodit stránku.
-    return { sites: [], selected: null, unavailable: true };
+    return prazdno;
   }
-}
+});

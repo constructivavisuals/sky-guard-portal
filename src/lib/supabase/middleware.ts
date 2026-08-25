@@ -44,11 +44,13 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // getUser(), ne getSession(): ověřuje token u Supabase, kdežto
-  // getSession() věří obsahu cookie, který jde podvrhnout.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims(), ne getSession(): getSession věří obsahu cookie, který
+  // jde podvrhnout. getClaims podpis ověřuje — u projektů s asymetrickým
+  // klíčem lokálně přes WebCrypto, jinak dotazem na Auth server, tedy
+  // stejně jako getUser(). V prvním případě ubude jedno kolo přes síť
+  // z každého požadavku, ve druhém je to shodné s tím, co bylo.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims ?? null;
 
   const { pathname } = request.nextUrl;
 

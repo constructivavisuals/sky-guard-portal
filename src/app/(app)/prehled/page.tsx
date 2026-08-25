@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import {
   AlertTriangle,
   BatteryMedium,
@@ -24,13 +25,9 @@ import {
   type PatrolHealth,
   type Warning,
 } from "@/lib/dashboard.ts";
-import {
-  AREA_MAP_SITE_COLUMNS,
-  loadAreaMap,
-  type AreaMapData,
-} from "@/lib/area-map-data.ts";
+import { boundsAspectRatio } from "@/lib/area-map.ts";
+import { loadAreaMap, siteBounds } from "@/lib/area-map-data.ts";
 import { getDockStateCached } from "@/lib/dispatch/dock-cache.ts";
-import type { DockState } from "@/lib/dispatch/flighthub.ts";
 import {
   formatDateTime,
   formatRainfall,
@@ -39,31 +36,16 @@ import {
   orDash,
 } from "@/lib/format.ts";
 import { zonedTimeToUtc } from "@/lib/patrols/schedule.ts";
-import { getSiteSelection } from "@/lib/selected-site.ts";
+import { getSiteSelection, type SiteRow } from "@/lib/selected-site.ts";
 import { nextArmedTransition } from "@/lib/site-status.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import {
+  isSiteArmed,
   type DetectionObjectClass,
   type DispatchOutcome,
-  type IsoWeekday,
 } from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Přehled" };
-
-interface SiteRow {
-  id: string;
-  name: string;
-  timezone: string;
-  dock_sn: string | null;
-  armed_from: string;
-  armed_to: string;
-  armed_days: IsoWeekday[];
-  map_image_url: string | null;
-  map_nw_lat: number | null;
-  map_nw_lon: number | null;
-  map_se_lat: number | null;
-  map_se_lon: number | null;
-}
 
 interface PatrolRow {
   id: string;
@@ -94,10 +76,10 @@ function startOfLocalDay(timeZone: string, now: Date): Date {
 }
 
 export default async function Page() {
-  const { selected } = await getSiteSelection();
+  const { selectedRow: site } = await getSiteSelection();
   const now = new Date();
 
-  if (!selected) {
+  if (!site) {
     return (
       <>
         <PageHeader title="Přehled" description="Stav střežení lokality." />
@@ -110,46 +92,26 @@ export default async function Page() {
     );
   }
 
-  let site: SiteRow | null = null;
-  let dock: DockState | null = null;
-  let dockError: string | null = null;
-  let dockAgeMs = 0;
   let patrols: PatrolRow[] = [];
   let lastPatrolFlightAt: Date | null = null;
   const patrolLastByid = new Map<string, Date>();
-  let armed = false;
   let counts = { detections: 0, dispatches: 0, suppressed: 0, flights: 0 };
   let cameras = { total: 0, withoutZone: 0 };
   let events: EventRow[] = [];
-  let map: AreaMapData | null = null;
   let failed = false;
+
+  // Lokalita už přišla se seznamem v layoutu, včetně okna střežení
+  // a sloupců podkladu — druhý dotaz na sites ani volání site_is_armed()
+  // tady nejsou potřeba. Odznak v liště počítá totéž ze stejných dat.
+  const armed = isSiteArmed(site, now);
 
   try {
     const supabase = await createClient();
 
-    const { data: siteRow, error: siteError } = await supabase
-      .from("sites")
-      .select(
-        `id, name, timezone, dock_sn, armed_from, armed_to, armed_days, ${AREA_MAP_SITE_COLUMNS}`,
-      )
-      .eq("id", selected.id)
-      .maybeSingle<SiteRow>();
-
-    if (siteError || !siteRow) failed = true;
-    else site = siteRow;
-
-    if (site) {
+    {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      // Ostrý režim počítá databáze, stejně jako pro odznak v horní
-      // liště. Kdyby si ho přehled počítal sám v TypeScriptu, mohly by
-      // se ta dvě místa na jedné obrazovce rozejít.
-      const { data: armedNow } = await supabase.rpc("site_is_armed", {
-        p_site_id: site.id,
-      });
-      armed = armedNow === true;
-
-      const [detections, dispatches, suppressed, flights, patrolRows, camerasTotal, camerasWithoutZone, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, patrolFlights, lastDetections, lastDispatches] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -163,12 +125,12 @@ export default async function Page() {
           supabase.from("patrols").select("id, name, interval_minutes, created_at")
             .eq("site_id", site.id).eq("enabled", true)
             .returns<PatrolRow[]>(),
-          supabase.from("cameras").select("id", { count: "exact", head: true })
-            .eq("site_id", site.id).neq("status", "decommissioned"),
-          // Kamera bez zóny detekuje, ale zásah z ní nevznikne.
-          supabase.from("cameras").select("id", { count: "exact", head: true })
+          // Kamer je na lokalitě řád jednotek, takže je levnější přivézt
+          // si zone_id a spočítat obojí tady, než posílat dva dotazy
+          // s count=exact.
+          supabase.from("cameras").select("id, zone_id")
             .eq("site_id", site.id).neq("status", "decommissioned")
-            .is("zone_id", null),
+            .returns<{ id: string; zone_id: string | null }[]>(),
           // Poslední lety hlídek: jedním dotazem, nejnovější první.
           // Z nich se v paměti vybere poslední let ke každé hlídce.
           supabase.from("flights").select("patrol_id, started_at")
@@ -195,9 +157,10 @@ export default async function Page() {
         flights: flights.count ?? 0,
       };
       patrols = patrolRows.data ?? [];
+      const cameraList = cameraRows.data ?? [];
       cameras = {
-        total: camerasTotal.count ?? 0,
-        withoutZone: camerasWithoutZone.count ?? 0,
+        total: cameraList.length,
+        withoutZone: cameraList.filter((camera) => camera.zone_id === null).length,
       };
 
       for (const flight of patrolFlights.data ?? []) {
@@ -241,27 +204,11 @@ export default async function Page() {
         .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
         .slice(0, 5);
     }
-
-    if (site?.dock_sn) {
-      const cached = await getDockStateCached(site.dock_sn);
-      dockAgeMs = cached.ageMs;
-      if (cached.result.ok) dock = cached.result.state;
-      else dockError = cached.result.message;
-    }
-
-    if (site) {
-      // Dok už načtený je; předává se, aby se jeho stav nečetl podruhé.
-      map = await loadAreaMap(supabase, site, {
-        dockLocation: dock
-          ? { latitude: dock.latitude, longitude: dock.longitude }
-          : null,
-      });
-    }
   } catch {
     failed = true;
   }
 
-  if (failed || !site) {
+  if (failed) {
     return (
       <>
         <PageHeader title="Přehled" />
@@ -274,10 +221,9 @@ export default async function Page() {
     );
   }
 
-  // Čas do přepnutí se dopočítává v TypeScriptu — SQL na to funkci
-  // nemá. Obě implementace pravidla se shodují, což hlídá paritní test
-  // v supabase/tests/run-local.sh.
-  const hasMap = Boolean(map?.imageUrl);
+  // Podklad se kreslí, jen když ho lokalita má. Data pro něj se
+  // dotahují až ve streamované části, tady stačí vědět, že bude.
+  const hasMap = Boolean(site.map_image_url);
 
   const transition = nextArmedTransition(site, now, { currentlyArmed: armed });
   const until = transition ? formatUntil(transition.at, now) : null;
@@ -289,11 +235,12 @@ export default async function Page() {
     since: new Date(patrol.created_at),
   }));
 
-  const warnings: Warning[] = [
+  // Varování z databáze se vypíšou hned; ta ze stavu doku dorazí
+  // streamovaně, protože na ně se čeká na FlightHub.
+  const rychlaVarovani: Warning[] = [
     // Kamery bez zóny první — je to tichý výpadek celé lokality,
     // ne provozní drobnost jako plné úložiště.
     ...cameraWarnings(cameras),
-    ...(dock ? dockWarnings(dock) : []),
     ...patrolWarnings(health, now),
   ];
 
@@ -318,32 +265,44 @@ export default async function Page() {
             armed={armed}
             until={until}
             becomes={transition?.becomes ?? null}
-            dock={dock}
-            dockError={dockError}
-            dockAgeMs={dockAgeMs}
             lastPatrolFlightAt={lastPatrolFlightAt}
+            dockFacts={
+              <Suspense fallback={<DockFactsSkeleton hasDock={Boolean(site.dock_sn)} />}>
+                <DockFacts dockSn={site.dock_sn} />
+              </Suspense>
+            }
           />
 
-          {warnings.length > 0 ? <Warnings items={warnings} /> : null}
+          {/* Fallback ukazuje varování z databáze hned; až dorazí stav
+              doku, seznam se doplní. Čekat s celým blokem na FlightHub
+              by znamenalo, že kamera bez zóny svítí o vteřinu později
+              než všechno ostatní. */}
+          <Suspense
+            fallback={
+              rychlaVarovani.length > 0 ? <Warnings items={rychlaVarovani} /> : null
+            }
+          >
+            <WarningsWithDock base={rychlaVarovani} dockSn={site.dock_sn} />
+          </Suspense>
 
           <Numbers counts={counts} />
 
           <Timeline events={events} timeZone={site.timezone} />
         </div>
 
-        {hasMap && map ? (
+        {hasMap ? (
           // Timeline vlevo může být dlouhá; mapa při rolování zůstane.
           <div className="min-w-0 lg:sticky lg:top-6">
             <Card className="p-4">
               <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
                 Areál
               </h2>
-              <AreaMap
-                imageUrl={map.imageUrl}
-                bounds={map.bounds}
-                points={map.points}
-                siteName={site.name}
-              />
+              {/* Bod doku se tahá z FlightHubu, takže mapa dorazí až
+                  po zbytku stránky. Rámeček drží místo, aby se pod ním
+                  nic neposunulo. */}
+              <Suspense fallback={<AreaMapSkeleton site={site} />}>
+                <AreaMapCard site={site} />
+              </Suspense>
             </Card>
           </div>
         ) : null}
@@ -358,19 +317,15 @@ function StatusBar({
   armed,
   until,
   becomes,
-  dock,
-  dockError,
-  dockAgeMs,
   lastPatrolFlightAt,
+  dockFacts,
 }: {
   site: SiteRow;
   armed: boolean;
   until: string | null;
   becomes: "armed" | "disarmed" | null;
-  dock: DockState | null;
-  dockError: string | null;
-  dockAgeMs: number;
   lastPatrolFlightAt: Date | null;
+  dockFacts: ReactNode;
 }) {
   const sentence = armed
     ? "Areál je právě střežený."
@@ -402,51 +357,130 @@ function StatusBar({
           </p>
 
           <dl className="mt-3 grid gap-y-1.5">
-            <Fact icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Dron">
-              {dock
-                ? dock.droneInDock
-                  ? "V doku"
-                  : "Mimo dok"
-                : dockError
-                  ? "Stav neznámý"
-                  : site.dock_sn
-                    ? "Načítá se"
-                    : "Lokalita nemá dok"}
-            </Fact>
-            <Fact icon={<BatteryMedium className="h-4 w-4" aria-hidden="true" />} label="Baterie">
-              {dock?.batteryPercent !== null && dock?.batteryPercent !== undefined
-                ? `${Math.round(dock.batteryPercent)} %`
-                : "—"}
-            </Fact>
-            <Fact icon={<HardDrive className="h-4 w-4" aria-hidden="true" />} label="Úložiště">
-              {dock?.storageUsedPercent !== null && dock?.storageUsedPercent !== undefined
-                ? `zaplněno ${Math.round(dock.storageUsedPercent)} %`
-                : "—"}
-            </Fact>
-            <Fact icon={<CloudSun className="h-4 w-4" aria-hidden="true" />} label="Počasí">
-              {dock?.conditions
-                ? `${formatWindSpeed(dock.conditions.wind_speed)} · ${formatRainfall(dock.conditions.rainfall)} · ${formatTemperature(dock.conditions.environment_temperature)}`
-                : "—"}
-            </Fact>
+            {dockFacts}
             <Fact icon={<Plane className="h-4 w-4" aria-hidden="true" />} label="Poslední hlídka">
               {lastPatrolFlightAt
                 ? formatDateTime(lastPatrolFlightAt.toISOString(), site.timezone)
                 : "Zatím žádná"}
             </Fact>
           </dl>
-
-          {dockError ? (
-            <p className="mt-2 text-xs text-[var(--text-muted)]">
-              Stav doku se nepodařilo načíst: {dockError}
-            </p>
-          ) : dock && dockAgeMs > 5_000 ? (
-            <p className="mt-2 text-xs text-[var(--text-muted)]">
-              Stav doku odečtený před {Math.round(dockAgeMs / 1000)} s.
-            </p>
-          ) : null}
         </div>
       </div>
     </Card>
+  );
+}
+
+// ── Stav doku ────────────────────────────────────────────────────
+//
+// Vlastní komponenta, protože jako jediná na téhle stránce sahá mimo
+// databázi — do FlightHubu, kde má volání timeout 5 s. Ve společné
+// vlně by o ten čas zdržela celý render; takhle dorazí zvlášť
+// a zbytek přehledu je vidět hned.
+
+async function DockFacts({ dockSn }: { dockSn: string | null }) {
+  if (!dockSn) return <DockFactsSkeleton hasDock={false} />;
+
+  const cached = await getDockStateCached(dockSn);
+  const dock = cached.result.ok ? cached.result.state : null;
+  const chyba = cached.result.ok ? null : cached.result.message;
+
+  return (
+    <>
+      <Fact icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Dron">
+        {dock ? (dock.droneInDock ? "V doku" : "Mimo dok") : "Stav neznámý"}
+      </Fact>
+      <Fact icon={<BatteryMedium className="h-4 w-4" aria-hidden="true" />} label="Baterie">
+        {typeof dock?.batteryPercent === "number"
+          ? `${Math.round(dock.batteryPercent)} %`
+          : "—"}
+      </Fact>
+      <Fact icon={<HardDrive className="h-4 w-4" aria-hidden="true" />} label="Úložiště">
+        {typeof dock?.storageUsedPercent === "number"
+          ? `zaplněno ${Math.round(dock.storageUsedPercent)} %`
+          : "—"}
+      </Fact>
+      <Fact icon={<CloudSun className="h-4 w-4" aria-hidden="true" />} label="Počasí">
+        {dock?.conditions
+          ? `${formatWindSpeed(dock.conditions.wind_speed)} · ${formatRainfall(dock.conditions.rainfall)} · ${formatTemperature(dock.conditions.environment_temperature)}`
+          : "—"}
+      </Fact>
+      {chyba ? (
+        <p className="text-xs text-[var(--text-muted)]">
+          Stav doku se nepodařilo načíst: {chyba}
+        </p>
+      ) : cached.ageMs > 5_000 ? (
+        <p className="text-xs text-[var(--text-muted)]">
+          Stav doku odečtený před {Math.round(cached.ageMs / 1000)} s.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** Místo pro údaje z doku, dokud nedorazí. */
+function DockFactsSkeleton({ hasDock }: { hasDock: boolean }) {
+  const zatim = hasDock ? "Načítá se" : "Lokalita nemá dok";
+  return (
+    <>
+      <Fact icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Dron">
+        <span className="text-[var(--text-muted)]">{zatim}</span>
+      </Fact>
+      <Fact icon={<BatteryMedium className="h-4 w-4" aria-hidden="true" />} label="Baterie">
+        <span className="text-[var(--text-muted)]">—</span>
+      </Fact>
+      <Fact icon={<HardDrive className="h-4 w-4" aria-hidden="true" />} label="Úložiště">
+        <span className="text-[var(--text-muted)]">—</span>
+      </Fact>
+      <Fact icon={<CloudSun className="h-4 w-4" aria-hidden="true" />} label="Počasí">
+        <span className="text-[var(--text-muted)]">—</span>
+      </Fact>
+    </>
+  );
+}
+
+/** Varování z databáze doplněná o ta ze stavu doku. */
+async function WarningsWithDock({
+  base,
+  dockSn,
+}: {
+  base: Warning[];
+  dockSn: string | null;
+}) {
+  let items = base;
+  if (dockSn) {
+    const cached = await getDockStateCached(dockSn);
+    if (cached.result.ok) {
+      // Dok až za varováními z databáze: kamera bez zóny je horší zpráva
+      // než plné úložiště.
+      items = [...base, ...dockWarnings(cached.result.state)];
+    }
+  }
+  return items.length > 0 ? <Warnings items={items} /> : null;
+}
+
+/** Podklad areálu i s body. Čeká na souřadnice doku z FlightHubu. */
+async function AreaMapCard({ site }: { site: SiteRow }) {
+  const supabase = await createClient();
+  const map = await loadAreaMap(supabase, site);
+  return (
+    <AreaMap
+      imageUrl={map.imageUrl}
+      bounds={map.bounds}
+      points={map.points}
+      siteName={site.name}
+    />
+  );
+}
+
+/** Rámeček ve správném poměru stran, aby stránka po doplnění mapy neposkočila. */
+function AreaMapSkeleton({ site }: { site: SiteRow }) {
+  const bounds = siteBounds(site);
+  return (
+    <div
+      className="animate-pulse rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]"
+      style={{ aspectRatio: bounds ? String(boundsAspectRatio(bounds)) : "16 / 10" }}
+      aria-hidden="true"
+    />
   );
 }
 

@@ -4,7 +4,6 @@ import { Route } from "lucide-react";
 import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
-import { listWaylines, type Wayline } from "@/lib/dispatch/flighthub.ts";
 import { formatArmedDays, formatArmedWindow, orDash, plural } from "@/lib/format.ts";
 import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
@@ -37,8 +36,6 @@ export default async function Page() {
 
   let rows: PatrolRow[] = [];
   let failed = false;
-  let waylines: Wayline[] = [];
-  let waylineError: string | null = null;
 
   try {
     const supabase = await createClient();
@@ -55,13 +52,6 @@ export default async function Page() {
     if (error) failed = true;
     else rows = data ?? [];
 
-    // Trasy se tahají jen adminovi — nikdo jiný formulář neuvidí,
-    // takže by to bylo volání do FlightHubu pro nic.
-    if (admin) {
-      const result = await listWaylines();
-      if (result.ok) waylines = result.waylines;
-      else waylineError = result.message;
-    }
   } catch {
     failed = true;
   }
@@ -77,7 +67,7 @@ export default async function Page() {
         }
         action={
           admin ? (
-            <PatrolForm sites={sites} waylines={waylines} waylineError={waylineError} />
+            <PatrolForm sites={sites} />
           ) : undefined
         }
       />
@@ -145,8 +135,6 @@ export default async function Page() {
                 <Td className="text-right">
                   <PatrolForm
                     sites={sites}
-                    waylines={waylines}
-                    waylineError={waylineError}
                     patrol={{
                       id: row.id,
                       site_id: row.site_id,

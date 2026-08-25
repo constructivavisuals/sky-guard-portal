@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Cctv, Radar, Warehouse } from "lucide-react";
 import type { ReactNode } from "react";
@@ -65,6 +66,7 @@ export function AreaMap({
   });
 
   const skipped = points.length - placed.length;
+  const isLocal = imageUrl.startsWith("/");
 
   // Výseče se kreslí v metrech. Rámeček má poměr stran taky z metrů,
   // takže jsou jednotky na obrazovce čtvercové a výseč vyjde kruhová —
@@ -90,15 +92,31 @@ export function AreaMap({
         className="relative overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]"
         style={{ aspectRatio: String(boundsAspectRatio(bounds)) }}
       >
-        {/* Ne next/image: podklad se musí roztáhnout přesně na rámeček
-            daný rohy, což optimalizace podle poměru stran komplikuje. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt={`Letecký podklad areálu ${siteName}`}
-          className="absolute inset-0 h-full w-full"
-          style={{ objectFit: "fill" }}
-        />
+        {/* fill + objectFit: fill — podklad se musí roztáhnout přesně na
+            rámeček daný rohy, ne oříznout. next/image se o to postará
+            a navíc pošle AVIF/WebP ve velikosti, kterou displej opravdu
+            potřebuje; předloha je satelitní snímek o megabajtech.
+
+            Cizí URL by vyžadovala remotePatterns v konfiguraci, takže
+            pro ni zůstává obyčejný <img>. */}
+        {isLocal ? (
+          <Image
+            src={imageUrl}
+            alt={`Letecký podklad areálu ${siteName}`}
+            fill
+            sizes="(max-width: 1024px) 100vw, 50vw"
+            style={{ objectFit: "fill" }}
+            priority
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt={`Letecký podklad areálu ${siteName}`}
+            className="absolute inset-0 h-full w-full"
+            style={{ objectFit: "fill" }}
+          />
+        )}
 
         {sectors.length > 0 ? (
           <svg
