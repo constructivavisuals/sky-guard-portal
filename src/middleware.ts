@@ -14,6 +14,6 @@ export const config = {
      * /api/ingest/* má vlastní autentizaci HMAC podpisem — kamery
      * nemají session cookie a middleware by je odkláněl na /login.
      */
-    "/((?!_next/static|_next/image|favicon.ico|api/ingest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|api/ingest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

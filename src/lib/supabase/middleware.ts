@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "../../types/database.ts";
 
 /** Cesty dostupné bez přihlášení. */
-const PUBLIC_PATHS = ["/login", "/auth"];
+// /offline musí jít načíst i bez session — service worker si ji ukládá
+// při instalaci, tedy ještě než se kdokoli přihlásí.
+const PUBLIC_PATHS = ["/login", "/auth", "/offline"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(
