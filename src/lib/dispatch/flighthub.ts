@@ -57,7 +57,7 @@ export async function triggerWorkflow(
 ): Promise<TriggerWorkflowResult> {
   // Konfigurace se čte uvnitř funkce, ne na jejím okraji: chybějící
   // proměnná prostředí musí skončit jako výsledek k zapsání, ne jako
-  // výjimka. Jinak by pokus o výjezd zmizel do console.error a
+  // výjimka. Jinak by pokus o zásah zmizel do console.error a
   // v dispatches by po něm nezůstala žádná stopa.
   let config: FlightHubConfig;
   try {
@@ -117,7 +117,7 @@ export async function triggerWorkflow(
       incidentUuid,
       httpStatus: response.status,
       response: (parsed ?? {}) as Json,
-      // Výjezd považujeme za odeslaný jen s potvrzeným incidentem —
+      // Zásah považujeme za odeslaný jen s potvrzeným incidentem —
       // HTTP 200 s chybovým kódem v těle je pořád selhání.
       ok: response.ok && incidentUuid !== null,
     };

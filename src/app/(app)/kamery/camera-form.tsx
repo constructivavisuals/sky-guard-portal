@@ -137,7 +137,7 @@ function CameraDialog({
           defaultValue={keep("zone_id", camera?.zone_id ?? "")}
           placeholder={siteId ? "Bez zóny" : "Nejdřív vyberte lokalitu"}
           options={zonesForSite.map((zone) => ({ value: zone.id, label: zone.name }))}
-          hint="Kamera bez zóny detekuje, ale výjezd z ní nevznikne."
+          hint="Kamera bez zóny detekuje, ale zásah z ní nevznikne."
         />
 
         <TextField label="Název" name="name" error={e.name} defaultValue={keep("name", camera?.name)} required />

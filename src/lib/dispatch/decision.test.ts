@@ -1,4 +1,4 @@
-// Testy rozhodovací logiky výjezdu — ostrý režim, cooldown, eskalace
+// Testy rozhodovací logiky zásahu — ostrý režim, cooldown, eskalace
 // stupně. Bez databáze i bez FlightHubu, protože decision.ts je čistý.
 
 import { strict as assert } from "node:assert";
@@ -29,14 +29,14 @@ function secondsBefore(seconds: number): Date {
 }
 
 describe("decideDispatch — ostrý režim", () => {
-  it("mimo ostrý režim se výjezd potlačí", () => {
+  it("mimo ostrý režim se zásah potlačí", () => {
     assert.deepEqual(decideDispatch(input({ armed: false })), {
       send: false,
       outcome: "suppressed_disarmed",
     });
   });
 
-  it("v ostrém režimu bez předchozího výjezdu se odesílá", () => {
+  it("v ostrém režimu bez předchozího zásahu se odesílá", () => {
     assert.deepEqual(decideDispatch(input()), { send: true });
   });
 
@@ -51,7 +51,7 @@ describe("decideDispatch — ostrý režim", () => {
 });
 
 describe("decideDispatch — cooldown", () => {
-  it("výjezd v cooldownu se potlačí", () => {
+  it("zásah v cooldownu se potlačí", () => {
     const decision = decideDispatch(
       input({ lastSentAt: secondsBefore(300), cooldownSeconds: 900 }),
     );
@@ -86,8 +86,8 @@ describe("decideDispatch — cooldown", () => {
     assert.deepEqual(decision, { send: true });
   });
 
-  it("výjezd s časem v budoucnu cooldown neaktivuje", () => {
-    // Rozjeté hodiny na kameře nesmí zablokovat další výjezdy —
+  it("zásah s časem v budoucnu cooldown neaktivuje", () => {
+    // Rozjeté hodiny na kameře nesmí zablokovat další zásahy —
     // záporný uplynulý čas je menší než cooldown, takže by potlačil.
     const decision = decideDispatch(
       input({ lastSentAt: new Date(AT.getTime() + 60_000) }),
@@ -129,8 +129,8 @@ describe("resolveDispatchLevel — eskalace podle jiné zóny", () => {
 });
 
 describe("rozhodnutí a stupeň jsou nezávislé", () => {
-  it("potlačený výjezd si stupeň spočítá stejně", () => {
-    // Stupeň se ukládá i u potlačeného výjezdu — v dispatches pak jde
+  it("potlačený zásah si stupeň spočítá stejně", () => {
+    // Stupeň se ukládá i u potlačeného zásahu — v dispatches pak jde
     // dohledat, jak vážná situace se nevyjela.
     const level = resolveDispatchLevel("person", false);
     const decision = decideDispatch(input({ armed: false }));

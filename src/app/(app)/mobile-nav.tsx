@@ -24,7 +24,7 @@ import { useState } from "react";
 const PRIMARY = [
   { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
   { href: "/detekce", label: "Detekce", icon: ScanEye },
-  { href: "/vyjezdy", label: "Výjezdy", icon: Send },
+  { href: "/zasahy", label: "Zásahy", icon: Send },
   { href: "/lety", label: "Lety", icon: Plane },
 ] as const;
 

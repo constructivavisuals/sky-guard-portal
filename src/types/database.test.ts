@@ -160,11 +160,11 @@ describe("isSiteArmed — prázdné okno", () => {
 });
 
 describe("isCooldownElapsed", () => {
-  it("bez předchozího výjezdu je cooldown vždy uplynulý", () => {
+  it("bez předchozího zásahu je cooldown vždy uplynulý", () => {
     assert.equal(isCooldownElapsed({ cooldown_seconds: 900 }, null), true);
   });
 
-  it("20 minut po výjezdu je cooldown 15 minut pryč", () => {
+  it("20 minut po zásahu je cooldown 15 minut pryč", () => {
     assert.equal(
       isCooldownElapsed(
         { cooldown_seconds: 900 },
@@ -175,7 +175,7 @@ describe("isCooldownElapsed", () => {
     );
   });
 
-  it("5 minut po výjezdu cooldown ještě běží", () => {
+  it("5 minut po zásahu cooldown ještě běží", () => {
     assert.equal(
       isCooldownElapsed(
         { cooldown_seconds: 900 },

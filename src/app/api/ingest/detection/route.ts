@@ -10,7 +10,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 //
 // Příjem detekcí z kamer. Endpoint musí odpovědět do 1 s, proto dělá
 // synchronně jen dvě věci: ověří podpis a zapíše detekci. Rozhodnutí
-// o výjezdu i volání FlightHubu (timeout 5 s) běží až po odeslání
+// o zásahu i volání FlightHubu (timeout 5 s) běží až po odeslání
 // odpovědi přes `after()` — detekce se tak zapíše i tehdy, když je
 // FlightHub nedostupný.
 
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Detekce se zapisuje vždy, ještě před jakýmkoli rozhodováním
-  // o výjezdu — je to důkaz, ne vedlejší produkt výjezdu.
+  // o zásahu — je to důkaz, ne vedlejší produkt zásahu.
   const { data: detection, error: detectionError } = await db
     .from("detections")
     .insert({
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       await runDispatch(context);
     } catch (error) {
       // Výjimka po odeslání odpovědi nesmí shodit runtime.
-      console.error("Zpracování výjezdu selhalo", {
+      console.error("Zpracování zásahu selhalo", {
         detection_id: context.detectionId,
         message: error instanceof Error ? error.message : String(error),
       });

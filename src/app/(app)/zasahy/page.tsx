@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fragment } from "react";
+import Link from "next/link";
 import { Send } from "lucide-react";
 
 import { DispatchOutcomeBadge, LevelBadge } from "@/components/badges.tsx";
@@ -13,7 +14,7 @@ import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import type { DispatchOutcome, Json } from "@/types/database.ts";
 
-export const metadata: Metadata = { title: "Výjezdy" };
+export const metadata: Metadata = { title: "Zásahy" };
 
 interface DispatchRow {
   id: string;
@@ -27,7 +28,7 @@ interface DispatchRow {
   zones: { name: string } | null;
 }
 
-export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
+export default async function Page({ searchParams }: PageProps<"/zasahy">) {
   const { strana } = await searchParams;
   const page = pageFromParam(typeof strana === "string" ? strana : undefined);
   const { from, to } = pageRange(page);
@@ -36,7 +37,7 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
     getCurrentProfile(),
   ]);
   // Ladicí údaje z FlightHubu vidí operátor i admin — operátor spouští
-  // ruční výjezdy, takže potřebuje dohledat incident ve FlightHubu.
+  // ruční zásahy, takže potřebuje dohledat incident ve FlightHubu.
   // Klienta jen zaplevelují tabulku.
   //
   // Není to bezpečnostní hranice: stránka se vykresluje na serveru, takže
@@ -75,30 +76,30 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
   return (
     <>
       <PageHeader
-        title="Výjezdy"
+        title="Zásahy"
         description={
           selected
-            ? `Pokusy o výjezd na lokalitě ${selected.name} včetně potlačených.`
-            : "Pokusy o výjezd dronu včetně potlačených."
+            ? `Pokusy o zásah na lokalitě ${selected.name} včetně potlačených.`
+            : "Pokusy o zásah dronem včetně potlačených."
         }
       />
 
       {failed ? (
         <EmptyState
           icon={<Send className="h-5 w-5" aria-hidden="true" />}
-          title="Výjezdy se nepodařilo načíst"
+          title="Zásahy se nepodařilo načíst"
           description="Zkuste to za chvíli znovu. Pokud potíž trvá, zkontrolujte připojení k databázi."
         />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Send className="h-5 w-5" aria-hidden="true" />}
-          title="Žádné výjezdy"
-          description="Každý pokus o výjezd se sem zapíše — i ten potlačený nebo neúspěšný."
+          title="Žádné zásahy"
+          description="Každý pokus o zásah se sem zapíše — i ten potlačený nebo neúspěšný."
         />
       ) : (
         <>
           <DataTable
-            caption="Pokusy o výjezd, nejnovější první"
+            caption="Pokusy o zásah, nejnovější první"
             head={
               <>
                 <Th>Čas</Th>
@@ -121,12 +122,20 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
                 data-continues={
                   row.outcome === "failed" && showDiagnostics ? "" : undefined
                 }
-                className={
+                className={`relative ${
                   row.outcome === "failed" && showDiagnostics ? "border-b-0" : ""
-                }
+                }`}
               >
                 <TdTight label="Čas" className="text-[var(--text-muted)]">
-                  {formatDateTime(row.sent_at, row.sites?.timezone)}
+                  {/* Odkaz je roztažený přes celý řádek přes ::after,
+                      takže klik kamkoli otevře detail — a přitom
+                      zůstane skutečným odkazem, ne onClick handlerem. */}
+                  <Link
+                    href={`/zasahy/${row.id}`}
+                    className="after:absolute after:inset-0 after:content-[''] hover:underline"
+                  >
+                    {formatDateTime(row.sent_at, row.sites?.timezone)}
+                  </Link>
                 </TdTight>
                 <Td label="Lokalita">{orDash(row.sites?.name)}</Td>
                 <Td label="Zóna">{orDash(row.zones?.name)}</Td>
@@ -169,7 +178,7 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
               </Fragment>
             ))}
           </DataTable>
-          <Pagination page={page} total={total} basePath="/vyjezdy" size={PAGE_SIZE} />
+          <Pagination page={page} total={total} basePath="/zasahy" size={PAGE_SIZE} />
         </>
       )}
     </>

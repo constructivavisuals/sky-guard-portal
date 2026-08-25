@@ -4,8 +4,8 @@ import type {
   DispatchOutcome,
 } from "../../types/database.ts";
 
-// Čistá rozhodovací logika výjezdu — bez I/O, aby šla testovat bez
-// databáze i bez FlightHubu. Vstupy (armed, poslední výjezd, nedávné
+// Čistá rozhodovací logika zásahu — bez I/O, aby šla testovat bez
+// databáze i bez FlightHubu. Vstupy (armed, poslední zásah, nedávné
 // detekce) si obstarává volající v src/lib/dispatch/run.ts.
 
 /** Okno, ve kterém detekce osoby v jiné zóně eskaluje stupeň na maximum. */
@@ -22,7 +22,7 @@ const BASE_LEVEL_BY_CLASS: Record<DetectionObjectClass, DispatchLevel> = {
  * Stupeň zásahu předaný do FlightHubu.
  *
  * Osoba viděná v posledních 60 s v JINÉ zóně téhož areálu znamená pohyb
- * po perimetru, ne jednorázový planý poplach — takový výjezd jede na
+ * po perimetru, ne jednorázový planý poplach — takový zásah jede na
  * maximum bez ohledu na to, co spustilo tenhle konkrétní.
  */
 export function resolveDispatchLevel(
@@ -39,10 +39,10 @@ export interface DispatchDecisionInput {
   /** Nastavení lokality. */
   cooldownSeconds: number;
   /**
-   * Čas posledního SKUTEČNĚ odeslaného výjezdu (outcome 'sent') na téže
+   * Čas posledního SKUTEČNĚ odeslaného zásahu (outcome 'sent') na téže
    * lokalitě, nebo null. Potlačené a chybné pokusy se nepočítají —
    * jinak by každý zamítnutý pokus cooldown prodlužoval donekonečna
-   * a výjezd by už nikdy neodešel.
+   * a zásah by už nikdy neodešel.
    */
   lastSentAt: Date | null;
   /** Čas, ke kterému se rozhoduje (čas detekce). */

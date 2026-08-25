@@ -18,7 +18,7 @@ import {
   type TriggerWorkflowResult,
 } from "./flighthub.ts";
 
-// Orchestrace výjezdu: obstará vstupy pro rozhodovací funkce, zavolá
+// Orchestrace zásahu: obstará vstupy pro rozhodovací funkce, zavolá
 // FlightHub a uloží řádek do dispatches. Běží až PO odeslání odpovědi
 // (next/server `after`), takže se sem nesmí dostat nic, co by muselo
 // stihnout 1s limit endpointu.
@@ -107,7 +107,7 @@ async function hasRecentPersonInOtherZone(
   return (data?.length ?? 0) > 0;
 }
 
-/** Čas posledního skutečně odeslaného výjezdu na lokalitě. */
+/** Čas posledního skutečně odeslaného zásahu na lokalitě. */
 async function lastSentDispatchAt(
   context: ResolvedDispatchContext,
 ): Promise<Date | null> {
@@ -130,7 +130,7 @@ async function isSiteArmedInDb(context: ResolvedDispatchContext): Promise<boolea
     p_at: context.detectedAt.toISOString(),
   });
 
-  // Když se stav nedá zjistit, výjezd neposíláme — planý let stojí víc
+  // Když se stav nedá zjistit, zásah neposíláme — planý let stojí víc
   // než zmeškaný, a v dispatches zůstane stopa proč.
   if (error) return false;
   return data === true;
@@ -231,9 +231,9 @@ export async function runDispatch(
     row = await prepareDispatchRow(resolved, deps);
   } catch (error) {
     // Cokoli neočekávaného — chybějící proměnná prostředí, rozbité
-    // spojení, chyba v dotazu — skončí zapsaným pokusem. Pokus o výjezd
+    // spojení, chyba v dotazu — skončí zapsaným pokusem. Pokus o zásah
     // nesmí zmizet jen do logu.
-    console.error("Příprava výjezdu selhala", {
+    console.error("Příprava zásahu selhala", {
       detection_id: context.detectionId,
       message: safeErrorMessage(error),
     });

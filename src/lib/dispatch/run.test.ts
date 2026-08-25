@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { runDispatch, type DispatchDeps, type DispatchRow } from "./run.ts";
 import type { DispatchContext } from "./run.ts";
 
-// Testy zaručují hlavní slib orchestrace: každý pokus o výjezd nechá
+// Testy zaručují hlavní slib orchestrace: každý pokus o zásah nechá
 // v dispatches řádek. Závislosti se podstrkávají, takže neběží ani
 // databáze, ani FlightHub.
 
@@ -119,7 +119,7 @@ describe("runDispatch — chybějící konfigurace FlightHubu", () => {
 describe("runDispatch — výjimky odjinud z přípravy", () => {
   const failing: [string, keyof DispatchDeps][] = [
     ["zjištění ostrého režimu", "isSiteArmed"],
-    ["čtení posledního výjezdu", "lastSentDispatchAt"],
+    ["čtení posledního zásahu", "lastSentDispatchAt"],
     ["dotaz na sousední zóny", "hasRecentPersonInOtherZone"],
   ];
 
@@ -155,7 +155,7 @@ describe("runDispatch — když selže i zápis", () => {
 });
 
 describe("runDispatch — nedotčené cesty", () => {
-  it("úspěšný výjezd se zapíše jako sent", async () => {
+  it("úspěšný zásah se zapíše jako sent", async () => {
     const { deps: d, inserted } = deps();
 
     const result = await runDispatch(context(), d);

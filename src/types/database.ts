@@ -139,7 +139,7 @@ export type Site = {
   armed_from: string;
   armed_to: string;
   armed_days: IsoWeekday[];
-  /** Minimální odstup mezi výjezdy; kratší → outcome suppressed_cooldown. */
+  /** Minimální odstup mezi zásahy; kratší → outcome suppressed_cooldown. */
   cooldown_seconds: number;
   created_at: string;
   updated_at: string;
@@ -193,7 +193,7 @@ export type Dispatch = {
   id: string;
   site_id: string;
   zone_id: string;
-  /** null = ruční výjezd z portálu, ne reakce na detekci. */
+  /** null = ruční zásah z portálu, ne reakce na detekci. */
   triggered_by_detection: string | null;
   sent_at: string;
   level_sent: DispatchLevel;
@@ -350,14 +350,14 @@ export type DispatchWithFlight = Dispatch & {
 
 // ── Pomocné funkce ───────────────────────────────────────────────
 
-/** Výjezd, který skutečně odešel do FlightHubu. */
+/** Zásah, který skutečně odešel do FlightHubu. */
 export function isDispatchSent(
   dispatch: Pick<Dispatch, "outcome">,
 ): boolean {
   return dispatch.outcome === "sent";
 }
 
-/** Potlačený výjezd není chyba — jen se na detekci nereagovalo. */
+/** Potlačený zásah není chyba — jen se na detekci nereagovalo. */
 export function isDispatchSuppressed(
   dispatch: Pick<Dispatch, "outcome">,
 ): boolean {
@@ -447,7 +447,7 @@ export function isSiteArmed(
   return false;
 }
 
-/** Uplynul od posledního výjezdu cooldown lokality? */
+/** Uplynul od posledního zásahu cooldown lokality? */
 export function isCooldownElapsed(
   site: Pick<Site, "cooldown_seconds">,
   lastDispatchAt: string | null,

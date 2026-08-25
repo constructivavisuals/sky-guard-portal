@@ -160,7 +160,7 @@ function SiteDialog({
         />
 
         <TextField
-          label="Cooldown mezi výjezdy (s)"
+          label="Cooldown mezi zásahy (s)"
           name="cooldown_seconds"
           type="number"
           inputMode="numeric"

@@ -98,7 +98,7 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
                 <Th>Kamera</Th>
                 <Th>Objekt</Th>
                 <Th className="text-right">Jistota</Th>
-                <Th>Výjezd</Th>
+                <Th>Zásah</Th>
               </>
             }
           >
@@ -116,7 +116,7 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
                 <TdTight label="Jistota" className="text-right tabular-nums">
                   {formatConfidence(row.confidence)}
                 </TdTight>
-                <Td label="Výjezd">
+                <Td label="Zásah">
                   <DispatchOutcomeShortBadge
                     outcome={row.dispatches[0]?.outcome ?? null}
                   />

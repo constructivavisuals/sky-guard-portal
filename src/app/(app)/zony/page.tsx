@@ -74,7 +74,7 @@ export default async function Page() {
         <EmptyState
           icon={<Radar className="h-5 w-5" aria-hidden="true" />}
           title="Žádné zóny"
-          description="Zóna je bod, na který dron letí. Bez ní se z detekce výjezd nespustí."
+          description="Zóna je bod, na který dron letí. Bez ní se z detekce zásah nespustí."
         />
       ) : (
         <DataTable

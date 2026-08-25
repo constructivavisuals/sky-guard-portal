@@ -22,7 +22,7 @@ import { USER_ROLE_LABELS } from "@/types/database.ts";
 export const NAV_ITEMS = [
   { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
   { href: "/detekce", label: "Detekce", icon: ScanEye },
-  { href: "/vyjezdy", label: "Výjezdy", icon: Send },
+  { href: "/zasahy", label: "Zásahy", icon: Send },
   { href: "/lety", label: "Lety", icon: Plane },
   { href: "/lokality", label: "Lokality", icon: MapPin },
   { href: "/zony", label: "Zóny", icon: Radar },

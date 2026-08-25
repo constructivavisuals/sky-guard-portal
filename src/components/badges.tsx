@@ -39,7 +39,7 @@ function Pill({
 }
 
 /**
- * Výsledek výjezdu u detekce. `null` znamená, že se o výjezd vůbec
+ * Výsledek zásahu u detekce. `null` znamená, že se o zásah vůbec
  * nepokusilo — typicky kamera bez zóny, kam by dron neměl kam letět.
  */
 export function DispatchOutcomeBadge({
@@ -47,7 +47,7 @@ export function DispatchOutcomeBadge({
 }: {
   outcome: DispatchOutcome | null;
 }) {
-  if (!outcome) return <Pill tone="neutral">Bez výjezdu</Pill>;
+  if (!outcome) return <Pill tone="neutral">Bez zásahu</Pill>;
 
   switch (outcome) {
     case "sent":
@@ -66,7 +66,7 @@ export function DispatchOutcomeShortBadge({
 }: {
   outcome: DispatchOutcome | null;
 }) {
-  if (!outcome) return <Pill tone="neutral">Bez výjezdu</Pill>;
+  if (!outcome) return <Pill tone="neutral">Bez zásahu</Pill>;
   if (outcome === "sent") return <Pill tone="success">Odesláno</Pill>;
   if (outcome === "failed") return <Pill tone="danger">Selhalo</Pill>;
   return <Pill tone="warning">Potlačeno</Pill>;

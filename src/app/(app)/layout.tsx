@@ -18,7 +18,7 @@ async function guardStateFor(siteId: string | null): Promise<GuardState> {
     // Ostrý režim počítá databáze, ne aplikace — armed_from/armed_to se
     // vyhodnocuje v časové zóně lokality (site_is_armed v migraci
     // 20260824120000). Kdyby to počítal server, rozešly by se výsledky
-    // s tím, podle čeho se potlačují výjezdy.
+    // s tím, podle čeho se potlačují zásahy.
     const { data, error } = await supabase.rpc("site_is_armed", {
       p_site_id: siteId,
     });

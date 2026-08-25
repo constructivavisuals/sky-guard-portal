@@ -12,7 +12,7 @@ export default function Page() {
       <EmptyState
         icon={<Plane className="h-5 w-5" aria-hidden="true" />}
         title="Žádné lety"
-        description="Lety se doplní z FlightHubu po prvním výjezdu."
+        description="Lety se doplní z FlightHubu po prvním zásahu."
       />
     </>
   );
