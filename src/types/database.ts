@@ -437,6 +437,61 @@ export type MediaInsert = Insertable<Media, "flight_id" | "kind" | "r2_key">;
 export type SiteGrantInsert = Insertable<SiteGrant, "profile_id" | "site_id">;
 export type AuditLogInsert = Insertable<AuditLogEntry, "action">;
 
+// ── Evidence vjezdů (migrace 20260901120000) ─────────────────────
+
+export const PLATE_LIST_TYPES = ["allow", "deny"] as const;
+export type PlateListType = (typeof PLATE_LIST_TYPES)[number];
+
+export const PLATE_LIST_TYPE_LABELS: Record<PlateListType, string> = {
+  allow: "Smí do areálu",
+  deny: "Nežádoucí",
+};
+
+export type KnownPlateRow = {
+  id: string;
+  site_id: string;
+  /** Uloženo tak, jak to člověk napsal; porovnává se přes plate_normalize(). */
+  plate: string;
+  label: string | null;
+  list_type: PlateListType;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VehiclePassage = {
+  id: string;
+  site_id: string;
+  camera_id: string | null;
+  /** Detekce, ze které vjezd vznikl. Přes ni vede vazba na zásah. */
+  detection_id: string;
+  /** null = značka nepřečtená nebo nečitelná. */
+  plate: string | null;
+  confidence: number | null;
+  /** Cesta v bucketu `vjezdy`, ne URL. */
+  image_path: string | null;
+  /** Jak vjezd dopadl proti seznamu V DOBĚ VJEZDU. */
+  list_match: PlateListType | null;
+  known_plate_id: string | null;
+  known_label: string | null;
+  plate_read_at: string | null;
+  passed_at: string;
+  created_at: string;
+};
+
+export type KnownPlateInsert = Insertable<KnownPlateRow, "site_id" | "plate">;
+/**
+ * Vjezd se zakládá s PŘEDEM ZNÁMÝM id, proto tu `id` je.
+ *
+ * Ingest ho potřebuje dřív, než řádek vznikne: pod tímtéž id se
+ * ukládá snímek do úložiště, takže cesta k němu musí být hotová
+ * před zápisem.
+ */
+export type VehiclePassageInsert = Insertable<
+  VehiclePassage,
+  "site_id" | "detection_id"
+> & { id?: string };
+
 // ── Database schema pro createClient<Database>() ──────────────────
 
 // Tvar, který očekává supabase-js (GenericTable). Relationships zůstává
@@ -463,6 +518,16 @@ export type Database = {
       patrols: TableShape<Patrol, PatrolInsert, Updatable<Patrol>>;
       media: TableShape<Media, MediaInsert, Updatable<Media>>;
       site_grants: TableShape<SiteGrant, SiteGrantInsert, Updatable<SiteGrant>>;
+      known_plates: TableShape<
+        KnownPlateRow,
+        KnownPlateInsert,
+        Updatable<KnownPlateRow>
+      >;
+      vehicle_passages: TableShape<
+        VehiclePassage,
+        VehiclePassageInsert,
+        Updatable<VehiclePassage>
+      >;
       // audit_log je append-only (hlídá DB trigger), proto prázdný Update.
       audit_log: TableShape<AuditLogEntry, AuditLogInsert, Record<string, never>>;
     };
@@ -480,6 +545,16 @@ export type Database = {
         Args: { p_site_id: string; p_at?: string };
         Returns: boolean;
       };
+      plate_normalize: { Args: { p_plate: string }; Returns: string };
+      ingest_take_tokens: {
+        Args: {
+          p_keys: string[];
+          p_capacity: number;
+          p_refill_per_second: number;
+          p_now?: string;
+        };
+        Returns: boolean;
+      };
     };
     Enums: {
       user_role: UserRole;
@@ -490,6 +565,7 @@ export type Database = {
       flight_status: FlightStatus;
       flight_kind: FlightKind;
       media_kind: MediaKind;
+      plate_list_type: PlateListType;
     };
   };
 };
