@@ -149,10 +149,20 @@ export async function GET(request: NextRequest): Promise<Response> {
         patrol_id: patrol.id,
         site: site.name,
         battery_percent: battery,
+        charge_state: device.status.chargeState,
         minimum: MIN_BATTERY_PERCENT,
       });
       report.skipped += runs.length;
       continue;
+    }
+
+    if (battery === null) {
+      // Dok nabití nehlásí. Let se neblokuje — vynechaná hlídka kvůli
+      // nečitelnému údaji je horší než hlídka s nejistou baterií.
+      console.warn("Nabití dronu není známé, hlídka se plánuje dál", {
+        patrol_id: patrol.id,
+        dock_sn: site.dock_sn,
+      });
     }
 
     for (const beginAt of runs) {

@@ -327,36 +327,94 @@ export async function createFlightTask(
 
 export interface DroneStatus {
   online: boolean;
-  /** Nabití v procentech, null když ho API nehlásí. */
+  /** Nabití dronu v procentech, null když ho dok nehlásí. */
   batteryPercent: number | null;
+  /** Stav nabíjení podle doku, např. "idle" nebo "charging". */
+  chargeState: string | null;
 }
 
 export type DeviceStatusResult =
   | { ok: true; status: DroneStatus }
   | { ok: false; message: string };
 
-/**
- * Procenta baterie. Klíč se mezi verzemi API liší, takže se zkouší
- * několik obvyklých — na rozdíl od tras, kde je tvar ověřený.
- * Když se netrefíme, vrátí se null a cron let nezablokuje kvůli údaji,
- * který neumí přečíst.
- */
-function readBatteryPercent(drone: Record<string, unknown>): number | null {
-  const direct = drone.capacity_percent ?? drone.battery_percent;
-  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
-
-  const battery = drone.battery;
-  if (typeof battery === "object" && battery !== null) {
-    const record = battery as Record<string, unknown>;
-    for (const key of ["capacity_percent", "percent", "remaining_percent"]) {
-      const value = record[key];
-      if (typeof value === "number" && Number.isFinite(value)) return value;
+async function fetchFlightHub(
+  config: FlightHubConfig,
+  path: string,
+): Promise<{ ok: true; body: unknown } | { ok: false; message: string }> {
+  try {
+    const response = await fetch(`${config.host}${path}`, {
+      headers: {
+        "X-User-Token": config.userToken,
+        "x-project-uuid": config.projectUuid,
+      },
+      signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return { ok: false, message: `FlightHub odpověděl ${response.status} na ${path}.` };
     }
+    return { ok: true, body: await response.json() };
+  } catch (error) {
+    return { ok: false, message: safeErrorMessage(error) };
+  }
+}
+
+/**
+ * Je dron u daného doku online?
+ *
+ * /openapi/v0.1/project/device vrací gateway a drone se sn, callsign,
+ * device_model, device_online_status, mode_code a camera_list —
+ * baterii tenhle endpoint nenese vůbec.
+ */
+function readOnline(body: unknown, dockSn: string): boolean | null {
+  const data = (body as { data?: unknown })?.data;
+  const list = (data as { list?: unknown })?.list;
+  if (!Array.isArray(list)) return null;
+
+  for (const item of list) {
+    if (typeof item !== "object" || item === null) continue;
+    const record = item as Record<string, unknown>;
+    if (record.sn !== dockSn) continue;
+    const drone = record.drone;
+    if (typeof drone !== "object" || drone === null) return null;
+    return (drone as Record<string, unknown>).device_online_status === true;
   }
   return null;
 }
 
-/** Najde dok podle sériového čísla a vrátí stav dronu, který v něm sedí. */
+/**
+ * Nabití dronu podle doku.
+ *
+ * Tvar je z dokumentace FlightHub 2 OpenAPI („Device Model Retrieval“):
+ * data.device_state.drone_charge_state.capacity_percent. Je to stav
+ * doku — hlásí nabití dronu, který v něm sedí. Pro plánování hlídky
+ * je to ten správný údaj, protože dron má před startem být v doku.
+ */
+function readCharge(
+  body: unknown,
+): { percent: number | null; state: string | null } {
+  const data = (body as { data?: unknown })?.data;
+  const deviceState = (data as { device_state?: unknown })?.device_state;
+  const charge = (deviceState as { drone_charge_state?: unknown })
+    ?.drone_charge_state;
+  if (typeof charge !== "object" || charge === null) {
+    return { percent: null, state: null };
+  }
+
+  const record = charge as Record<string, unknown>;
+  const percent = record.capacity_percent;
+  const state = record.state;
+  return {
+    percent:
+      typeof percent === "number" && Number.isFinite(percent) ? percent : null,
+    state: typeof state === "string" ? state : null,
+  };
+}
+
+/**
+ * Stav dronu u daného doku: online z projektového seznamu, nabití ze
+ * stavu doku. Dvě volání, protože ani jeden endpoint nemá obojí.
+ */
 export async function getDroneStatus(
   dockSn: string,
 ): Promise<DeviceStatusResult> {
@@ -367,57 +425,41 @@ export async function getDroneStatus(
     return { ok: false, message: safeErrorMessage(error) };
   }
 
-  try {
-    const response = await fetch(`${config.host}/openapi/v0.1/project/device`, {
-      headers: {
-        "X-User-Token": config.userToken,
-        "x-project-uuid": config.projectUuid,
-      },
-      signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
-      cache: "no-store",
-    });
+  const devices = await fetchFlightHub(config, "/openapi/v0.1/project/device");
+  if (!devices.ok) return devices;
 
-    if (!response.ok) {
-      return { ok: false, message: `FlightHub odpověděl ${response.status}.` };
-    }
-
-    const body: unknown = await response.json();
-    const data =
-      typeof body === "object" && body !== null
-        ? (body as { data?: unknown }).data
-        : null;
-    const list =
-      typeof data === "object" && data !== null
-        ? (data as { list?: unknown }).list
-        : null;
-
-    if (!Array.isArray(list)) {
-      return { ok: false, message: "Odpověď nemá očekávaný tvar data.list." };
-    }
-
-    for (const item of list) {
-      if (typeof item !== "object" || item === null) continue;
-      const record = item as Record<string, unknown>;
-      const sn = record.sn ?? record.device_sn;
-      if (sn !== dockSn) continue;
-
-      const drone = record.drone;
-      if (typeof drone !== "object" || drone === null) {
-        return { ok: false, message: "Dok nehlásí připojený dron." };
-      }
-
-      const droneRecord = drone as Record<string, unknown>;
-      return {
-        ok: true,
-        status: {
-          online: droneRecord.device_online_status === true,
-          batteryPercent: readBatteryPercent(droneRecord),
-        },
-      };
-    }
-
-    return { ok: false, message: `Dok ${dockSn} není v projektu.` };
-  } catch (error) {
-    return { ok: false, message: safeErrorMessage(error) };
+  const online = readOnline(devices.body, dockSn);
+  if (online === null) {
+    return { ok: false, message: `Dok ${dockSn} nebo jeho dron není v projektu.` };
   }
+
+  // Nabití se ptáme jen u dronu, který je online — offline stejně
+  // neletí a ušetří se volání.
+  if (!online) {
+    return { ok: true, status: { online: false, batteryPercent: null, chargeState: null } };
+  }
+
+  const state = await fetchFlightHub(
+    config,
+    `/openapi/v0.1/device/${encodeURIComponent(dockSn)}/state`,
+  );
+  if (!state.ok) {
+    // Nabití se nezjistilo, ale online stav ano. Vrací se to, co víme;
+    // cron kvůli nečitelné baterii let neblokuje.
+    console.warn("Nabití dronu se nepodařilo zjistit", {
+      dock_sn: dockSn,
+      message: state.message,
+    });
+    return { ok: true, status: { online: true, batteryPercent: null, chargeState: null } };
+  }
+
+  const charge = readCharge(state.body);
+  return {
+    ok: true,
+    status: {
+      online: true,
+      batteryPercent: charge.percent,
+      chargeState: charge.state,
+    },
+  };
 }
