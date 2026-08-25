@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Sidebar } from "./sidebar.tsx";
+import type { CurrentProfile } from "@/lib/profile.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
 import { Topbar, type GuardState } from "./topbar.tsx";
@@ -18,12 +19,14 @@ export function Shell({
   siteOptions,
   selectedSiteId,
   guardState,
+  profile,
 }: {
   children: ReactNode;
   siteName: string;
   siteOptions: SiteOption[];
   selectedSiteId: string | null;
   guardState: GuardState;
+  profile: CurrentProfile | null;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -40,7 +43,7 @@ export function Shell({
 
   return (
     <div className="flex h-dvh overflow-hidden">
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} profile={profile} />
 
       {/* Podklad pod šuplíkem — klepnutí vedle menu ho zavře. */}
       {menuOpen ? (

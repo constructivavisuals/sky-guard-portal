@@ -49,9 +49,9 @@ export type MediaKind = (typeof MEDIA_KINDS)[number];
 // České popisky pro UI
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Správce",
+  admin: "Administrátor",
   operator: "Operátor",
-  viewer: "Prohlížení",
+  viewer: "Klient",
 };
 
 export const CAMERA_STATUS_LABELS: Record<CameraStatus, string> = {
@@ -234,6 +234,14 @@ export type Media = {
   created_at: string;
 };
 
+/** Přístup uživatele na lokalitu. Migrace 20260824180000. */
+export type SiteGrant = {
+  id: string;
+  profile_id: string;
+  site_id: string;
+  created_at: string;
+};
+
 export type AuditLogEntry = {
   id: string;
   actor_id: string | null;
@@ -262,6 +270,7 @@ export type DispatchInsert = Insertable<
 >;
 export type FlightInsert = Insertable<Flight, never>;
 export type MediaInsert = Insertable<Media, "flight_id" | "kind" | "r2_key">;
+export type SiteGrantInsert = Insertable<SiteGrant, "profile_id" | "site_id">;
 export type AuditLogInsert = Insertable<AuditLogEntry, "action">;
 
 // ── Database schema pro createClient<Database>() ──────────────────
@@ -288,6 +297,7 @@ export type Database = {
       dispatches: TableShape<Dispatch, DispatchInsert, Updatable<Dispatch>>;
       flights: TableShape<Flight, FlightInsert, Updatable<Flight>>;
       media: TableShape<Media, MediaInsert, Updatable<Media>>;
+      site_grants: TableShape<SiteGrant, SiteGrantInsert, Updatable<SiteGrant>>;
       // audit_log je append-only (hlídá DB trigger), proto prázdný Update.
       audit_log: TableShape<AuditLogEntry, AuditLogInsert, Record<string, never>>;
     };

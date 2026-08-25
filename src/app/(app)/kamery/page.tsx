@@ -5,6 +5,8 @@ import { CameraStatusBadge } from "@/components/badges.tsx";
 import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatFocalLength, orDash } from "@/lib/format.ts";
+import { getCurrentProfile } from "@/lib/current-profile.ts";
+import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import type { CameraStatus } from "@/types/database.ts";
@@ -23,7 +25,13 @@ interface CameraRow {
 }
 
 export default async function Page() {
-  const { selected } = await getSiteSelection();
+  const [{ selected }, profile] = await Promise.all([
+    getSiteSelection(),
+    getCurrentProfile(),
+  ]);
+  // Sériová čísla jsou údaj pro správu hardwaru, ne pro klienta.
+  // Skrytí je úklid obrazovky, ne bezpečnostní opatření.
+  const showSerial = isAdmin(profile);
 
   let rows: CameraRow[] = [];
   let failed = false;
@@ -77,7 +85,7 @@ export default async function Page() {
               <Th>Zóna</Th>
               <Th>Model</Th>
               <Th className="text-right">Ohnisko</Th>
-              <Th>Sériové číslo</Th>
+              {showSerial ? <Th>Sériové číslo</Th> : null}
               <Th>Stav</Th>
             </>
           }
@@ -91,9 +99,11 @@ export default async function Page() {
               <TdTight className="text-right tabular-nums">
                 {formatFocalLength(row.focal_mm)}
               </TdTight>
-              <TdTight className="font-mono text-xs text-[var(--text-muted)]">
-                {orDash(row.serial_number)}
-              </TdTight>
+              {showSerial ? (
+                <TdTight className="font-mono text-xs text-[var(--text-muted)]">
+                  {orDash(row.serial_number)}
+                </TdTight>
+              ) : null}
               <Td>
                 <CameraStatusBadge status={row.status} />
               </Td>

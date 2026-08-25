@@ -7,6 +7,8 @@ import { PAGE_SIZE, Pagination, pageFromParam, pageRange } from "@/components/pa
 import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatDateTime, orDash } from "@/lib/format.ts";
+import { getCurrentProfile } from "@/lib/current-profile.ts";
+import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import type { DispatchOutcome, Json } from "@/types/database.ts";
@@ -29,7 +31,16 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
   const { strana } = await searchParams;
   const page = pageFromParam(typeof strana === "string" ? strana : undefined);
   const { from, to } = pageRange(page);
-  const { selected } = await getSiteSelection();
+  const [{ selected }, profile] = await Promise.all([
+    getSiteSelection(),
+    getCurrentProfile(),
+  ]);
+  // Ladicí údaje z FlightHubu klienta nezajímají a jen zaplevelují
+  // tabulku. Není to bezpečnostní hranice — stránka se vykresluje na
+  // serveru, takže se skrytá data do prohlížeče nedostanou, ale kdyby
+  // se dostala, pořád platí, že jediná záruka je RLS.
+  const showDiagnostics = isAdmin(profile);
+  const columnCount = showDiagnostics ? 7 : 5;
 
   let rows: DispatchRow[] = [];
   let total = 0;
@@ -92,14 +103,22 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
                 <Th>Zóna</Th>
                 <Th className="text-center">Úroveň</Th>
                 <Th>Výsledek</Th>
-                <Th>Incident FlightHub</Th>
-                <Th className="text-right">HTTP</Th>
+                {showDiagnostics ? (
+                  <>
+                    <Th>Incident FlightHub</Th>
+                    <Th className="text-right">HTTP</Th>
+                  </>
+                ) : null}
               </>
             }
           >
             {rows.map((row) => (
               <Fragment key={row.id}>
-              <Tr className={row.outcome === "failed" ? "border-b-0" : ""}>
+              <Tr
+                className={
+                  row.outcome === "failed" && showDiagnostics ? "border-b-0" : ""
+                }
+              >
                 <TdTight className="text-[var(--text-muted)]">
                   {formatDateTime(row.sent_at, row.sites?.timezone)}
                 </TdTight>
@@ -111,21 +130,25 @@ export default async function Page({ searchParams }: PageProps<"/vyjezdy">) {
                 <Td>
                   <DispatchOutcomeBadge outcome={row.outcome} />
                 </Td>
-                {/* UUID se láme, ne posouvá — jinak jediný dlouhý
-                    řetězec roztáhne celou tabulku. */}
-                <Td className="font-mono text-xs break-all text-[var(--text-muted)]">
-                  {orDash(row.fh_incident_uuid)}
-                </Td>
-                <TdTight className="text-right tabular-nums">
-                  {row.http_status ?? "—"}
-                </TdTight>
+                {showDiagnostics ? (
+                  <>
+                    {/* UUID se láme, ne posouvá — jinak jediný dlouhý
+                        řetězec roztáhne celou tabulku. */}
+                    <Td className="font-mono text-xs break-all text-[var(--text-muted)]">
+                      {orDash(row.fh_incident_uuid)}
+                    </Td>
+                    <TdTight className="text-right tabular-nums">
+                      {row.http_status ?? "—"}
+                    </TdTight>
+                  </>
+                ) : null}
               </Tr>
               {/* Detail dostává vlastní řádek přes celou šířku — v buňce
                   by surová odpověď roztáhla sloupec „Výsledek“. Rozbaluje
                   se jen u selhaných, jinde není co ukazovat. */}
-              {row.outcome === "failed" ? (
+              {row.outcome === "failed" && showDiagnostics ? (
                 <Tr>
-                  <Td colSpan={7} className="pt-0">
+                  <Td colSpan={columnCount} className="pt-0">
                     <details>
                       <summary className="cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text)]">
                         Detail chyby

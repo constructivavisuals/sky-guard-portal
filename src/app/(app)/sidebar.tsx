@@ -11,9 +11,13 @@ import {
   Cctv,
   Settings,
   X,
+  LogOut,
 } from "lucide-react";
 
 import { Logo } from "@/components/logo.tsx";
+import type { CurrentProfile } from "@/lib/profile.ts";
+import { profileInitial } from "@/lib/profile.ts";
+import { USER_ROLE_LABELS } from "@/types/database.ts";
 
 export const NAV_ITEMS = [
   { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
@@ -28,9 +32,11 @@ export const NAV_ITEMS = [
 export function Sidebar({
   open,
   onClose,
+  profile,
 }: {
   open: boolean;
   onClose: () => void;
+  profile: CurrentProfile | null;
 }) {
   const pathname = usePathname();
 
@@ -57,7 +63,7 @@ export function Sidebar({
         </button>
       </div>
 
-      <ul className="flex-1 p-3 space-y-1">
+      <ul className="flex-1 overflow-y-auto p-3 space-y-1">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -81,6 +87,47 @@ export function Sidebar({
           );
         })}
       </ul>
+
+      {profile ? <UserBlock profile={profile} /> : null}
     </nav>
+  );
+}
+
+/**
+ * Přihlášený uživatel dole v sidebaru. Odhlášení sedí tady, ne
+ * v horní liště — je to úkon nad účtem, ne nad lokalitou.
+ */
+function UserBlock({ profile }: { profile: CurrentProfile }) {
+  return (
+    <div className="mt-auto border-t border-[var(--border)] p-3">
+      <div className="flex items-center gap-3">
+        <span
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white"
+          aria-hidden="true"
+        >
+          {profileInitial(profile)}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm" title={profile.email ?? undefined}>
+            {profile.email ?? "Bez e-mailu"}
+          </p>
+          <p className="truncate text-xs text-[var(--text-muted)]">
+            {USER_ROLE_LABELS[profile.role]}
+          </p>
+        </div>
+
+        <form action="/auth/odhlaseni" method="post">
+          <button
+            type="submit"
+            aria-label="Odhlásit se"
+            title="Odhlásit se"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,5 @@
-import { LogOut, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 
-import { Button } from "@/components/ui.tsx";
 import type { SiteOption } from "@/lib/site.ts";
 
 import { SiteSwitcher } from "./site-switcher.tsx";
@@ -82,20 +81,22 @@ export function Topbar({
           <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        <SiteSwitcher
-          sites={siteOptions}
-          selectedId={selectedSiteId}
-          label={siteName}
-        />
+        {/* S jedinou lokalitou není z čeho vybírat — přepínač by
+            nabízel „Všechny lokality“ a tutéž jednu. */}
+        {siteOptions.length > 1 ? (
+          <SiteSwitcher
+            sites={siteOptions}
+            selectedId={selectedSiteId}
+            label={siteName}
+          />
+        ) : (
+          <span className="truncate px-2 sm:px-3 text-sm font-medium">
+            {siteName}
+          </span>
+        )}
         <GuardBadge state={guardState} />
       </div>
 
-      <form action="/auth/odhlaseni" method="post">
-        <Button type="submit" variant="ghost" className="px-3">
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          <span className="sr-only sm:not-sr-only">Odhlásit</span>
-        </Button>
-      </form>
     </header>
   );
 }

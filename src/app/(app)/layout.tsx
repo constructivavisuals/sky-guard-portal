@@ -1,3 +1,4 @@
+import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
@@ -30,7 +31,10 @@ async function guardStateFor(siteId: string | null): Promise<GuardState> {
 }
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const { sites, selected } = await getSiteSelection();
+  const [{ sites, selected }, profile] = await Promise.all([
+    getSiteSelection(),
+    getCurrentProfile(),
+  ]);
   const guardState = await guardStateFor(selected?.id ?? null);
 
   return (
@@ -41,6 +45,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       siteOptions={sites}
       selectedSiteId={selected?.id ?? null}
       guardState={guardState}
+      profile={profile}
     >
       {children}
     </Shell>
