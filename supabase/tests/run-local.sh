@@ -69,6 +69,9 @@ run_test_file patrols.sql
 echo "== testy místa a směru kamer =="
 run_test_file camera_location.sql
 
+echo "== práva na pomocné funkce =="
+run_test_file function_grants.sql
+
 echo "== kontrola seedu Vysoké Veselí =="
 run_test_file seed_vysoke_veseli.sql
 
@@ -84,6 +87,9 @@ run_test_file rls_deny_by_default.sql
 echo "== a po znovuspuštění té pozdější se přístup vrátí =="
 $DB -f "$REPO/supabase/migrations/20260824180000_site_grants.sql" >/dev/null
 run_test_file rls_site_grants.sql
+# Totéž pro site_is_armed(): znovuspuštění základní migrace nesmí
+# odstranit kontrolu viditelnosti, kterou přidala 20260829180000.
+run_test_file function_grants.sql
 
 echo "== shoda site_is_armed() v SQL a isSiteArmed() v TypeScriptu =="
 # Ostrý režim počítají dvě nezávislé implementace: databáze při

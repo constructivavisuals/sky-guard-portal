@@ -513,22 +513,36 @@ CREATE OR REPLACE FUNCTION site_is_armed(
   p_site_id UUID,
   p_at TIMESTAMPTZ DEFAULT now()
 )
+-- Kontrola viditelnosti je tu ze stejného důvodu jako u
+-- site_is_visible() výš: kdyby se tenhle soubor pustil znovu, nesmí
+-- přepsat pozdější migraci 20260829180000 do volnější podoby. Bez ní
+-- by se přes RPC dalo bez přihlášení zjistit, jestli je cizí areál
+-- právě střežený.
+--
+-- NULL, ne FALSE: „nesmíš vědět“ není totéž co „není střeženo“.
+-- Service role (ingest, cron) auth.uid() nemá a odpověď potřebuje bez
+-- ohledu na granty — rozhoduje podle ní o zásahu, ne o zobrazení.
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT CASE
-    WHEN s.armed_from = s.armed_to THEN FALSE
-    WHEN s.armed_from < s.armed_to THEN
-      EXTRACT(ISODOW FROM l.local_ts)::INT = ANY (s.armed_days)
-      AND l.local_ts::TIME >= s.armed_from
-      AND l.local_ts::TIME <  s.armed_to
-    WHEN l.local_ts::TIME >= s.armed_from THEN
-      EXTRACT(ISODOW FROM l.local_ts)::INT = ANY (s.armed_days)
-    WHEN l.local_ts::TIME <  s.armed_to THEN
-      EXTRACT(ISODOW FROM l.local_ts - INTERVAL '1 day')::INT = ANY (s.armed_days)
-    ELSE FALSE
-  END
-  FROM sites s
-  CROSS JOIN LATERAL (SELECT p_at AT TIME ZONE s.timezone AS local_ts) l
-  WHERE s.id = p_site_id;
+    WHEN auth.uid() IS NOT NULL AND NOT site_is_visible(p_site_id) THEN NULL
+    ELSE (
+      SELECT CASE
+        WHEN s.armed_from = s.armed_to THEN FALSE
+        WHEN s.armed_from < s.armed_to THEN
+          EXTRACT(ISODOW FROM l.local_ts)::INT = ANY (s.armed_days)
+          AND l.local_ts::TIME >= s.armed_from
+          AND l.local_ts::TIME <  s.armed_to
+        WHEN l.local_ts::TIME >= s.armed_from THEN
+          EXTRACT(ISODOW FROM l.local_ts)::INT = ANY (s.armed_days)
+        WHEN l.local_ts::TIME <  s.armed_to THEN
+          EXTRACT(ISODOW FROM l.local_ts - INTERVAL '1 day')::INT = ANY (s.armed_days)
+        ELSE FALSE
+      END
+      FROM sites s
+      CROSS JOIN LATERAL (SELECT p_at AT TIME ZONE s.timezone AS local_ts) l
+      WHERE s.id = p_site_id
+    )
+  END;
 $$;
 
 -- ── RLS ──────────────────────────────────────────────────────────
