@@ -195,6 +195,10 @@ export interface CameraFormValue {
   model: string | null;
   serial_number: string | null;
   focal_mm: number | null;
+  /** Obojí naráz, nebo ani jedno — půlka bodu nedává smysl. */
+  latitude: number | null;
+  longitude: number | null;
+  azimuth: number | null;
   status: CameraStatus;
 }
 
@@ -220,6 +224,45 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
     else if (focal > 9999) errors.focal_mm = "Ohnisko je nesmyslně velké.";
   }
 
+  // Souřadnice jsou nepovinné — kamera může být v evidenci dřív, než
+  // ji někdo zaměří. Půlka bodu ale ne: se samotnou šířkou by se
+  // kamera na podkladu nedala umístit.
+  const latRaw = text(data, "latitude");
+  const lonRaw = text(data, "longitude");
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+
+  if (latRaw !== "" || lonRaw !== "") {
+    const lat = parseDecimal(latRaw);
+    const lon = parseDecimal(lonRaw);
+
+    if (latRaw === "") errors.latitude = "Doplňte i zeměpisnou šířku.";
+    else if (!Number.isFinite(lat)) errors.latitude = "Zadejte zeměpisnou šířku.";
+    else if (lat < -90 || lat > 90) {
+      errors.latitude = "Šířka musí být v rozsahu −90 až 90.";
+    } else latitude = lat;
+
+    if (lonRaw === "") errors.longitude = "Doplňte i zeměpisnou délku.";
+    else if (!Number.isFinite(lon)) errors.longitude = "Zadejte zeměpisnou délku.";
+    else if (lon < -180 || lon > 180) {
+      errors.longitude = "Délka musí být v rozsahu −180 až 180.";
+    } else longitude = lon;
+  }
+
+  const azimuthRaw = text(data, "azimuth");
+  let azimuth: number | null = null;
+  if (azimuthRaw !== "") {
+    // Ne parseDecimal: databáze má smallint, půlstupně by se zaokrouhlily
+    // potichu. Radši to odmítnout hned.
+    const value = Number(azimuthRaw.replace(",", "."));
+    if (!Number.isFinite(value)) errors.azimuth = "Zadejte azimut ve stupních.";
+    else if (!Number.isInteger(value)) {
+      errors.azimuth = "Azimut zadejte celým číslem.";
+    } else if (value < 0 || value > 359) {
+      errors.azimuth = "Azimut musí být v rozsahu 0 až 359.";
+    } else azimuth = value;
+  }
+
   const status = text(data, "status");
   if (!(CAMERA_STATUSES as readonly string[]).includes(status)) {
     errors.status = "Vyberte stav kamery.";
@@ -236,6 +279,9 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
       model: optionalText(data, "model"),
       serial_number: optionalText(data, "serial_number"),
       focal_mm: focal,
+      latitude,
+      longitude,
+      azimuth,
       status: status as CameraStatus,
     },
   };

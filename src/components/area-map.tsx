@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { Radar, Warehouse } from "lucide-react";
+import { Cctv, Radar, Warehouse } from "lucide-react";
 import type { ReactNode } from "react";
 
 import {
   boundsAreUsable,
   boundsAspectRatio,
+  boundsSpanMeters,
+  fieldOfViewDegrees,
   projectPoint,
+  sectorPath,
   type MapBounds,
 } from "@/lib/area-map.ts";
 
@@ -21,10 +24,15 @@ export interface AreaMapPoint {
   latitude: number;
   longitude: number;
   label: string;
-  kind: "dock" | "zone";
-  /** Vypnutá zóna se kreslí utlumeně. */
+  kind: "dock" | "zone" | "camera";
+  /** Vypnutá zóna nebo offline kamera se kreslí utlumeně. */
   muted?: boolean;
   href?: string;
+  /** Kam kamera kouká. Bez azimutu se kreslí jen bod bez výseče. */
+  azimuth?: number | null;
+  /** Ohnisko v mm; zorný úhel se z něj dopočítává. */
+  focalMm?: number | null;
+  rangeM?: number | null;
 }
 
 export function AreaMap({
@@ -58,6 +66,24 @@ export function AreaMap({
 
   const skipped = points.length - placed.length;
 
+  // Výseče se kreslí v metrech. Rámeček má poměr stran taky z metrů,
+  // takže jsou jednotky na obrazovce čtvercové a výseč vyjde kruhová —
+  // ve stupních by se natáhla do šířky.
+  const span = boundsSpanMeters(bounds);
+  const sectors = placed.flatMap(({ point, position }) => {
+    if (point.kind !== "camera") return [];
+    if (typeof point.azimuth !== "number") return [];
+    const fov = fieldOfViewDegrees(point.focalMm ?? null);
+    if (fov === null) return [];
+    const path = sectorPath(
+      { x: position.x * span.width, y: position.y * span.height },
+      point.azimuth,
+      fov,
+      point.rangeM ?? 30,
+    );
+    return path ? [{ id: point.id, path, muted: point.muted === true }] : [];
+  });
+
   return (
     <div>
       <div
@@ -73,6 +99,30 @@ export function AreaMap({
           className="absolute inset-0 h-full w-full"
           style={{ objectFit: "fill" }}
         />
+
+        {sectors.length > 0 ? (
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            viewBox={`0 0 ${span.width} ${span.height}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            {sectors.map((sector) => (
+              <path
+                key={sector.id}
+                d={sector.path}
+                className={
+                  sector.muted
+                    ? "fill-[var(--text-muted)]/10 stroke-[var(--text-muted)]/30"
+                    : "fill-[var(--accent)]/20 stroke-[var(--accent)]/50"
+                }
+                // Tloušťka je v metrech jako zbytek soustavy; bez toho
+                // by čára rostla s velikostí výřezu.
+                strokeWidth={0.5}
+              />
+            ))}
+          </svg>
+        ) : null}
 
         {placed.map(({ point, position }) => (
           <Marker key={point.id} point={point} position={position} />
@@ -97,16 +147,19 @@ function Marker({
   point: AreaMapPoint;
   position: { x: number; y: number };
 }) {
-  const tone =
-    point.kind === "dock"
+  const tone = point.muted
+    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]"
+    : point.kind === "dock"
       ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-      : point.muted
-        ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]"
+      : point.kind === "camera"
+        ? "border-[var(--accent)] bg-[var(--surface)] text-[var(--accent)]"
         : "border-[var(--success)] bg-[var(--success)] text-white";
 
   const icon: ReactNode =
     point.kind === "dock" ? (
       <Warehouse className="h-3.5 w-3.5" aria-hidden="true" />
+    ) : point.kind === "camera" ? (
+      <Cctv className="h-3.5 w-3.5" aria-hidden="true" />
     ) : (
       <Radar className="h-3.5 w-3.5" aria-hidden="true" />
     );
@@ -114,11 +167,11 @@ function Marker({
   const body = (
     <>
       <span
-        className={`inline-flex h-7 w-7 items-center justify-center rounded-full border-2 shadow-lg ${tone}`}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-full border-2 shadow-lg ${tone}`}
       >
         {icon}
       </span>
-      <span className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 whitespace-nowrap rounded bg-black/75 px-1.5 py-0.5 text-[10px] text-white">
+      <span className="pointer-events-none absolute left-1/2 top-7 -translate-x-1/2 whitespace-nowrap rounded bg-black/75 px-1.5 py-0.5 text-[10px] text-white">
         {point.label}
       </span>
     </>

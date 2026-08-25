@@ -17,6 +17,20 @@ if [ -d "$PGDATA" ]; then
   rm -rf "$PGDATA"
 fi
 
+# Spustí testovací soubor a trvá na tom, aby doběhl do konce. Bez téhle
+# kontroly by ERROR uprostřed souboru propadl přes `|| true` a běh by
+# skončil zeleně s hláškou z jiného souboru.
+run_test_file() {
+  local file="$1"
+  local out
+  out=$($DB -f "$REPO/supabase/tests/$file" 2>&1) || true
+  echo "$out" | grep -E 'ok |FAIL|VŠECHNY|ERROR' || true
+  if ! echo "$out" | grep -q 'VŠECHNY TESTY PROŠLY'; then
+    echo "SELHALO: $file nedoběhl do konce."
+    exit 1
+  fi
+}
+
 echo "== initdb =="
 initdb -D "$PGDATA" -U postgres --encoding=UTF8 --locale=C >/dev/null
 
@@ -44,13 +58,19 @@ for m in "$REPO"/supabase/migrations/*.sql; do
 done
 
 echo "== RLS testy rozsahu =="
-$DB -f "$REPO/supabase/tests/rls_site_grants.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR' || true
+run_test_file rls_site_grants.sql
 
 echo "== testy dronových detekcí a decision_reason =="
-$DB -f "$REPO/supabase/tests/drone_detections.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR' || true
+run_test_file drone_detections.sql
 
 echo "== testy hlídek =="
-$DB -f "$REPO/supabase/tests/patrols.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR' || true
+run_test_file patrols.sql
+
+echo "== testy místa a směru kamer =="
+run_test_file camera_location.sql
+
+echo "== kontrola seedu Vysoké Veselí =="
+run_test_file seed_vysoke_veseli.sql
 
 echo "== shoda site_is_armed() v SQL a isSiteArmed() v TypeScriptu =="
 # Ostrý režim počítají dvě nezávislé implementace: databáze při

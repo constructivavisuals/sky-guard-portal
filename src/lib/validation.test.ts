@@ -209,6 +209,15 @@ describe("parseCameraForm", () => {
     ["ohnisko záporné", { focal_mm: "-4" }, "focal_mm"],
     ["ohnisko nesmyslné", { focal_mm: "10000" }, "focal_mm"],
     ["ohnisko není číslo", { focal_mm: "široké" }, "focal_mm"],
+    ["šířka bez délky", { latitude: "50,3296" }, "longitude"],
+    ["délka bez šířky", { longitude: "15,4262" }, "latitude"],
+    ["šířka mimo rozsah", { latitude: "91", longitude: "15" }, "latitude"],
+    ["délka mimo rozsah", { latitude: "50", longitude: "181" }, "longitude"],
+    ["šířka není číslo", { latitude: "sever", longitude: "15" }, "latitude"],
+    ["azimut 360", { azimuth: "360" }, "azimuth"],
+    ["azimut záporný", { azimuth: "-1" }, "azimuth"],
+    ["azimut s desetinami", { azimuth: "180,5" }, "azimuth"],
+    ["azimut není číslo", { azimuth: "na jih" }, "azimuth"],
   ];
 
   for (const [name, override, field] of bad) {
@@ -218,6 +227,43 @@ describe("parseCameraForm", () => {
       if (!r.ok) assert.ok(r.errors[field]);
     });
   }
+
+  it("souřadnice a azimut projdou i s čárkou", () => {
+    const r = parseCameraForm(
+      form({
+        ...validCamera,
+        latitude: "50,329607",
+        longitude: "15,426257",
+        azimuth: "180",
+      }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.latitude, 50.329607);
+    assert.equal(r.value.longitude, 15.426257);
+    assert.equal(r.value.azimuth, 180);
+  });
+
+  it("bez souřadnic i azimutu projde — kamera nemusí být zaměřená", () => {
+    const r = parseCameraForm(form(validCamera));
+    assert.ok(r.ok);
+    assert.equal(r.value.latitude, null);
+    assert.equal(r.value.longitude, null);
+    assert.equal(r.value.azimuth, null);
+  });
+
+  it("azimut 0 je sever, ne prázdná hodnota", () => {
+    const r = parseCameraForm(form({ ...validCamera, azimuth: "0" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.azimuth, 0);
+  });
+
+  it("souřadnice bez azimutu projdou — bod bez výseče", () => {
+    const r = parseCameraForm(
+      form({ ...validCamera, latitude: "50,3296", longitude: "15,4262" }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.azimuth, null);
+  });
 
   it("stav decommissioned je platný — nahrazuje mazání", () => {
     const r = parseCameraForm(form({ ...validCamera, status: "decommissioned" }));

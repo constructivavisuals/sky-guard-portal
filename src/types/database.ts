@@ -221,6 +221,15 @@ export type Camera = {
   lan_ip: string | null;
   focal_mm: number | null;
   mount_description: string | null;
+  /**
+   * Kde kamera stojí a kam kouká. Migrace 20260828180000.
+   * EWKB hex, rozebírá `parsePointEwkbHex`. Azimut 0 = sever, 90 = východ;
+   * null znamená, že se po montáži nezměřil.
+   */
+  location: string | null;
+  azimuth: number | null;
+  /** Dosah záběru v metrech. Jen pro vykreslení, detekci neomezuje. */
+  range_m: number;
   status: CameraStatus;
   last_seen_at: string | null;
   created_at: string;

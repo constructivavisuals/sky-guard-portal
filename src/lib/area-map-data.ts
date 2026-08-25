@@ -1,8 +1,7 @@
 // Sběr bodů pro podklad areálu.
 //
-// Zóny jdou z databáze přes RLS, dok z FlightHubu (přes 60s cache, aby
-// se stav doku nečetl dvakrát na jedné obrazovce). Kamery zatím
-// souřadnice nemají — doplní se po montáži spolu s azimutem.
+// Zóny a kamery jdou z databáze přes RLS, dok z FlightHubu (přes 60s
+// cache, aby se stav doku nečetl dvakrát na jedné obrazovce).
 
 import type { MapBounds } from "@/lib/area-map.ts";
 import type { AreaMapPoint } from "@/components/area-map.tsx";
@@ -80,6 +79,42 @@ export async function loadAreaMap(
       kind: "zone",
       muted: !zone.enabled,
       href: "/zony",
+    });
+  }
+
+  const { data: cameras } = await supabase
+    .from("cameras")
+    .select("id, name, location, azimuth, focal_mm, range_m, status")
+    .eq("site_id", site.id)
+    .order("name")
+    .returns<
+      {
+        id: string;
+        name: string;
+        location: string | null;
+        azimuth: number | null;
+        focal_mm: number | null;
+        range_m: number;
+        status: string;
+      }[]
+    >();
+
+  for (const camera of cameras ?? []) {
+    const at = parsePointEwkbHex(camera.location);
+    // Kamera bez zaměření se nedá umístit, tak se vynechá úplně.
+    // Bez azimutu se umístit dá — nakreslí se bod bez výseče.
+    if (!at) continue;
+    points.push({
+      id: `camera-${camera.id}`,
+      latitude: at.latitude,
+      longitude: at.longitude,
+      label: camera.name,
+      kind: "camera",
+      muted: camera.status !== "online",
+      href: "/kamery",
+      azimuth: camera.azimuth,
+      focalMm: camera.focal_mm,
+      rangeM: camera.range_m,
     });
   }
 

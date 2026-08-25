@@ -139,12 +139,22 @@ export async function saveCamera(
   if (!parsed.ok)
     return { ok: false, errors: parsed.errors, values: snapshot(data), attempt };
 
+  // Souřadnice se do sloupce geography ukládají jako bod. Prázdné pole
+  // musí zapsat null, ne se přeskočit — jinak by z kamery po přesunu
+  // nešlo staré místo smazat.
+  const { latitude, longitude, ...rest } = parsed.value;
+  const row = {
+    ...rest,
+    location:
+      latitude === null || longitude === null ? null : toPoint(latitude, longitude),
+  };
+
   const id = String(data.get("id") ?? "");
   const supabase = await createClient();
 
   const { error } = id
-    ? await supabase.from("cameras").update(parsed.value).eq("id", id)
-    : await supabase.from("cameras").insert(parsed.value);
+    ? await supabase.from("cameras").update(row).eq("id", id)
+    : await supabase.from("cameras").insert(row);
 
   if (error)
     return { ...failed(error.message, error.code), values: snapshot(data), attempt };

@@ -4,7 +4,10 @@ import { describe, it } from "node:test";
 import {
   boundsAreUsable,
   boundsAspectRatio,
+  boundsSpanMeters,
+  fieldOfViewDegrees,
   projectPoint,
+  sectorPath,
   type MapBounds,
 } from "./area-map.ts";
 
@@ -137,5 +140,103 @@ describe("boundsAreUsable", () => {
       boundsAreUsable({ nwLat: Number.NaN, nwLon: 15, seLat: 49, seLon: 16 }),
       false,
     );
+  });
+});
+
+describe("boundsSpanMeters", () => {
+  it("Vysoké Veselí měří zhruba 223 × 194 m", () => {
+    const span = boundsSpanMeters(VESELI);
+    assert.ok(Math.abs(span.width - 223) < 2, `šířka ${span.width}`);
+    assert.ok(Math.abs(span.height - 194) < 2, `výška ${span.height}`);
+  });
+
+  it("stupeň šířky je zhruba 111 km", () => {
+    const span = boundsSpanMeters({ nwLat: 1, nwLon: 0, seLat: 0, seLon: 1 });
+    assert.ok(Math.abs(span.height - 111_320) < 1);
+  });
+});
+
+describe("fieldOfViewDegrees", () => {
+  it("tabulková ohniska sedí na katalog", () => {
+    assert.equal(fieldOfViewDegrees(2.8), 106);
+    assert.equal(fieldOfViewDegrees(3.6), 87);
+    assert.equal(fieldOfViewDegrees(6), 50);
+  });
+
+  it("mezi tabulkovými hodnotami interpoluje", () => {
+    const value = fieldOfViewDegrees(3.2);
+    assert.ok(value !== null && value > 87 && value < 106, `${value}`);
+  });
+
+  it("je monotónní — širší objektiv nikdy nemá užší záběr", () => {
+    let previous = Infinity;
+    for (let focal = 2; focal <= 12; focal += 0.2) {
+      const value = fieldOfViewDegrees(focal);
+      assert.ok(value !== null);
+      assert.ok(value <= previous + 1e-9, `${focal} mm dalo ${value}`);
+      previous = value;
+    }
+  });
+
+  it("nad tabulkou navazuje spojitě", () => {
+    const value = fieldOfViewDegrees(6.001);
+    assert.ok(value !== null && Math.abs(value - 50) < 0.1, `${value}`);
+  });
+
+  it("pod tabulkou neextrapoluje", () => {
+    assert.equal(fieldOfViewDegrees(1), 106);
+  });
+
+  it("nesmysly vrací null", () => {
+    assert.equal(fieldOfViewDegrees(null), null);
+    assert.equal(fieldOfViewDegrees(0), null);
+    assert.equal(fieldOfViewDegrees(-6), null);
+    assert.equal(fieldOfViewDegrees(Number.NaN), null);
+  });
+});
+
+describe("sectorPath", () => {
+  const center = { x: 100, y: 100 };
+
+  it("výseč na sever míří nahoru", () => {
+    const path = sectorPath(center, 0, 90, 10);
+    assert.ok(path !== null);
+    // Krajní body jsou na 315° a 45°, tedy oba nad středem.
+    const numbers = path.match(/-?\d+(\.\d+)?/g)!.map(Number);
+    assert.ok(numbers[1] === 100);
+    // První bod oblouku: x menší než střed, y menší (výš).
+    assert.ok(numbers[2] < 100 && numbers[3] < 100, path);
+  });
+
+  it("azimut 90 míří na východ", () => {
+    const path = sectorPath(center, 90, 2, 10)!;
+    const numbers = path.match(/-?\d+(\.\d+)?/g)!.map(Number);
+    // Krajní bod je skoro přesně 10 m na východ.
+    assert.ok(Math.abs(numbers[2] - 110) < 0.5, path);
+    assert.ok(Math.abs(numbers[3] - 100) < 0.5, path);
+  });
+
+  it("azimut 180 míří na jih, tedy dolů", () => {
+    const path = sectorPath(center, 180, 2, 10)!;
+    const numbers = path.match(/-?\d+(\.\d+)?/g)!.map(Number);
+    assert.ok(numbers[3] > 109, path);
+  });
+
+  it("široká výseč nastaví large-arc", () => {
+    assert.match(sectorPath(center, 0, 200, 10)!, / 0 1 1 /);
+    assert.match(sectorPath(center, 0, 106, 10)!, / 0 0 1 /);
+  });
+
+  it("celý kruh se kreslí dvěma oblouky", () => {
+    const path = sectorPath(center, 0, 360, 10)!;
+    assert.equal(path.match(/A /g)?.length, 2);
+    // Bez středu — jinak by z kruhu koukal paprsek.
+    assert.ok(!path.includes("L "), path);
+  });
+
+  it("nesmysly vrací null", () => {
+    assert.equal(sectorPath(center, 0, 0, 10), null);
+    assert.equal(sectorPath(center, 0, 90, 0), null);
+    assert.equal(sectorPath(center, Number.NaN, 90, 10), null);
   });
 });

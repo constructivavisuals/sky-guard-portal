@@ -6,6 +6,7 @@ import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatFocalLength, orDash } from "@/lib/format.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
+import { parsePointEwkbHex } from "@/lib/geo.ts";
 import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
@@ -23,6 +24,9 @@ interface CameraRow {
   model: string | null;
   focal_mm: number | null;
   serial_number: string | null;
+  /** EWKB hex; formulář ho rozebírá na šířku a délku. */
+  location: string | null;
+  azimuth: number | null;
   status: CameraStatus;
   sites: { name: string } | null;
   zones: { name: string } | null;
@@ -47,7 +51,8 @@ export default async function Page() {
     let query = supabase
       .from("cameras")
       .select(
-        "id, site_id, zone_id, name, model, focal_mm, serial_number, status, sites(name), zones(name)",
+        "id, site_id, zone_id, name, model, focal_mm, serial_number, location, azimuth, status, " +
+          "sites(name), zones(name)",
       )
       .order("name");
 
@@ -143,6 +148,9 @@ export default async function Page() {
                       model: row.model,
                       serial_number: row.serial_number,
                       focal_mm: row.focal_mm,
+                      latitude: parsePointEwkbHex(row.location)?.latitude ?? null,
+                      longitude: parsePointEwkbHex(row.location)?.longitude ?? null,
+                      azimuth: row.azimuth,
                       status: row.status,
                     }}
                   />

@@ -31,6 +31,9 @@ export interface CameraInitial {
   model: string | null;
   serial_number: string | null;
   focal_mm: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  azimuth: number | null;
   status: string;
 }
 
@@ -160,6 +163,38 @@ function CameraDialog({
             placeholder="2,8"
           />
         </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <TextField
+            label="Zeměpisná šířka"
+            name="latitude"
+            error={e.latitude}
+            inputMode="decimal"
+            defaultValue={keep("latitude", camera?.latitude ?? "")}
+            placeholder="50,329607"
+          />
+          <TextField
+            label="Zeměpisná délka"
+            name="longitude"
+            error={e.longitude}
+            inputMode="decimal"
+            defaultValue={keep("longitude", camera?.longitude ?? "")}
+            placeholder="15,426257"
+          />
+          <TextField
+            label="Azimut (°)"
+            name="azimuth"
+            error={e.azimuth}
+            inputMode="numeric"
+            defaultValue={keep("azimuth", camera?.azimuth ?? "")}
+            placeholder="180"
+            hint="0 sever, 90 východ."
+          />
+        </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          Bez souřadnic se kamera na podkladu areálu nevykreslí, bez azimutu
+          jen jako bod bez výseče záběru. Šířka záběru se počítá z ohniska.
+        </p>
 
         <SelectField
           label="Stav"
