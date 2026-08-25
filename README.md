@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sky Guard Portal
 
-## Getting Started
+Portál k dronové ochraně perimetru. Next.js 16 (App Router), Supabase,
+DJI FlightHub 2.
 
-First, run the development server:
+## Spuštění
 
 ```bash
+npm install
+cp .env.local.example .env.local   # a vyplnit
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Kontroly před pushem:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build      # musí běžet první — generuje typy pro PageProps
+npm run typecheck
+npm run lint
+npm test
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`npm run typecheck` samotný po čerstvém klonu spadne na chybějících
+typech rout. Nejdřív `build`.
 
-## Learn More
+## Migrace
 
-To learn more about Next.js, take a look at the following resources:
+Migrace se pouštějí ručně přes SQL Editor v Supabase, ne přes CLI.
+Který soubor je na řadě, řekne:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run migrace                 # zkopíruje SQL do schránky
+npm run migrace -- --hotovo     # po spuštění potvrdí
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Evidenci nasazených migrací drží `supabase/nasazene-migrace.txt`.
+Co v něm není, na produkci neběželo.
 
-## Deploy on Vercel
+Schéma a RLS jde ověřit lokálně proti jednorázovému PostgreSQL
+(vyžaduje `postgresql@17` a `postgis` z Homebrew):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+supabase/tests/run-local.sh
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Plánování hlídek
+
+`GET /api/cron/patrols` projde zapnuté hlídky a pro ty, které mají
+v příštích deseti minutách odstartovat, založí let ve FlightHubu.
+
+**Volá se zvenčí, ne z Vercelu.** Hobby plán pouští cron nanejvýš
+jednou denně, takže by pětiminutová perioda neprošla ani buildem;
+`vercel.json` proto žádné `crons` nemá. Endpoint zůstává, jen ho musí
+někdo spouštět — server s crontabem, Cloudflare Worker, cokoli, co umí
+poslat HTTP požadavek.
+
+Perioda má být 5 minut. Okno je delší schválně, aby vynechaný běh
+dohnal ten následující; dvojímu naplánování brání unikátní index na
+`(patrol_id, started_at)`.
+
+Řádek do crontabu:
+
+```cron
+*/5 * * * * curl -fsS -m 30 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/patrols
+```
+
+`CRON_SECRET` musí sedět s proměnnou nastavenou ve Vercelu. Bez ní
+endpoint vrací 401 a nic neplánuje — nenastavené tajemství ho vypne
+úplně, aby otevřený cron nedovolil komukoli zakládat lety.
+
+Tajemství **nepatří přímo do řádku crontabu** — `/etc/crontab` bývá
+čitelný pro všechny a v `ps` je vidět celý příkaz. Načíst ho ze souboru
+jen pro vlastníka:
+
+```cron
+*/5 * * * * . /etc/sky-guard.env && curl -fsS -m 30 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/patrols
+```
+
+```bash
+printf 'CRON_SECRET=…\n' > /etc/sky-guard.env
+chmod 600 /etc/sky-guard.env
+```
+
+Doména v příkladu je zástupná — nahradit skutečnou.
+
+Endpoint vrací 200 se souhrnem, co naplánoval a co přeskočil (dron mimo
+dok, baterie pod 40 %, zaplněné úložiště). `-f` v curlu zajistí, že
+crontab pošle mail, když přijde 401 nebo 500.

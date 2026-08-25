@@ -14,3 +14,5 @@
 20260826180000_drop_fh_task_id.sql
 20260827120000_flight_conditions.sql
 20260827180000_flights_site.sql
+20260828120000_site_map.sql
+20260828180000_camera_location.sql
