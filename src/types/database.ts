@@ -215,11 +215,22 @@ export type Detection = {
   id: string;
   /** Odkud detekce je — od toho se odvíjí, co je vyplněné. */
   source: DetectionSource;
+  /**
+   * Lokalita detekce. Migrace 20260825180000 — do té doby se odvozovala
+   * přes kameru nebo přes let a jeho zásah, což znamenalo dvě větve
+   * v RLS a dofiltrovávání v UI.
+   */
+  site_id: string;
   /** null u dronové detekce. */
   camera_id: string | null;
   zone_id: string | null;
   /** Vyplněné u dronové detekce, jinak null. */
   flight_id: string | null;
+  /**
+   * Kde detekce vznikla, geography(Point, 4326). Vyplněné u dronových
+   * z telemetrie; u kamerových zůstává null, polohu nese zóna.
+   */
+  location: Geography | null;
   detected_at: string;
   object_class: DetectionObjectClass;
   /** 0–1, NUMERIC(5,4). */
@@ -307,7 +318,7 @@ export type ProfileInsert = Insertable<Profile, "id">;
 export type SiteInsert = Insertable<Site, "name">;
 export type ZoneInsert = Insertable<Zone, "site_id" | "name">;
 export type CameraInsert = Insertable<Camera, "site_id" | "name">;
-export type DetectionInsert = Insertable<Detection, "source">;
+export type DetectionInsert = Insertable<Detection, "source" | "site_id">;
 export type DispatchInsert = Insertable<
   Dispatch,
   "site_id" | "zone_id" | "level_sent" | "outcome"

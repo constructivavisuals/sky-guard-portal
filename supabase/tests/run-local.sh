@@ -26,6 +26,9 @@ pg_ctl -D "$PGDATA" -o "-p $PGPORT -c listen_addresses=localhost" -l "${TMPDIR:-
 cleanup() { pg_ctl -D "$PGDATA" -m immediate stop >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
+# psql \i v testech řeší cesty k migracím relativně ke kořeni repa.
+cd "$REPO"
+
 PSQL="psql -h localhost -p $PGPORT -U postgres -v ON_ERROR_STOP=1 -q"
 
 $PSQL -c "CREATE DATABASE skyguard_test" >/dev/null
@@ -45,6 +48,9 @@ $DB -f "$REPO/supabase/migrations/20260825120000_decision_reason_and_drone_detec
 
 echo "== RLS testy =="
 $DB -f "$REPO/supabase/tests/rls_site_grants.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR|CHYBA' || true
+
+echo "== migrace 4: poloha a lokalita detekcí =="
+$DB -f "$REPO/supabase/migrations/20260825180000_detections_location_and_site.sql" >/dev/null
 
 echo "== testy dronových detekcí a decision_reason =="
 $DB -f "$REPO/supabase/tests/drone_detections.sql" 2>&1 | grep -E 'ok |FAIL|VŠECHNY|ERROR' || true

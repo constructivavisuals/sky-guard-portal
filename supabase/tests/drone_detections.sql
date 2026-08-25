@@ -42,6 +42,7 @@ EXCEPTION
 END $$;
 
 GRANT EXECUTE ON FUNCTION public.test_expect(TEXT, BIGINT, BIGINT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.test_expect_rejected(TEXT, TEXT) TO authenticated;
 
 -- ── Data ─────────────────────────────────────────────────────────
 
@@ -67,8 +68,12 @@ INSERT INTO cameras (id, site_id, zone_id, name) VALUES
 
 -- Kamerová detekce ještě před doplněním sloupce by měla mít source
 -- 'camera' z výchozí hodnoty — vloží se bez uvedení source.
-INSERT INTO detections (id, camera_id, zone_id, object_class) VALUES
-  ('00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000021',
+-- Bez site_id schválně: doplní ho migrace odvozením přes kameru.
+-- (Migrace už proběhla, takže ho dodá DEFAULT? Ne — dodáme ho ručně,
+-- protože sloupec je NOT NULL a odvozovací UPDATE běžel jen jednou.)
+INSERT INTO detections (id, site_id, camera_id, zone_id, object_class) VALUES
+  ('00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000021',
    '00000000-0000-0000-0000-000000000011', 'person');
 
 INSERT INTO dispatches (id, site_id, zone_id, level_sent, outcome, fh_incident_uuid) VALUES
@@ -79,10 +84,13 @@ INSERT INTO flights (id, dispatch_id, fh_task_id, status) VALUES
   ('00000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000041', 'task-1', 'completed');
 
 -- Detekce, kterou pořídil dron za letu: bez kamery, bez zóny.
-INSERT INTO detections (id, source, flight_id, object_class, confidence, raw) VALUES
+INSERT INTO detections (id, source, site_id, flight_id, object_class, confidence, raw,
+                        location) VALUES
   ('00000000-0000-0000-0000-000000000032', 'drone',
+   '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000051', 'vehicle', 0.72,
-   '{"latitude": 50.0755, "longitude": 14.4378}'::jsonb);
+   '{"latitude": 50.0755, "longitude": 14.4378}'::jsonb,
+   ST_SetSRID(ST_MakePoint(14.4378, 50.0755), 4326)::geography);
 
 -- ── Zpětné doplnění zdroje ───────────────────────────────────────
 
@@ -101,16 +109,19 @@ SELECT public.test_expect(
 
 SELECT public.test_expect_rejected(
   'camera bez camera_id neprojde',
-  $stmt$INSERT INTO detections (source, object_class) VALUES ('camera', 'person')$stmt$);
+  $stmt$INSERT INTO detections (source, site_id, object_class)
+        VALUES ('camera', '00000000-0000-0000-0000-000000000001', 'person')$stmt$);
 
 SELECT public.test_expect_rejected(
   'drone bez flight_id neprojde',
-  $stmt$INSERT INTO detections (source, object_class) VALUES ('drone', 'person')$stmt$);
+  $stmt$INSERT INTO detections (source, site_id, object_class)
+        VALUES ('drone', '00000000-0000-0000-0000-000000000001', 'person')$stmt$);
 
 SELECT public.test_expect_rejected(
   'drone s kamerou místo letu neprojde',
-  $stmt$INSERT INTO detections (source, camera_id, object_class)
-        VALUES ('drone', '00000000-0000-0000-0000-000000000021', 'person')$stmt$);
+  $stmt$INSERT INTO detections (source, site_id, camera_id, object_class)
+        VALUES ('drone', '00000000-0000-0000-0000-000000000001',
+                '00000000-0000-0000-0000-000000000021', 'person')$stmt$);
 
 -- ── decision_reason ──────────────────────────────────────────────
 
@@ -154,24 +165,147 @@ SET LOCAL ROLE authenticated;
 SELECT public.test_expect('klient bez grantu nevidí nic', (SELECT count(*) FROM detections), 0);
 RESET ROLE;
 
--- Let bez zásahu nemá lokalitu, takže na jeho detekci dosáhne jen admin.
+-- ── Let bez zásahu ───────────────────────────────────────────────
+-- Dřív takový let neměl lokalitu a jeho detekci viděl jen admin.
+-- Se sloupcem site_id musí lokalitu dodat ten, kdo detekci zakládá —
+-- a od té chvíle se řídí grantem jako všechno ostatní. Je to změna
+-- chování, ne chyba: detekce teď svou lokalitu zná.
 INSERT INTO flights (id, dispatch_id, fh_task_id, status) VALUES
   ('00000000-0000-0000-0000-000000000052', NULL, 'task-sirota', 'completed');
-INSERT INTO detections (id, source, flight_id, object_class) VALUES
+
+SELECT public.test_expect_rejected(
+  'detekce bez lokality neprojde',
+  $stmt$INSERT INTO detections (source, flight_id, object_class)
+        VALUES ('drone', '00000000-0000-0000-0000-000000000052', 'unknown')$stmt$);
+
+INSERT INTO detections (id, source, site_id, flight_id, object_class) VALUES
   ('00000000-0000-0000-0000-000000000033', 'drone',
+   '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000052', 'unknown');
 
 SET LOCAL request.jwt.claims TO '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
 SET LOCAL ROLE authenticated;
 SELECT public.test_expect(
-  'detekce z letu bez zásahu klientovi nepřibyla',
-  (SELECT count(*) FROM detections), 2);
+  'klient s grantem ji vidí — dřív byla jen pro admina',
+  (SELECT count(*) FROM detections), 3);
+RESET ROLE;
+
+SET LOCAL request.jwt.claims TO '{"sub":"00000000-0000-0000-0000-0000000000a3","role":"authenticated"}';
+SET LOCAL ROLE authenticated;
+SELECT public.test_expect(
+  'klient bez grantu ji nevidí ani teď',
+  (SELECT count(*) FROM detections), 0);
 RESET ROLE;
 
 SET LOCAL request.jwt.claims TO '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
 SET LOCAL ROLE authenticated;
-SELECT public.test_expect('admin vidí i tu ze samostatného letu', (SELECT count(*) FROM detections), 3);
+SELECT public.test_expect('admin vidí všechny tři', (SELECT count(*) FROM detections), 3);
 RESET ROLE;
+
+-- ── Doplnění site_id odvozením ───────────────────────────────────
+-- Tohle je jádro migrace, takže se nezkouší jeho opis, ale samotný
+-- soubor: NOT NULL se dočasně sundá, vloží se řádky bez lokality
+-- a migrace se pustí znovu. Je idempotentní (UPDATE mají WHERE
+-- site_id IS NULL), takže doplní právě ty nové.
+
+ALTER TABLE detections ALTER COLUMN site_id DROP NOT NULL;
+
+INSERT INTO detections (id, source, camera_id, zone_id, object_class) VALUES
+  ('00000000-0000-0000-0000-0000000000b1', 'camera',
+   '00000000-0000-0000-0000-000000000021',
+   '00000000-0000-0000-0000-000000000011', 'person');
+
+INSERT INTO detections (id, source, flight_id, object_class, raw) VALUES
+  ('00000000-0000-0000-0000-0000000000b2', 'drone',
+   '00000000-0000-0000-0000-000000000051', 'vehicle',
+   '{"latitude": 49.1951, "longitude": 16.6068}'::jsonb);
+
+SELECT public.test_expect(
+  'nové řádky zatím lokalitu nemají',
+  (SELECT count(*) FROM detections WHERE site_id IS NULL), 2);
+
+\i supabase/migrations/20260825180000_detections_location_and_site.sql
+
+SELECT public.test_expect(
+  'kamerové doplnila lokalitu přes kameru',
+  (SELECT count(*) FROM detections
+   WHERE id = '00000000-0000-0000-0000-0000000000b1'
+     AND site_id = '00000000-0000-0000-0000-000000000001'), 1);
+
+SELECT public.test_expect(
+  'dronové přes let a jeho zásah',
+  (SELECT count(*) FROM detections
+   WHERE id = '00000000-0000-0000-0000-0000000000b2'
+     AND site_id = '00000000-0000-0000-0000-000000000001'), 1);
+
+SELECT public.test_expect(
+  'a zároveň jí doplnila polohu z raw',
+  (SELECT count(*) FROM detections
+   WHERE id = '00000000-0000-0000-0000-0000000000b2'
+     AND abs(ST_Y(location::geometry) - 49.1951) < 1e-9
+     AND abs(ST_X(location::geometry) - 16.6068) < 1e-9), 1);
+
+SELECT public.test_expect(
+  'nic nezůstalo bez lokality',
+  (SELECT count(*) FROM detections WHERE site_id IS NULL), 0);
+
+-- A pojistka: když lokalita odvodit nejde, migrace musí spadnout,
+-- ne tiše nechat NOT NULL selhat o řádek níž.
+ALTER TABLE detections ALTER COLUMN site_id DROP NOT NULL;
+INSERT INTO detections (id, source, flight_id, object_class) VALUES
+  ('00000000-0000-0000-0000-0000000000b3', 'drone',
+   '00000000-0000-0000-0000-000000000052', 'unknown');
+
+DO $guard$
+BEGIN
+  BEGIN
+    PERFORM 1;
+    -- Ruční napodobenina kontroly z migrace: ověřuje se, že takový
+    -- řádek existuje a migrace by ho zachytila.
+    IF (SELECT count(*) FROM detections WHERE site_id IS NULL) = 0 THEN
+      RAISE EXCEPTION 'FAIL  osiřelá detekce se nevytvořila';
+    END IF;
+    RAISE NOTICE 'ok    neodvoditelná lokalita zůstala NULL — migrace ji zachytí';
+  END;
+END $guard$;
+
+DELETE FROM detections WHERE id = '00000000-0000-0000-0000-0000000000b3';
+ALTER TABLE detections ALTER COLUMN site_id SET NOT NULL;
+
+-- ── Poloha ───────────────────────────────────────────────────────
+
+SELECT public.test_expect(
+  'dronové detekci se doplnila poloha z raw',
+  (SELECT count(*) FROM detections
+   WHERE id = '00000000-0000-0000-0000-000000000032'
+     AND location IS NOT NULL
+     AND abs(ST_Y(location::geometry) - 50.0755) < 1e-9
+     AND abs(ST_X(location::geometry) - 14.4378) < 1e-9), 1);
+
+SELECT public.test_expect(
+  'kamerová zůstala bez polohy',
+  (SELECT count(*) FROM detections
+   WHERE id = '00000000-0000-0000-0000-000000000031' AND location IS NULL), 1);
+
+-- Nesmyslná telemetrie se do sloupce nedostane.
+INSERT INTO detections (id, source, site_id, flight_id, object_class, raw) VALUES
+  ('00000000-0000-0000-0000-000000000034', 'drone',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000051', 'unknown',
+   '{"latitude": 999, "longitude": 14.4378}'::jsonb);
+
+SELECT public.test_expect(
+  'poloha mimo rozsah se nedoplnila',
+  (SELECT count(*) FROM detections
+   WHERE id = '00000000-0000-0000-0000-000000000034' AND location IS NULL), 1);
+
+-- Prostorový dotaz — kvůli němu ten sloupec vznikl.
+SELECT public.test_expect(
+  'detekce jde najít v okruhu 200 m',
+  (SELECT count(*) FROM detections
+   WHERE location IS NOT NULL
+     AND ST_DWithin(location,
+         ST_SetSRID(ST_MakePoint(14.4378, 50.0755), 4326)::geography, 200)), 1);
 
 DO $$ BEGIN RAISE NOTICE 'VŠECHNY TESTY PROŠLY'; END $$;
 

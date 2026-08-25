@@ -108,6 +108,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       // Ingest z kamer; dronové detekce půjdou jinou cestou, až se
       // budou tahat data z FlightHubu.
       source: "camera",
+      // Lokalita se ukládá přímo, ne aby se pak odvozovala přes kameru —
+      // migrace 20260825180000.
+      site_id: camera.site_id,
       camera_id: camera.id,
       zone_id: camera.zone_id,
       detected_at: payload.detectedAt.toISOString(),
