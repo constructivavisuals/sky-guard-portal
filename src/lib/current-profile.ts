@@ -35,7 +35,10 @@ export async function getCurrentProfile(): Promise<CurrentProfile | null> {
 
     return {
       id: data.id,
-      email: data.email,
+      // Profil e-mail mít nemusí — plní se ručně a u účtů založených
+      // pozvánkou zůstává prázdný. Autoritativní je stejně auth.users,
+      // odkud přišel při přihlášení.
+      email: data.email ?? user.email ?? null,
       fullName: data.full_name,
       role: data.role,
     };

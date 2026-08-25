@@ -131,6 +131,9 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
     ? levelFromReason(reason)
     : explainLevel(detection?.object_class ?? null, dispatch.level_sent);
   const conditions = reason ? conditionsFromReason(reason) : null;
+  const suppressed =
+    dispatch.outcome === "suppressed_disarmed" ||
+    dispatch.outcome === "suppressed_cooldown";
   const outcome = explainOutcome(dispatch.outcome, {
     armedWindow: site ? formatArmedWindow(site.armed_from, site.armed_to) : undefined,
     armedDays: site ? formatArmedDays(site.armed_days) : undefined,
@@ -194,8 +197,14 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
             </ul>
           ) : null}
 
-          <p className="mt-3 text-sm font-medium">{outcome.title}</p>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">{outcome.text}</p>
+          {/* Výsledek nese odznak vpravo nahoře, tady by byl podruhé.
+              Vysvětlující věta má smysl jen u rekonstrukce — se
+              zapsaným důvodem totéž říkají podmínky výš. */}
+          {reason ? null : (
+            <p className="mt-3 text-sm text-[var(--text-muted)]">
+              {outcome.text}
+            </p>
+          )}
 
           {reason ? (
             <p className="mt-3 text-xs text-[var(--text-muted)]">
@@ -216,7 +225,16 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
           title="Odeslání do FlightHubu"
           time={formatDateTime(dispatch.sent_at, timeZone)}
         >
-          {showDiagnostics ? (
+          {/* U potlačeného zásahu se nic neodesílalo, takže incident ani
+              HTTP status neexistují — pomlčky by vypadaly, jako by se
+              odeslání nezdařilo. */}
+          {suppressed ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              Neodesláno — zásah byl potlačen.
+            </p>
+          ) : null}
+
+          {!suppressed && showDiagnostics ? (
             <Facts
               items={[
                 [
@@ -241,7 +259,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
             </details>
           ) : null}
 
-          {!showDiagnostics ? (
+          {!suppressed && !showDiagnostics ? (
             <p className="text-sm text-[var(--text-muted)]">
               Zásah byl {dispatch.outcome === "sent" ? "odeslán" : "zpracován"}{" "}
               {formatDateTime(dispatch.sent_at, timeZone)}.
