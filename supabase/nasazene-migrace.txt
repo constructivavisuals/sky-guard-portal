@@ -1,0 +1,16 @@
+# Migrace nasazené na produkci (ateldjcffovdiexzmkii).
+#
+# Michal je pouští ručně přes SQL Editor, takže supabase_migrations
+# .schema_migrations o nich neví a stav není odkud přečíst. Tenhle
+# soubor je jediná evidence — udržuje ho `npm run migrace`.
+#
+# Jeden název souboru na řádek, řádky s # jsou poznámky.
+
+20260824120000_perimeter_schema.sql
+20260824180000_site_grants.sql
+20260825120000_decision_reason_and_drone_detections.sql
+20260825180000_detections_location_and_site.sql
+20260826120000_patrols.sql
+20260826180000_drop_fh_task_id.sql
+20260827120000_flight_conditions.sql
+20260827180000_flights_site.sql
