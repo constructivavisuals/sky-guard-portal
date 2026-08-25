@@ -303,6 +303,12 @@ export type Flight = {
   trajectory: Json;
   distance_m: number | null;
   duration_s: number | null;
+  /**
+   * Odečet z doku v okamžiku plánování: wind_speed, rainfall,
+   * environment_temperature. Migrace 20260827120000. Null u letů, které
+   * nevznikly z hlídky, a když dok hodnoty nehlásil.
+   */
+  conditions: Json | null;
   created_at: string;
   updated_at: string;
 };

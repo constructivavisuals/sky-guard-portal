@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
-import { createFlightTask, getDroneStatus } from "@/lib/dispatch/flighthub.ts";
+import { createFlightTask, getDockState } from "@/lib/dispatch/flighthub.ts";
 import { patrolRunsBetween } from "@/lib/patrols/schedule.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 import type { IsoWeekday } from "@/types/database.ts";
@@ -31,6 +31,9 @@ const LATEST_BEGIN_SLACK_MINUTES = 5;
  * vynechaná — na tu se aspoň dá reagovat.
  */
 const MIN_BATTERY_PERCENT = 40;
+
+/** Nad tímhle zaplněním nemá dok kam ukládat pořízené snímky. */
+const MAX_STORAGE_PERCENT = 95;
 
 interface PatrolRow {
   id: string;
@@ -102,9 +105,8 @@ export async function GET(request: NextRequest): Promise<Response> {
       continue;
     }
 
-    // Stav dronu se ptáme až tady, tedy jednou na hlídku a jen když
-    // má dok sériové číslo. Kdyby se ptalo na začátku, volalo by se to
-    // i pro hlídky, které stejně nic neplánují.
+    // Stav doku se ptáme až tady, tedy jednou na hlídku a jen když má
+    // dok sériové číslo a je co plánovat.
     const runs = patrolRunsBetween(
       {
         window_from: patrol.window_from,
@@ -119,44 +121,63 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     if (runs.length === 0) continue;
 
-    // Dron musí být online a nabitý. Kontroluje se před založením
-    // úlohy, ne po něm — naplánovaný let, na který dron nevyletí,
-    // vypadá v přehledu jako by proběhl.
-    const device = await getDroneStatus(site.dock_sn);
-    if (!device.ok) {
-      console.warn("Stav dronu se nepodařilo zjistit", {
+    const dock = await getDockState(site.dock_sn);
+    if (!dock.ok) {
+      console.warn("Stav doku se nepodařilo zjistit", {
         patrol_id: patrol.id,
         dock_sn: site.dock_sn,
-        message: device.message,
+        message: dock.message,
       });
       report.skipped += runs.length;
       continue;
     }
 
-    if (!device.status.online) {
-      console.warn("Hlídka přeskočena — dron je offline", {
+    const state = dock.state;
+
+    // Vypnutý dron není překážka — probouzí ho naplánovaná úloha.
+    // Rozhoduje, jestli vůbec sedí v doku; venku nemá odkud odstartovat.
+    if (!state.droneInDock) {
+      console.warn("Hlídka přeskočena — dron není v doku", {
         patrol_id: patrol.id,
         site: site.name,
-        dock_sn: site.dock_sn,
+        drone_status: state.droneStatus,
       });
       report.skipped += runs.length;
       continue;
     }
 
-    const battery = device.status.batteryPercent;
-    if (battery !== null && battery < MIN_BATTERY_PERCENT) {
+    if (
+      state.batteryPercent !== null &&
+      state.batteryPercent < MIN_BATTERY_PERCENT
+    ) {
       console.warn("Hlídka přeskočena — nízká baterie", {
         patrol_id: patrol.id,
         site: site.name,
-        battery_percent: battery,
-        charge_state: device.status.chargeState,
+        battery_percent: state.batteryPercent,
+        charge_state: state.chargeState,
         minimum: MIN_BATTERY_PERCENT,
       });
       report.skipped += runs.length;
       continue;
     }
 
-    if (battery === null) {
+    if (
+      state.storageUsedPercent !== null &&
+      state.storageUsedPercent > MAX_STORAGE_PERCENT
+    ) {
+      console.warn("Hlídka přeskočena — plné úložiště doku", {
+        patrol_id: patrol.id,
+        site: site.name,
+        storage_used_percent: Math.round(state.storageUsedPercent * 10) / 10,
+        // Nevyzvednuté soubory bývají důvod, proč se dok zaplnil.
+        remain_upload: state.remainUpload,
+        maximum: MAX_STORAGE_PERCENT,
+      });
+      report.skipped += runs.length;
+      continue;
+    }
+
+    if (state.batteryPercent === null) {
       // Dok nabití nehlásí. Let se neblokuje — vynechaná hlídka kvůli
       // nečitelnému údaji je horší než hlídka s nejistou baterií.
       console.warn("Nabití dronu není známé, hlídka se plánuje dál", {
@@ -220,6 +241,9 @@ export async function GET(request: NextRequest): Promise<Response> {
         fh_task_uuid: task.taskUuid,
         started_at: iso,
         status: "pending",
+        // Počasí v okamžiku plánování; u přerušeného letu je to první
+        // věc, na kterou se člověk ptá.
+        conditions: state.conditions,
       });
 
       if (insertError) {

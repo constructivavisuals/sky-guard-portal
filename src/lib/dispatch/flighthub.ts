@@ -323,101 +323,56 @@ export async function createFlightTask(
   }
 }
 
-// ── Stav doku a dronu ────────────────────────────────────────────
+// ── Stav doku ────────────────────────────────────────────────────
+//
+// Všechno je v jediné odpovědi /openapi/v0.1/device/{sn}/state.
+// Projektový seznam zařízení se kvůli tomu už nevolá.
 
-export interface DroneStatus {
-  online: boolean;
-  /** Nabití dronu v procentech, null když ho dok nehlásí. */
+export interface DockState {
+  /** Sedí dron v doku? Jinak nemá odkud odstartovat. */
+  droneInDock: boolean;
+  /**
+   * Stav dronu podle doku. „power_off“ je běžný stav mezi lety — dron
+   * spí a probudí ho naplánovaná úloha, takže to NENÍ důvod hlídku
+   * vynechat.
+   */
+  droneStatus: string | null;
   batteryPercent: number | null;
-  /** Stav nabíjení podle doku, např. "idle" nebo "charging". */
   chargeState: string | null;
+  /** Zaplnění úložiště doku v procentech. */
+  storageUsedPercent: number | null;
+  /** Kolik souborů čeká na odeslání z doku. */
+  remainUpload: number | null;
+  /** Odečet počasí z doku; ukládá se k letu. */
+  conditions: Json | null;
 }
 
-export type DeviceStatusResult =
-  | { ok: true; status: DroneStatus }
+export type DockStateResult =
+  | { ok: true; state: DockState }
   | { ok: false; message: string };
 
-async function fetchFlightHub(
-  config: FlightHubConfig,
-  path: string,
-): Promise<{ ok: true; body: unknown } | { ok: false; message: string }> {
-  try {
-    const response = await fetch(`${config.host}${path}`, {
-      headers: {
-        "X-User-Token": config.userToken,
-        "x-project-uuid": config.projectUuid,
-      },
-      signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      return { ok: false, message: `FlightHub odpověděl ${response.status} na ${path}.` };
-    }
-    return { ok: true, body: await response.json() };
-  } catch (error) {
-    return { ok: false, message: safeErrorMessage(error) };
-  }
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 /**
- * Je dron u daného doku online?
+ * Stav doku a dronu v něm.
  *
- * /openapi/v0.1/project/device vrací gateway a drone se sn, callsign,
- * device_model, device_online_status, mode_code a camera_list —
- * baterii tenhle endpoint nenese vůbec.
+ * Tvary jsou ověřené na skutečné odpovědi:
+ *   device_state.drone_in_dock                     "inside"
+ *   device_state.sub_device.device_online_status   "power_off" mezi lety
+ *   device_state.drone_charge_state.capacity_percent
+ *   device_state.storage.total / .used
+ *   device_state.media_file_detail.remain_upload
+ *   device_state.wind_speed / .rainfall / .environment_temperature
  */
-function readOnline(body: unknown, dockSn: string): boolean | null {
-  const data = (body as { data?: unknown })?.data;
-  const list = (data as { list?: unknown })?.list;
-  if (!Array.isArray(list)) return null;
-
-  for (const item of list) {
-    if (typeof item !== "object" || item === null) continue;
-    const record = item as Record<string, unknown>;
-    if (record.sn !== dockSn) continue;
-    const drone = record.drone;
-    if (typeof drone !== "object" || drone === null) return null;
-    return (drone as Record<string, unknown>).device_online_status === true;
-  }
-  return null;
-}
-
-/**
- * Nabití dronu podle doku.
- *
- * Tvar je z dokumentace FlightHub 2 OpenAPI („Device Model Retrieval“):
- * data.device_state.drone_charge_state.capacity_percent. Je to stav
- * doku — hlásí nabití dronu, který v něm sedí. Pro plánování hlídky
- * je to ten správný údaj, protože dron má před startem být v doku.
- */
-function readCharge(
-  body: unknown,
-): { percent: number | null; state: string | null } {
-  const data = (body as { data?: unknown })?.data;
-  const deviceState = (data as { device_state?: unknown })?.device_state;
-  const charge = (deviceState as { drone_charge_state?: unknown })
-    ?.drone_charge_state;
-  if (typeof charge !== "object" || charge === null) {
-    return { percent: null, state: null };
-  }
-
-  const record = charge as Record<string, unknown>;
-  const percent = record.capacity_percent;
-  const state = record.state;
-  return {
-    percent:
-      typeof percent === "number" && Number.isFinite(percent) ? percent : null,
-    state: typeof state === "string" ? state : null,
-  };
-}
-
-/**
- * Stav dronu u daného doku: online z projektového seznamu, nabití ze
- * stavu doku. Dvě volání, protože ani jeden endpoint nemá obojí.
- */
-export async function getDroneStatus(
-  dockSn: string,
-): Promise<DeviceStatusResult> {
+export async function getDockState(dockSn: string): Promise<DockStateResult> {
   let config: FlightHubConfig;
   try {
     config = flightHubConfig();
@@ -425,41 +380,71 @@ export async function getDroneStatus(
     return { ok: false, message: safeErrorMessage(error) };
   }
 
-  const devices = await fetchFlightHub(config, "/openapi/v0.1/project/device");
-  if (!devices.ok) return devices;
-
-  const online = readOnline(devices.body, dockSn);
-  if (online === null) {
-    return { ok: false, message: `Dok ${dockSn} nebo jeho dron není v projektu.` };
+  let body: unknown;
+  try {
+    const response = await fetch(
+      `${config.host}/openapi/v0.1/device/${encodeURIComponent(dockSn)}/state`,
+      {
+        headers: {
+          "X-User-Token": config.userToken,
+          "x-project-uuid": config.projectUuid,
+        },
+        signal: AbortSignal.timeout(FLIGHTHUB_TIMEOUT_MS),
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) {
+      return { ok: false, message: `FlightHub odpověděl ${response.status}.` };
+    }
+    body = await response.json();
+  } catch (error) {
+    return { ok: false, message: safeErrorMessage(error) };
   }
 
-  // Nabití se ptáme jen u dronu, který je online — offline stejně
-  // neletí a ušetří se volání.
-  if (!online) {
-    return { ok: true, status: { online: false, batteryPercent: null, chargeState: null } };
+  const data = record(record(body)?.data);
+  const deviceState = record(data?.device_state);
+  if (!deviceState) {
+    return { ok: false, message: `Dok ${dockSn} nevrátil device_state.` };
   }
 
-  const state = await fetchFlightHub(
-    config,
-    `/openapi/v0.1/device/${encodeURIComponent(dockSn)}/state`,
-  );
-  if (!state.ok) {
-    // Nabití se nezjistilo, ale online stav ano. Vrací se to, co víme;
-    // cron kvůli nečitelné baterii let neblokuje.
-    console.warn("Nabití dronu se nepodařilo zjistit", {
-      dock_sn: dockSn,
-      message: state.message,
-    });
-    return { ok: true, status: { online: true, batteryPercent: null, chargeState: null } };
-  }
+  const charge = record(deviceState.drone_charge_state);
+  const storage = record(deviceState.storage);
+  const media = record(deviceState.media_file_detail);
+  const subDevice = record(deviceState.sub_device);
 
-  const charge = readCharge(state.body);
+  const total = numberOrNull(storage?.total);
+  const used = numberOrNull(storage?.used);
+  // Nulová kapacita by dala dělení nulou; radši žádný údaj než Infinity.
+  const storageUsedPercent =
+    total !== null && used !== null && total > 0 ? (used / total) * 100 : null;
+
+  const wind = numberOrNull(deviceState.wind_speed);
+  const rain = numberOrNull(deviceState.rainfall);
+  const temperature = numberOrNull(deviceState.environment_temperature);
+  const conditions =
+    wind === null && rain === null && temperature === null
+      ? null
+      : ({
+          wind_speed: wind,
+          rainfall: rain,
+          environment_temperature: temperature,
+          // Odečet je z okamžiku plánování, ne ze startu letu.
+          measured_at: new Date().toISOString(),
+        } as Json);
+
   return {
     ok: true,
-    status: {
-      online: true,
-      batteryPercent: charge.percent,
-      chargeState: charge.state,
+    state: {
+      droneInDock: deviceState.drone_in_dock === "inside",
+      droneStatus:
+        typeof subDevice?.device_online_status === "string"
+          ? subDevice.device_online_status
+          : null,
+      batteryPercent: numberOrNull(charge?.capacity_percent),
+      chargeState: typeof charge?.state === "string" ? charge.state : null,
+      storageUsedPercent,
+      remainUpload: numberOrNull(media?.remain_upload),
+      conditions,
     },
   };
 }

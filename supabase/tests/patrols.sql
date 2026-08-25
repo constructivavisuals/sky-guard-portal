@@ -90,6 +90,20 @@ SELECT public.test_expect_rejected('tentýž slot hlídky podruhé neprojde',
      VALUES ('patrol', '00000000-0000-0000-0000-000000000061', 'task-uuid-2',
              '2026-08-26T08:00:00+02', 'pending')$s$);
 
+-- Podmínky letu (migrace 20260827120000).
+SELECT public.test_expect('nový let zatím podmínky nemá',
+  (SELECT count(*) FROM flights
+   WHERE id = '00000000-0000-0000-0000-000000000052' AND conditions IS NULL), 1);
+
+UPDATE flights
+   SET conditions = '{"wind_speed": 3.4, "rainfall": 0, "environment_temperature": 21.5}'::jsonb
+ WHERE id = '00000000-0000-0000-0000-000000000052';
+
+SELECT public.test_expect('vítr jde přečíst po klíči',
+  (SELECT count(*) FROM flights
+   WHERE id = '00000000-0000-0000-0000-000000000052'
+     AND (conditions->>'wind_speed')::numeric = 3.4), 1);
+
 SELECT public.test_expect_rejected('hlídku s letem nelze smazat',
   $s$DELETE FROM patrols WHERE id = '00000000-0000-0000-0000-000000000061'$s$);
 
