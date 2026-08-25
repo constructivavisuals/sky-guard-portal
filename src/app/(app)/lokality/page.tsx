@@ -3,9 +3,13 @@ import { Cctv, Clock, MapPin, ShieldCheck } from "lucide-react";
 
 import { Card, EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatArmedDays, formatArmedWindow, orDash, plural } from "@/lib/format.ts";
+import { getCurrentProfile } from "@/lib/current-profile.ts";
+import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import type { IsoWeekday } from "@/types/database.ts";
+
+import { SiteForm } from "./site-form.tsx";
 
 export const metadata: Metadata = { title: "Lokality" };
 
@@ -17,6 +21,11 @@ interface SiteRow {
   armed_from: string;
   armed_to: string;
   armed_days: IsoWeekday[];
+  cooldown_seconds: number;
+  dock_sn: string | null;
+  drone_sn: string | null;
+  fh_project_uuid: string | null;
+  fh_workflow_uuid: string | null;
   // PostgREST vrací agregaci jako pole s jedním prvkem.
   zones: { count: number }[];
   cameras: { count: number }[];
@@ -27,7 +36,11 @@ type ArmedState = "armed" | "disarmed" | "unknown";
 export default async function Page() {
   // Seznam lokalit se filtrem z cookie zúžit nemá — je to rozcestník
   // všech areálů. Vybraná se jen zvýrazní.
-  const { selected } = await getSiteSelection();
+  const [{ selected }, profile] = await Promise.all([
+    getSiteSelection(),
+    getCurrentProfile(),
+  ]);
+  const admin = isAdmin(profile);
 
   let sites: SiteRow[] = [];
   let armed = new Map<string, ArmedState>();
@@ -38,7 +51,7 @@ export default async function Page() {
     const { data, error } = await supabase
       .from("sites")
       .select(
-        "id, name, address, timezone, armed_from, armed_to, armed_days, zones(count), cameras(count)",
+        "id, name, address, timezone, armed_from, armed_to, armed_days, cooldown_seconds, dock_sn, drone_sn, fh_project_uuid, fh_workflow_uuid, zones(count), cameras(count)",
       )
       .order("name")
       .returns<SiteRow[]>();
@@ -65,7 +78,11 @@ export default async function Page() {
 
   return (
     <>
-      <PageHeader title="Lokality" description="Areály, docky a hlídané zóny." />
+      <PageHeader
+        title="Lokality"
+        description="Areály, docky a hlídané zóny."
+        action={admin ? <SiteForm /> : undefined}
+      />
 
       {failed ? (
         <EmptyState
@@ -87,6 +104,7 @@ export default async function Page() {
                 site={site}
                 state={armed.get(site.id) ?? "unknown"}
                 current={site.id === selected?.id}
+                admin={admin}
               />
             </li>
           ))}
@@ -100,10 +118,12 @@ function SiteCard({
   site,
   state,
   current,
+  admin,
 }: {
   site: SiteRow;
   state: ArmedState;
   current: boolean;
+  admin: boolean;
 }) {
   const stateStyles = {
     armed: "border-[var(--success)]/40 text-[var(--success)] bg-[var(--success)]/10",
@@ -127,6 +147,7 @@ function SiteCard({
             {orDash(site.address)}
           </p>
         </div>
+        <div className="flex shrink-0 items-center gap-1">
         <span
           className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 h-7 text-xs font-medium ${stateStyles[state]}`}
         >
@@ -138,6 +159,25 @@ function SiteCard({
           />
           {stateLabels[state]}
         </span>
+        {admin ? (
+          <SiteForm
+            site={{
+              id: site.id,
+              name: site.name,
+              address: site.address,
+              timezone: site.timezone,
+              armed_from: site.armed_from,
+              armed_to: site.armed_to,
+              armed_days: site.armed_days,
+              cooldown_seconds: site.cooldown_seconds,
+              dock_sn: site.dock_sn,
+              drone_sn: site.drone_sn,
+              fh_project_uuid: site.fh_project_uuid,
+              fh_workflow_uuid: site.fh_workflow_uuid,
+            }}
+          />
+        ) : null}
+        </div>
       </div>
 
       <dl className="mt-4 space-y-2 text-sm">

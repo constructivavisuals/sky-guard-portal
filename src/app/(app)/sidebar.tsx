@@ -8,6 +8,7 @@ import {
   Send,
   Plane,
   MapPin,
+  Radar,
   Cctv,
   Settings,
   X,
@@ -25,6 +26,7 @@ export const NAV_ITEMS = [
   { href: "/vyjezdy", label: "Výjezdy", icon: Send },
   { href: "/lety", label: "Lety", icon: Plane },
   { href: "/lokality", label: "Lokality", icon: MapPin },
+  { href: "/zony", label: "Zóny", icon: Radar },
   { href: "/kamery", label: "Kamery", icon: Cctv },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
