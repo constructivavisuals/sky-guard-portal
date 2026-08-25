@@ -154,3 +154,37 @@ export function formatConditions(
   ].filter((part) => part !== "—");
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
+
+/**
+ * Trvání letu. Vteřiny se ukazují jen u krátkých letů — u dvacetiminutové
+ * hlídky je „18 min“ čitelnější než „18 min 7 s“.
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) {
+    return "—";
+  }
+  const total = Math.round(seconds);
+  if (total < 60) return `${total} s`;
+
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (minutes < 60) {
+    return rest > 0 && minutes < 10 ? `${minutes} min ${rest} s` : `${minutes} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes > 0 ? `${hours} h ${restMinutes} min` : `${hours} h`;
+}
+
+/** Trvání dopočítané z časů, když ho databáze nemá spočítané. */
+export function durationBetween(
+  startedAt: string | null,
+  endedAt: string | null,
+): number | null {
+  if (!startedAt || !endedAt) return null;
+  const from = new Date(startedAt).getTime();
+  const to = new Date(endedAt).getTime();
+  if (Number.isNaN(from) || Number.isNaN(to) || to < from) return null;
+  return (to - from) / 1000;
+}

@@ -7,6 +7,8 @@ import {
   formatConditions,
   formatConfidence,
   formatDateTime,
+  formatDuration,
+  durationBetween,
   formatRainfall,
   formatTemperature,
   formatWindSpeed,
@@ -198,6 +200,52 @@ describe("formatConditions", () => {
         measured_at: "2026-08-25T13:16:13.547Z",
       }),
       "—",
+    );
+  });
+});
+
+describe("formatDuration", () => {
+  it("pod minutu ve vteřinách", () => {
+    assert.equal(formatDuration(45), "45 s");
+    assert.equal(formatDuration(0), "0 s");
+  });
+
+  it("krátké lety s vteřinami", () => {
+    assert.equal(formatDuration(8 * 60 + 7), "8 min 7 s");
+  });
+
+  it("delší lety už bez vteřin", () => {
+    assert.equal(formatDuration(18 * 60 + 7), "18 min");
+  });
+
+  it("přes hodinu", () => {
+    assert.equal(formatDuration(3600), "1 h");
+    assert.equal(formatDuration(3600 + 25 * 60), "1 h 25 min");
+  });
+
+  it("chybějící a nesmyslné hodnoty", () => {
+    assert.equal(formatDuration(null), "—");
+    assert.equal(formatDuration(-5), "—");
+    assert.equal(formatDuration(Number.NaN), "—");
+  });
+});
+
+describe("durationBetween", () => {
+  it("spočítá trvání z časů", () => {
+    assert.equal(
+      durationBetween("2026-08-26T08:00:00Z", "2026-08-26T08:12:30Z"),
+      750,
+    );
+  });
+
+  it("chybějící konec znamená null, ne nulu", () => {
+    assert.equal(durationBetween("2026-08-26T08:00:00Z", null), null);
+  });
+
+  it("konec před startem se nepočítá", () => {
+    assert.equal(
+      durationBetween("2026-08-26T08:12:00Z", "2026-08-26T08:00:00Z"),
+      null,
     );
   });
 });

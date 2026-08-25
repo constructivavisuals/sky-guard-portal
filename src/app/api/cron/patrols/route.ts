@@ -37,6 +37,7 @@ const MAX_STORAGE_PERCENT = 95;
 
 interface PatrolRow {
   id: string;
+  site_id: string;
   name: string;
   wayline_uuid: string;
   window_from: string;
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const { data: patrols, error } = await db
     .from("patrols")
     .select(
-      "id, name, wayline_uuid, window_from, window_to, days, interval_minutes, sites(name, timezone, dock_sn)",
+      "id, site_id, name, wayline_uuid, window_from, window_to, days, interval_minutes, sites(name, timezone, dock_sn)",
     )
     .eq("enabled", true)
     .returns<PatrolRow[]>();
@@ -238,6 +239,9 @@ export async function GET(request: NextRequest): Promise<Response> {
       const { error: insertError } = await db.from("flights").insert({
         kind: "patrol",
         patrol_id: patrol.id,
+        // Lokalita se ukládá přímo, ne aby se odvozovala přes hlídku —
+        // migrace 20260827180000.
+        site_id: patrol.site_id,
         fh_task_uuid: task.taskUuid,
         started_at: iso,
         status: "pending",

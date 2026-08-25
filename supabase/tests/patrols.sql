@@ -74,9 +74,10 @@ SELECT public.test_expect('stávající let má kind dispatch',
 SELECT public.test_expect_rejected('let hlídky bez patrol_id neprojde',
   $s$INSERT INTO flights (kind, status) VALUES ('patrol', 'pending')$s$);
 
-INSERT INTO flights (id, kind, patrol_id, fh_task_uuid, started_at, status) VALUES
+INSERT INTO flights (id, kind, patrol_id, site_id, fh_task_uuid, started_at, status) VALUES
   ('00000000-0000-0000-0000-000000000052', 'patrol',
-   '00000000-0000-0000-0000-000000000061', 'task-uuid-1',
+   '00000000-0000-0000-0000-000000000061',
+   '00000000-0000-0000-0000-000000000001', 'task-uuid-1',
    '2026-08-26T08:00:00+02', 'pending');
 
 SELECT public.test_expect_rejected('tentýž task_uuid podruhé neprojde',
@@ -107,11 +108,24 @@ SELECT public.test_expect('vítr jde přečíst po klíči',
 SELECT public.test_expect_rejected('hlídku s letem nelze smazat',
   $s$DELETE FROM patrols WHERE id = '00000000-0000-0000-0000-000000000061'$s$);
 
+-- ── Lokalita letu (migrace 20260827180000) ───────────────────────
+
+SELECT public.test_expect('hlídkový let dostal lokalitu přes hlídku',
+  (SELECT count(*) FROM flights
+   WHERE id = '00000000-0000-0000-0000-000000000052'
+     AND site_id = '00000000-0000-0000-0000-000000000001'), 1);
+
+SELECT public.test_expect('let bez hlídky i zásahu lokalitu nemá',
+  (SELECT count(*) FROM flights
+   WHERE id = '00000000-0000-0000-0000-000000000051' AND site_id IS NULL), 1);
+
 -- ── RLS ──────────────────────────────────────────────────────────
 
 SET LOCAL request.jwt.claims TO '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
 SET LOCAL ROLE authenticated;
 SELECT public.test_expect('klient s grantem hlídku vidí', (SELECT count(*) FROM patrols), 1);
+-- Hlídkový let nevisí na zásahu; bez site_id by ho viděl jen admin.
+SELECT public.test_expect('a vidí i její let', (SELECT count(*) FROM flights), 1);
 RESET ROLE;
 
 SET LOCAL request.jwt.claims TO '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';

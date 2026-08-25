@@ -320,6 +320,11 @@ export type Flight = {
   kind: FlightKind;
   /** Vyplněné u letů hlídky. */
   patrol_id: string | null;
+  /**
+   * Lokalita letu. Migrace 20260827180000. NULL u ručních misí mimo
+   * portál, které nevisí ani na zásahu, ani na hlídce.
+   */
+  site_id: string | null;
   /** UUID úlohy z FlightHubu, jedinečné. */
   fh_task_uuid: string | null;
   /** null = let mimo portál (ruční mise, test z FlightHubu). */
