@@ -32,6 +32,7 @@ const validSite = {
   armed_to: "06:00",
   armed_days: ["1", "2", "3", "4", "5"],
   cooldown_seconds: "900",
+  retention_days: "90",
 };
 
 describe("parseSiteForm — platný vstup", () => {
@@ -457,5 +458,33 @@ describe("parseKnownPlateForm", () => {
     const r = parseKnownPlateForm(form({ ...valid, list_type: "deny" }));
     assert.ok(r.ok);
     assert.equal(r.value.list_type, "deny");
+  });
+});
+
+describe("parseSiteForm — retence", () => {
+  it("výchozích 90 dní projde", () => {
+    const r = parseSiteForm(form(validSite));
+    assert.ok(r.ok);
+    assert.equal(r.value.retention_days, 90);
+  });
+
+  it("odmítne nulu i zápornou hodnotu", () => {
+    // Nula by znamenala „smaž hned“, což u důkazů není nastavení, ale
+    // nehoda.
+    for (const hodnota of ["0", "-5"]) {
+      const r = parseSiteForm(form({ ...validSite, retention_days: hodnota }));
+      assert.equal(r.ok, false, hodnota);
+    }
+  });
+
+  it("odmítne překlep o řád", () => {
+    // 9000 místo 90 by znamenalo „nikdy“, ale vypadalo by jako číslo.
+    const r = parseSiteForm(form({ ...validSite, retention_days: "9000" }));
+    assert.equal(r.ok, false);
+  });
+
+  it("prázdné pole je chyba, ne tiché výchozí", () => {
+    const r = parseSiteForm(form({ ...validSite, retention_days: "" }));
+    assert.equal(r.ok, false);
   });
 });
