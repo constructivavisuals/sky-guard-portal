@@ -5,10 +5,11 @@ import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, Section } from "@/components/ui.tsx";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { parsePointEwkbHex } from "@/lib/geo.ts";
-import { isAdmin } from "@/lib/profile.ts";
+import { isAdmin, isOperator } from "@/lib/profile.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
 import { nactiAreal } from "../site.ts";
+import { DispatchButton } from "./dispatch-button.tsx";
 import { ZoneForm } from "./zone-form.tsx";
 
 export const metadata: Metadata = { title: "Zóny" };
@@ -32,6 +33,9 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/zony">) {
   const { id } = await params;
   const [{ site }, profile] = await Promise.all([nactiAreal(id), getCurrentProfile()]);
   const admin = isAdmin(profile);
+  // Ruční zásah smí poslat i operátor — je to provozní úkon, ne změna
+  // nastavení. Klient ne: dron mu nad areálem létá, ale neřídí ho.
+  const operator = isOperator(profile);
 
   // Layout už na chybějící areál odpověděl; tady by se jen zdvojila.
   if (!site) return null;
@@ -101,7 +105,9 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/zony">) {
               <Th className="text-center">Úroveň</Th>
               <Th className="text-right">Kamery</Th>
               <Th>Stav</Th>
-              {admin ? <Th className="w-12"><span className="sr-only">Úpravy</span></Th> : null}
+              {operator ? (
+                <Th className={admin ? "w-24" : "w-12"}><span className="sr-only">Akce</span></Th>
+              ) : null}
             </>
           }
         >
@@ -135,21 +141,36 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/zony">) {
                     <span className="text-[var(--text-muted)]">Vypnutá</span>
                   )}
                 </Td>
-                {admin ? (
+                {operator ? (
                   <Td className="text-right">
-                    <ZoneForm
-                      sites={sites}
-                      zone={{
-                        id: row.id,
-                        site_id: row.site_id,
-                        name: row.name,
-                        latitude: point?.latitude ?? null,
-                        longitude: point?.longitude ?? null,
-                        wayline_uuid: row.wayline_uuid,
-                        default_level: row.default_level,
-                        enabled: row.enabled,
-                      }}
-                    />
+                    <div className="inline-flex items-center justify-end gap-1">
+                      {/* Vypnutá zóna zásah nepřijme, tak se tlačítko ani
+                          nenabízí. */}
+                      {row.enabled ? (
+                        <DispatchButton
+                          zone={{
+                            id: row.id,
+                            name: row.name,
+                            hasWayline: Boolean(row.wayline_uuid),
+                          }}
+                        />
+                      ) : null}
+                      {admin ? (
+                        <ZoneForm
+                          sites={sites}
+                          zone={{
+                            id: row.id,
+                            site_id: row.site_id,
+                            name: row.name,
+                            latitude: point?.latitude ?? null,
+                            longitude: point?.longitude ?? null,
+                            wayline_uuid: row.wayline_uuid,
+                            default_level: row.default_level,
+                            enabled: row.enabled,
+                          }}
+                        />
+                      ) : null}
+                    </div>
                   </Td>
                 ) : null}
               </Tr>

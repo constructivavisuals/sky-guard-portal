@@ -595,3 +595,145 @@ describe("runDispatch — tichá selhání vstupů", () => {
     ]);
   });
 });
+
+describe("runDispatch — ruční zásah z portálu", () => {
+  /** Kontext tlačítka: bez detekce, se jménem toho, kdo ho zmáčkl. */
+  function rucni(overrides: Partial<DispatchContext> = {}) {
+    return context({
+      detectionId: null,
+      manual: { actorId: "profil-1" },
+      objectClass: "unknown",
+      ...overrides,
+    });
+  }
+
+  it("zapíše zásah bez detekce", async () => {
+    // Schéma to tak má popsané od začátku: triggered_by_detection NULL
+    // znamená ruční výjezd. Vyrobit kvůli tlačítku falešnou detekci by
+    // znamenalo zapsat do důkazní tabulky událost, kterou nikdo neviděl.
+    const { deps: d, inserted } = deps();
+    const result = await runDispatch(rucni(), d);
+
+    assert.equal(result.status, "recorded");
+    assert.equal(inserted[0].triggered_by_detection, null);
+    assert.equal(inserted[0].outcome, "sent");
+  });
+
+  it("letí na nejvyšším stupni, i když třída objektu je neurčeno", async () => {
+    // Bez tohohle by ruční zásah jel na stupni 1 — tlačítko nemá třídu
+    // objektu a BASE_LEVEL_BY_CLASS.unknown je nejnižší.
+    const { deps: d, inserted } = deps();
+    await runDispatch(rucni(), d);
+
+    assert.equal(inserted[0].level_sent, 5);
+    assert.equal(inserted[0].decision_reason?.base_level, 5);
+  });
+
+  it("v důvodu je autor a žádná třída objektu", async () => {
+    const { deps: d, inserted } = deps();
+    await runDispatch(rucni(), d);
+
+    assert.deepEqual(inserted[0].decision_reason?.manual, { actor_id: "profil-1" });
+    // „Neurčeno“ by v detailu vypadalo jako detekce, kterou se nepovedlo
+    // rozpoznat.
+    assert.equal(inserted[0].decision_reason?.object_class, null);
+  });
+
+  it("eskalace se nezjišťuje a nepočítá mezi neznámé vstupy", async () => {
+    let dotazu = 0;
+    const { deps: d, inserted } = deps({
+      hasRecentPersonInOtherZone: async () => {
+        dotazu += 1;
+        return null;
+      },
+    });
+
+    await runDispatch(rucni(), d);
+
+    assert.equal(dotazu, 0);
+    assert.equal(inserted[0].decision_reason?.unknown_inputs, undefined);
+    assert.equal(inserted[0].decision_reason?.escalated, false);
+  });
+
+  it("mimo ostrý režim se ani na povel neletí", async () => {
+    // Tlačítko nesmí být druhou sadou pravidel. Kdyby ostrý režim
+    // obcházelo, vzlétl by dron nad areál, kde zrovna pracuje směna.
+    const { deps: d, inserted, flights } = deps({ isSiteArmed: async () => false });
+    const result = await runDispatch(rucni(), d);
+
+    assert.equal(result.status, "recorded");
+    assert.equal(inserted[0].outcome, "suppressed_disarmed");
+    assert.equal(flights.length, 0);
+  });
+
+  it("cooldown platí stejně jako u detekce", async () => {
+    const { deps: d, inserted } = deps({
+      lastSentDispatchAt: async () => ({
+        known: true,
+        at: new Date("2026-08-24T21:55:00Z"),
+      }),
+    });
+
+    await runDispatch(rucni(), d);
+    assert.equal(inserted[0].outcome, "suppressed_cooldown");
+  });
+
+  it("nepřipravený dok zásah zastaví", async () => {
+    const { deps: d, inserted } = deps({
+      getDockState: async () => ({ ok: true, state: dockState({ batteryPercent: 12 }) }),
+    });
+
+    await runDispatch(rucni(), d);
+    assert.equal(inserted[0].outcome, "suppressed_dock");
+    assert.equal(inserted[0].decision_reason?.dock?.reason, "low_battery");
+  });
+
+  it("zóna bez trasy skončí jako neúspěch, ne jako odeslaný zásah", async () => {
+    const { deps: d, inserted } = deps();
+    await runDispatch(rucni({ zoneWaylineUuid: null }), d);
+
+    assert.equal(inserted[0].outcome, "failed");
+    assert.equal(
+      (inserted[0].response as Record<string, unknown>).error,
+      "zone_without_wayline",
+    );
+  });
+
+  it("notifikace se nehlásí jako detekce", async () => {
+    const { deps: d, notifikace } = deps();
+    await runDispatch(rucni(), d);
+
+    assert.equal(notifikace[0].manual, true);
+  });
+
+  it("úloha ve FlightHubu se jmenuje ručním zásahem", async () => {
+    let name = "";
+    const { deps: d } = deps({
+      createFlightTask: async (input) => {
+        name = input.name;
+        return { taskUuid: "task-1", httpStatus: 200, response: { code: 0 }, ok: true };
+      },
+    });
+
+    await runDispatch(rucni(), d);
+    assert.match(name, /^Ruční zásah — Brána sever$/);
+  });
+
+  it("bez zóny se nezapíše nic — není kam letět", async () => {
+    const { deps: d, inserted } = deps();
+    const result = await runDispatch(rucni({ zoneId: null }), d);
+
+    assert.equal(result.status, "skipped");
+    assert.equal(inserted.length, 0);
+  });
+
+  it("let k odeslanému zásahu vznikne stejně jako u detekce", async () => {
+    const { deps: d, flights } = deps();
+    await runDispatch(rucni(), d);
+
+    assert.equal(flights.length, 1);
+    assert.equal(flights[0].fhTaskUuid, "task-1");
+    assert.equal(flights[0].dispatchId, "dispatch-1");
+    assert.ok(DISPATCH_LEAD_SECONDS > 0);
+  });
+});

@@ -329,6 +329,14 @@ export type DecisionReason = {
    */
   unknown_inputs?: ("armed" | "cooldown" | "escalation")[];
   /**
+   * Ruční zásah z portálu — kdo ho poslal. Chybí u všeho, co vzniklo
+   * z detekce, takže volitelné.
+   *
+   * actor_id může být null, když se profil nepodařilo načíst; že šlo
+   * o ruční zásah, to nemění.
+   */
+  manual?: { actor_id: string | null };
+  /**
    * Stav doku v okamžiku rozhodnutí. Migrace 20260903180000, takže
    * u starších zásahů chybí úplně — proto volitelné, ne jen nullable.
    */

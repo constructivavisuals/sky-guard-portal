@@ -141,6 +141,20 @@ describe("levelFromReason — z uloženého rozhodnutí", () => {
     assert.equal(e.text.includes("undefined"), false);
     assert.match(e.text, /ručně/);
   });
+
+  it("zásah z tlačítka se pozná podle zápisu, ne podle chybějící třídy", () => {
+    // Bez příznaku manual by se choval jako výš: „stupeň zadaný ručně“
+    // zní, jako by číslo někdo napsal do formuláře.
+    const e = levelFromReason({
+      ...base,
+      object_class: null,
+      base_level: 5,
+      level_sent: 5,
+      manual: { actor_id: "profil-1" },
+    });
+    assert.equal(e.escalated, false);
+    assert.match(e.text, /ruční zásah z portálu/i);
+  });
 });
 
 describe("conditionsFromReason", () => {

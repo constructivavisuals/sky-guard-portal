@@ -178,6 +178,18 @@ export function levelFromReason(reason: DecisionReason): LevelExplanation {
     };
   }
 
+  // Ruční zásah nemá třídu objektu, protože mu nepředcházela detekce.
+  // Bez téhle větve by o něm detail tvrdil „stupeň zadaný ručně“, což
+  // zní, jako by číslo někdo napsal do formuláře.
+  if (reason.manual) {
+    return {
+      base: reason.base_level,
+      sent: reason.level_sent,
+      escalated: false,
+      text: `Stupeň ${reason.level_sent} — ruční zásah z portálu jede na nejvyšším stupni. Nerozhodoval detektor, ale člověk.`,
+    };
+  }
+
   return {
     base: reason.base_level,
     sent: reason.level_sent,

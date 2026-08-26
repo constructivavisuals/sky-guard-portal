@@ -121,6 +121,8 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
   const showDiagnostics = isOperator(profile);
 
   let dispatch: DispatchDetail | null = null;
+  /** Kdo poslal ruční zásah. null, když ho nepodepsal nikdo čitelný. */
+  let actor: string | null = null;
   let flight: DispatchFlight | null = null;
   let media: SignedMedia[] = [];
   let failed = false;
@@ -172,6 +174,22 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
           : null;
       } else {
         flight = sKontrolou.data;
+      }
+
+      // Autor ručního zásahu. Zásah zapisuje service_role, takže
+      // v audit_log u něj nikdo není — jediná stopa po tom, kdo dron
+      // poslal, je v uloženém důvodu.
+      const actorId = dispatch.decision_reason?.manual?.actor_id ?? null;
+      if (actorId) {
+        // Pod session uživatele: kdo na cizí profily nevidí, dostane
+        // prázdno a jméno se prostě neukáže. Že šlo o ruční zásah, to
+        // nemění.
+        const { data: profil } = await supabase
+          .from("profiles")
+          .select("full_name, email")
+          .eq("id", actorId)
+          .maybeSingle<{ full_name: string | null; email: string | null }>();
+        actor = profil?.full_name?.trim() || profil?.email?.trim() || null;
       }
 
       if (flight) {
@@ -241,8 +259,14 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
         {/* ── Detekce ─────────────────────────────────────────── */}
         <Step
           icon={<ScanEye className="h-5 w-5" aria-hidden="true" />}
-          title="Detekce"
-          time={detection ? formatDateTime(detection.detected_at, timeZone) : null}
+          title={reason?.manual ? "Ruční zásah" : "Detekce"}
+          time={
+            detection
+              ? formatDateTime(detection.detected_at, timeZone)
+              : reason?.manual
+                ? formatDateTime(reason.decided_at, timeZone)
+                : null
+          }
         >
           {detection ? (
             <Facts
@@ -254,6 +278,16 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
                   <ObjectClassBadge key="o" objectClass={detection.object_class} />,
                 ],
                 ["Jistota", formatConfidence(detection.confidence)],
+              ]}
+            />
+          ) : reason?.manual ? (
+            <Facts
+              items={[
+                ["Podnět", "Tlačítko v portálu"],
+                // Bez jména aspoň to, že v důvodu nikdo podepsaný není
+                // — mlčet by vypadalo, jako by se autor nezapisoval.
+                ["Poslal", actor ?? "Neznámý uživatel"],
+                ["Zóna", orDash(zone?.name)],
               ]}
             />
           ) : (

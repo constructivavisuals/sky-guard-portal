@@ -108,6 +108,35 @@ a detailu zásahu, takže zóna bez souřadnic zásah nezastaví.
 
 `FH_WORKFLOW_UUID` už nikdo nečte a není povinná.
 
+### Ruční zásah z portálu
+
+Na kartě **Zóny** areálu má každá zapnutá zóna tlačítko „poslat dron“.
+Vidí ho admin a operátor; klient ne — dron mu nad areálem létá, ale
+neřídí ho. Skrytí tlačítka není ochrana: roli kontroluje sama akce
+a čtení zóny běží pod session uživatele, takže na cizí areál se odsud
+nikdo nedostane.
+
+Tlačítko jede **touž cestou jako detekce** — `runDispatch()` se vším,
+co k němu patří. Mimo hlídané okno, během cooldownu nebo s
+nepřipraveným dokem dron nevzlétne ani na povel, a operátor se to
+dozví z hlášky v dialogu. Druhá sada pravidel „pro ruční zásahy“ by se
+s tou první časem rozešla a přesně v tom rozdílu by vzlétl dron, který
+vzlétnout neměl.
+
+Rozdíly proti zásahu z detekce jsou jen tři:
+
+* `dispatches.triggered_by_detection` zůstává **NULL** — tak to schéma
+  popisuje od první migrace. Falešná detekce kvůli tlačítku by znamenala
+  zapsat do důkazní tabulky událost, kterou nikdo neviděl.
+* Stupeň je vždycky **5** a eskalace se vůbec nezjišťuje. Tlačítko
+  nemačká detektor, ale operátor, který se díval na obraz; třída objektu
+  v tom žádná není, takže se do `decision_reason.object_class` ukládá
+  `null`.
+* Kdo dron poslal, je v `decision_reason.manual.actor_id`. Zásah zapisuje
+  `service_role`, takže v `audit_log` u něj žádný autor není — tohle je
+  jediná stopa. Detail zásahu ji ukazuje jménem, když na profil autora
+  uživatel vidí.
+
 ## Plánování hlídek
 
 `GET /api/cron/patrols` projde zapnuté hlídky a pro ty, které mají

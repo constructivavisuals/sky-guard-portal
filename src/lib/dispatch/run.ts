@@ -61,8 +61,26 @@ import {
  */
 export const DISPATCH_LEAD_SECONDS = 60;
 
+/**
+ * Stupeň ručního zásahu.
+ *
+ * Nejvyšší, a to bez eskalace: tlačítko nemačká detektor, ale operátor,
+ * který se na obraz díval. Odvozovat stupeň z třídy objektu tu nejde —
+ * žádná detekce v tom není.
+ */
+export const MANUAL_DISPATCH_LEVEL: DispatchLevel = 5;
+
 export interface DispatchContext {
-  detectionId: string;
+  /**
+   * Detekce, na kterou se reaguje.
+   *
+   * NULL u ručního zásahu z portálu — schéma dispatches to má takhle
+   * popsané od první migrace („NULL = ruční výjezd z portálu“), jen ta
+   * cesta dosud neexistovala. Vyrábět kvůli tlačítku falešnou detekci
+   * by znamenalo zapsat do důkazní tabulky událost, kterou nikdo
+   * neviděl.
+   */
+  detectionId: string | null;
   siteId: string;
   zoneId: string | null;
   zoneName: string | null;
@@ -81,6 +99,13 @@ export interface DispatchContext {
    * Migrace 20260906120000.
    */
   announcedArrival?: NonNullable<DecisionReason["announced_arrival"]>;
+  /**
+   * Ruční zásah z portálu: kdo na tlačítko sáhl. Nevynechává žádnou
+   * kontrolu — ostrý režim, cooldown i stav doku platí stejně jako
+   * u detekce. Mění jen to, co se zapíše do důvodu: rozhodl člověk,
+   * ne třída objektu.
+   */
+  manual?: { actorId: string | null };
   objectClass: DetectionObjectClass;
   /** Čas hlášený kamerou. Ukládá se, ale nic se podle něj nerozhoduje. */
   detectedAt: Date;
@@ -136,6 +161,8 @@ export interface DispatchNotification {
   outcome: DispatchOutcome;
   level: DispatchLevel;
   objectClass: DetectionObjectClass;
+  /** Ruční zásah z portálu — v textu se nesmí tvářit jako detekce. */
+  manual?: boolean;
 }
 
 /**
@@ -197,9 +224,11 @@ async function hasRecentPersonInOtherZone(
     .eq("object_class", "person")
     .gte("detected_at", since)
     .lte("detected_at", context.detectedAt.toISOString())
-    // Vlastní detekce se nepočítá — eskaluje jen pohyb JINDE.
-    .neq("id", context.detectionId)
     .limit(1);
+
+  // Vlastní detekce se nepočítá — eskaluje jen pohyb JINDE. U ručního
+  // zásahu není co vylučovat, žádná detekce mu nepředcházela.
+  if (context.detectionId) query = query.neq("id", context.detectionId);
 
   query = context.zoneId
     ? query.neq("zone_id", context.zoneId)
@@ -310,7 +339,10 @@ async function prepareDispatchRow(
     // ne neznalost — proto false, ne null.
     context.zoneEnabled ? deps.isSiteArmed(context) : Promise.resolve(false),
     deps.lastSentDispatchAt(context),
-    deps.hasRecentPersonInOtherZone(context),
+    // Ruční zásah jede rovnou na nejvyšší stupeň, takže není co
+    // eskalovat — a dotaz, jehož výsledek nikdo nepoužije, by se jen
+    // mohl nepovést a zbytečně zapsat do neznámých vstupů.
+    context.manual ? Promise.resolve(false) : deps.hasRecentPersonInOtherZone(context),
   ]);
 
   // Co se nepodařilo zjistit. Ukládá se do důvodu, ne jen do logu:
@@ -329,7 +361,9 @@ async function prepareDispatchRow(
     });
   }
 
-  const level = resolveDispatchLevel(context.objectClass, recentPerson);
+  const level = context.manual
+    ? MANUAL_DISPATCH_LEVEL
+    : resolveDispatchLevel(context.objectClass, recentPerson);
   const decision = decideDispatch({
     armed,
     cooldownSeconds: context.siteCooldownSeconds,
@@ -348,8 +382,12 @@ async function prepareDispatchRow(
       : null;
 
   const reason: DecisionReason = {
-    object_class: context.objectClass,
-    base_level: BASE_LEVEL_BY_CLASS[context.objectClass],
+    // Ruční zásah nemá třídu objektu. Zapsat sem „neurčeno“ by z něj
+    // v detailu udělalo detekci, která se nezdařila přečíst.
+    object_class: context.manual ? null : context.objectClass,
+    base_level: context.manual
+      ? MANUAL_DISPATCH_LEVEL
+      : BASE_LEVEL_BY_CLASS[context.objectClass],
     level_sent: level,
     escalated: recentPerson === true,
     escalation:
@@ -369,6 +407,7 @@ async function prepareDispatchRow(
         : Math.max(0, Math.round(context.siteCooldownSeconds - elapsedSeconds)),
     zone_has_wayline: Boolean(context.zoneWaylineUuid),
     dock: null,
+    ...(context.manual ? { manual: { actor_id: context.manual.actorId } } : {}),
     ...(neznamé.length > 0 ? { unknown_inputs: neznamé } : {}),
     decided_at: new Date().toISOString(),
   };
@@ -502,7 +541,9 @@ async function prepareDispatchRow(
   const result = await deps.createFlightTask({
     // Stupeň jde do názvu: plánovaná úloha pole pro úroveň nemá,
     // takže jinak by v DJI nebylo poznat, jak vážný zásah to byl.
-    name: `Zásah ${level} — ${zoneLabel}`,
+    name: context.manual
+      ? `Ruční zásah — ${zoneLabel}`
+      : `Zásah ${level} — ${zoneLabel}`,
     dockSn: context.siteDockSn,
     waylineUuid: context.zoneWaylineUuid,
     timeZone: context.siteTimezone,
@@ -624,6 +665,7 @@ export async function runDispatch(
           outcome: row.outcome,
           level: row.level_sent,
           objectClass: resolved.objectClass,
+          manual: Boolean(resolved.manual),
         });
       } catch (error) {
         console.error("Notifikace o zásahu selhala", {
@@ -696,14 +738,21 @@ async function insertFlight(plan: FlightPlan): Promise<void> {
  */
 async function notifyDispatch(input: DispatchNotification): Promise<NotifyResult> {
   const zona = input.zoneName ?? "neznámá zóna";
-  const co = DETECTION_OBJECT_CLASS_LABELS[input.objectClass].toLowerCase();
+  // U ručního zásahu žádná detekce není; „(neurčeno)“ by v notifikaci
+  // vypadalo jako selhaný detektor.
+  const podnet = input.manual
+    ? "na ruční pokyn"
+    : `k detekci (${DETECTION_OBJECT_CLASS_LABELS[input.objectClass].toLowerCase()})`;
+  const zapsano = input.manual
+    ? "Ruční zásah zapsaný"
+    : `Detekce (${DETECTION_OBJECT_CLASS_LABELS[input.objectClass].toLowerCase()}) zapsaná`;
 
   if (input.outcome === "sent") {
     return notify({
       siteId: input.siteId,
       kind: "dispatch_sent",
       title: `Zásah odeslán — ${zona}`,
-      body: `Dron letí k detekci (${co}), stupeň ${input.level}.`,
+      body: `Dron letí ${podnet}, stupeň ${input.level}.`,
       url: `/zasahy/${input.dispatchId}`,
       // Vlastní tag na zásah: dva zásahy za sebou se nemají přepsat.
       tag: `dispatch-${input.dispatchId}`,
@@ -719,7 +768,7 @@ async function notifyDispatch(input: DispatchNotification): Promise<NotifyResult
     siteId: input.siteId,
     kind: "dispatch_suppressed",
     title: `Zásah neodešel — ${zona}`,
-    body: `Detekce (${co}) zapsaná, dron nevzlétl. ${duvod}`,
+    body: `${zapsano}, dron nevzlétl. ${duvod}`,
     url: `/zasahy/${input.dispatchId}`,
     tag: `dispatch-${input.dispatchId}`,
   });
