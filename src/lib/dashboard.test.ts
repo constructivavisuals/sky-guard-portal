@@ -7,6 +7,7 @@ import {
   dockWarnings,
   formatUntil,
   patrolWarnings,
+  unknownPlateWarnings,
 } from "./dashboard.ts";
 import type { DockState } from "./dispatch/flighthub.ts";
 
@@ -295,5 +296,38 @@ describe("cameraSilenceWarnings", () => {
       ),
       [],
     );
+  });
+});
+
+describe("unknownPlateWarnings", () => {
+  it("mlčí, když nic neprojelo", () => {
+    assert.deepEqual(unknownPlateWarnings([]), []);
+  });
+
+  it("mlčí u vjezdů mimo ostrý režim", () => {
+    // Přes den auta jezdí; hlásit každé by z varování udělalo tapetu.
+    assert.deepEqual(
+      unknownPlateWarnings([{ plate: "1AB2345", armed: false }]),
+      [],
+    );
+  });
+
+  it("jedna neznámá značka se vypíše i s číslem", () => {
+    const [w] = unknownPlateWarnings([{ plate: "1AB2345", armed: true }]);
+    assert.match(w.text, /1AB2345/);
+  });
+
+  it("nepřečtená značka se hlásí taky, jen bez čísla", () => {
+    const [w] = unknownPlateWarnings([{ plate: null, armed: true }]);
+    assert.match(w.text, /nepodařilo přečíst/);
+  });
+
+  it("víc vjezdů se sloučí do počtu", () => {
+    const [w] = unknownPlateWarnings([
+      { plate: "1AB2345", armed: true },
+      { plate: null, armed: true },
+      { plate: "5XY0000", armed: false },
+    ]);
+    assert.match(w.text, /2 vozidel/);
   });
 });

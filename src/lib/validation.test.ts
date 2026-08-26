@@ -6,6 +6,7 @@ import {
   isValidTimeZone,
   parseCameraForm,
   parseClientForm,
+  parseKnownPlateForm,
   parsePassword,
   parseSiteForm,
   parseZoneForm,
@@ -396,5 +397,65 @@ describe("parseClientForm", () => {
     const r = parseClientForm(data);
     assert.equal(r.ok, false);
     if (!r.ok) assert.ok(r.errors.site_ids);
+  });
+});
+
+describe("parseKnownPlateForm", () => {
+  const valid = {
+    site_id: SITE_ID,
+    plate: "1ab 2345",
+    label: "Dodávka stavby",
+    list_type: "allow",
+  };
+
+  it("platný vstup projde a značka se zvedne na velká písmena", () => {
+    const r = parseKnownPlateForm(form(valid));
+    assert.ok(r.ok);
+    assert.equal(r.value.plate, "1AB 2345");
+    assert.equal(r.value.list_type, "allow");
+  });
+
+  it("zápis se zachovává, nenormalizuje se natvrdo", () => {
+    // Porovnávání řeší plate_normalize() v databázi; v seznamu má být
+    // značka čitelná tak, jak ji člověk napsal.
+    const r = parseKnownPlateForm(form({ ...valid, plate: "1AB-2345" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.plate, "1AB-2345");
+  });
+
+  it("přebytečné mezery se slučují", () => {
+    const r = parseKnownPlateForm(form({ ...valid, plate: "1AB    2345" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.plate, "1AB 2345");
+  });
+
+  it("prázdný popisek i poznámka jsou null", () => {
+    const r = parseKnownPlateForm(form({ ...valid, label: "", note: "" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.label, null);
+    assert.equal(r.value.note, null);
+  });
+
+  const bad: [string, Record<string, string>, string][] = [
+    ["chybí lokalita", { site_id: "" }, "site_id"],
+    ["prázdná značka", { plate: "" }, "plate"],
+    ["značka bez písmen a číslic", { plate: "---" }, "plate"],
+    ["příliš dlouhá značka", { plate: "A".repeat(33) }, "plate"],
+    ["neznámý seznam", { list_type: "maybe" }, "list_type"],
+    ["chybí seznam", { list_type: "" }, "list_type"],
+  ];
+
+  for (const [name, override, field] of bad) {
+    it(`${name} → chyba u ${field}`, () => {
+      const r = parseKnownPlateForm(form({ ...valid, ...override }));
+      assert.equal(r.ok, false);
+      if (!r.ok) assert.ok(r.errors[field]);
+    });
+  }
+
+  it("deny je platná volba", () => {
+    const r = parseKnownPlateForm(form({ ...valid, list_type: "deny" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.list_type, "deny");
   });
 });

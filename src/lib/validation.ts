@@ -1,9 +1,11 @@
 import {
   CAMERA_STATUSES,
+  PLATE_LIST_TYPES,
   USER_ROLES,
   type CameraStatus,
   type DispatchLevel,
   type IsoWeekday,
+  type PlateListType,
   type UserRole,
 } from "../types/database.ts";
 
@@ -383,6 +385,59 @@ export function parseClientForm(data: FormData): Validated<ClientFormValue> {
   };
 }
 
+// ── Známá značka ─────────────────────────────────────────────────
+
+export interface KnownPlateFormValue {
+  site_id: string;
+  plate: string;
+  label: string | null;
+  list_type: PlateListType;
+  note: string | null;
+}
+
+export function parseKnownPlateForm(
+  data: FormData,
+): Validated<KnownPlateFormValue> {
+  const errors: FieldErrors = {};
+
+  const siteId = text(data, "site_id");
+  if (!UUID.test(siteId)) errors.site_id = "Vyberte lokalitu.";
+
+  // Značka se ukládá tak, jak ji člověk napsal — jen bez přebytečných
+  // mezer. Porovnávání řeší plate_normalize() v databázi, takže
+  // "1AB 2345" a "1ab-2345" spolu narazí na unikátním indexu i tak.
+  const plate = text(data, "plate").replace(/\s+/g, " ").toUpperCase();
+  if (!plate) errors.plate = "Zadejte značku.";
+  else if (plate.length > 32) errors.plate = "Značka je delší než 32 znaků.";
+  else if (!/[A-Z0-9]/.test(plate)) {
+    errors.plate = "Značka musí obsahovat aspoň písmeno nebo číslici.";
+  }
+
+  const listType = text(data, "list_type");
+  if (!(PLATE_LIST_TYPES as readonly string[]).includes(listType)) {
+    errors.list_type = "Vyberte, jestli smí do areálu.";
+  }
+
+  const label = optionalText(data, "label");
+  if (label && label.length > 120) errors.label = "Popisek je delší než 120 znaků.";
+
+  const note = optionalText(data, "note");
+  if (note && note.length > 500) errors.note = "Poznámka je delší než 500 znaků.";
+
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    value: {
+      site_id: siteId,
+      plate,
+      label,
+      list_type: listType as PlateListType,
+      note,
+    },
+  };
+}
+
 // ── Chyby z databáze → chyby u polí ──────────────────────────────
 
 /**
@@ -417,6 +472,11 @@ export function databaseErrorToFieldErrors(
   }
   if (message.includes("cameras_serial_number_key")) {
     return { serial_number: "Kamera s tímto sériovým číslem už existuje." };
+  }
+  if (message.includes("idx_known_plates_site_plate")) {
+    return {
+      plate: "Tahle značka už je na lokalitě zapsaná — i když třeba jinak zapsaná.",
+    };
   }
   return { _form: "Hodnota už je obsazená jiným záznamem." };
 }

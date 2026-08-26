@@ -11,6 +11,8 @@ import {
   MapPin,
   Radar,
   Cctv,
+  CarFront,
+  ScanLine,
   Settings,
   Users,
   LogOut,
@@ -31,6 +33,7 @@ export const NAV_ITEMS = [
   { href: "/lokality", label: "Lokality", icon: MapPin },
   { href: "/zony", label: "Zóny", icon: Radar },
   { href: "/kamery", label: "Kamery", icon: Cctv },
+  { href: "/vjezdy", label: "Vjezdy", icon: CarFront },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
@@ -43,6 +46,7 @@ export const NAV_ITEMS = [
  * neprošel.
  */
 const ADMIN_ITEMS = [
+  { href: "/znacky", label: "Značky", icon: ScanLine },
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 

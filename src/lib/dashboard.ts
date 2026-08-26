@@ -64,6 +64,43 @@ export function dockWarnings(state: DockState): Warning[] {
   return out;
 }
 
+/**
+ * Neznámá značka v době střežení.
+ *
+ * Není to totéž co nežádoucí: ta zvedne zásah sama a je vidět
+ * v zásazích. Neznámá značka znamená, že do areálu v noci vjelo auto,
+ * které nikdo nezná — dron už vzlétl, ale někdo se na to má podívat
+ * a rozhodnout, jestli patří na seznam.
+ *
+ * Počítá se jen to, co se stalo za ostrého režimu; přes den auta
+ * jezdí a hlásit každé z nich by z varování udělalo tapetu.
+ */
+export function unknownPlateWarnings(
+  passages: { plate: string | null; armed: boolean }[],
+): Warning[] {
+  const neznama = passages.filter((p) => p.armed);
+  if (neznama.length === 0) return [];
+
+  if (neznama.length === 1) {
+    const znacka = neznama[0].plate;
+    return [
+      {
+        key: "unknown_plate",
+        text: znacka
+          ? `V době střežení projelo bránou vozidlo s neznámou značkou ${znacka}.`
+          : "V době střežení projelo bránou vozidlo, jehož značku se nepodařilo přečíst.",
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "unknown_plates",
+      text: `V době střežení projelo bránou ${neznama.length} vozidel s neznámou nebo nepřečtenou značkou.`,
+    },
+  ];
+}
+
 /** Po téhle době ticha se kamera považuje za nehlásící. */
 export const CAMERA_SILENT_MINUTES = 60;
 

@@ -99,3 +99,33 @@ export function LevelBadge({ level }: { level: number }) {
     </Pill>
   );
 }
+
+/**
+ * Jak vjezd dopadl proti seznamu značek.
+ *
+ * `pending` a `unread` jsou schválně dva různé stavy: „čteme“ se za
+ * vteřinu změní, „nepřečteno“ ne. Slévat je by znamenalo tvrdit
+ * o běžícím čtení něco, co ještě neplatí.
+ */
+export function PlateBadge({
+  verdict,
+  label,
+}: {
+  verdict: "allow" | "deny" | "unknown" | "unread" | "pending";
+  label?: string | null;
+}) {
+  switch (verdict) {
+    case "allow":
+      return <Pill tone="success">{label ? `Známé — ${label}` : "Známé"}</Pill>;
+    case "deny":
+      return <Pill tone="danger">{label ? `Nežádoucí — ${label}` : "Nežádoucí"}</Pill>;
+    case "unknown":
+      // Oranžová, ne červená: neznámé auto není útok, ale patří na něj
+      // kouknout. Tentýž význam jako u varování na přehledu.
+      return <Pill tone="warning">Neznámá značka</Pill>;
+    case "pending":
+      return <Pill tone="neutral">Čte se</Pill>;
+    default:
+      return <Pill tone="neutral">Nepřečtená</Pill>;
+  }
+}

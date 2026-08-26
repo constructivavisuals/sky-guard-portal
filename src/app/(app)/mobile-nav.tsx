@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  CarFront,
   Cctv,
   LayoutDashboard,
   LogOut,
@@ -13,6 +14,7 @@ import {
   Route,
   ScanEye,
   Send,
+  ScanLine,
   Settings,
   Users,
   X,
@@ -35,11 +37,13 @@ const SECONDARY = [
   { href: "/lokality", label: "Lokality", icon: MapPin },
   { href: "/zony", label: "Zóny", icon: Radar },
   { href: "/kamery", label: "Kamery", icon: Cctv },
+  { href: "/vjezdy", label: "Vjezdy", icon: CarFront },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
 /** Jen pro administrátora; zámek je na stránce samotné. */
 const ADMIN_SECONDARY = [
+  { href: "/znacky", label: "Značky", icon: ScanLine },
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 

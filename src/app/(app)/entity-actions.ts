@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server.ts";
 import {
   databaseErrorToFieldErrors,
   parseCameraForm,
+  parseKnownPlateForm,
   parsePatrolForm,
   parseSiteForm,
   parseZoneForm,
@@ -186,6 +187,70 @@ export async function savePatrol(
 
   if (error)
     return { ...failed(error.message, error.code), values: snapshot(data), attempt };
+
+  revalidatePath("/", "layout");
+  return { ok: true, errors: {}, attempt };
+}
+
+// ── Známé značky ─────────────────────────────────────────────────
+
+/**
+ * Seznam značek rozhoduje o tom, jestli vzlétne dron: přidat značku na
+ * allow znamená vypnout ostrahu pro jedno auto. Zápis proto pouští jen
+ * site_is_manager(), tedy admin — na rozdíl od constructiva-portal,
+ * kde je seznam poznámka pro člověka a spravuje si ho klient sám.
+ *
+ * Zámkem je ta politika, ne kontrola tady; ta jen dává srozumitelnou
+ * hlášku místo chyby z databáze.
+ */
+export async function saveKnownPlate(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  const attempt = (_prev.attempt ?? 0) + 1;
+  if (!(await requireAdmin()))
+    return { ...DENIED, values: snapshot(data), attempt };
+
+  const parsed = parseKnownPlateForm(data);
+  if (!parsed.ok)
+    return { ok: false, errors: parsed.errors, values: snapshot(data), attempt };
+
+  const id = String(data.get("id") ?? "");
+  const supabase = await createClient();
+
+  const { error } = id
+    ? await supabase.from("known_plates").update(parsed.value).eq("id", id)
+    : await supabase.from("known_plates").insert(parsed.value);
+
+  if (error)
+    return { ...failed(error.message, error.code), values: snapshot(data), attempt };
+
+  revalidatePath("/", "layout");
+  return { ok: true, errors: {}, attempt };
+}
+
+/**
+ * Odebrání značky ze seznamu.
+ *
+ * Tady se mazat SMÍ, na rozdíl od detekcí a vjezdů: je to konfigurace,
+ * ne důkaz, a odebrání zachytí audit trigger known_plates_audit.
+ * Nechávat vyřazená auta v seznamu navěky by z něj udělalo smetiště,
+ * ve kterém nikdo nepozná, co ještě platí.
+ */
+export async function deleteKnownPlate(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  const attempt = (_prev.attempt ?? 0) + 1;
+  if (!(await requireAdmin())) return { ...DENIED, attempt };
+
+  const id = String(data.get("id") ?? "");
+  if (!id) return { ...DENIED, attempt };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("known_plates").delete().eq("id", id);
+
+  if (error) return { ...failed(error.message, error.code), attempt };
 
   revalidatePath("/", "layout");
   return { ok: true, errors: {}, attempt };

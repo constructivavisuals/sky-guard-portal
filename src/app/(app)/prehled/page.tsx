@@ -31,6 +31,7 @@ import {
   dockWarnings,
   formatUntil,
   patrolWarnings,
+  unknownPlateWarnings,
   type PatrolHealth,
   type Warning,
 } from "@/lib/dashboard.ts";
@@ -48,6 +49,7 @@ import { zonedTimeToUtc } from "@/lib/patrols/schedule.ts";
 import { getSiteSelection, type SiteRow } from "@/lib/selected-site.ts";
 import { nextArmedTransition } from "@/lib/site-status.ts";
 import { createClient } from "@/lib/supabase/server.ts";
+import { isPlateReliable } from "@/lib/plates.ts";
 import {
   isSiteArmed,
   type DetectionObjectClass,
@@ -55,6 +57,13 @@ import {
 } from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Přehled" };
+
+interface PassageWarningRow {
+  plate: string | null;
+  confidence: number | null;
+  list_match: string | null;
+  passed_at: string;
+}
 
 interface CameraRow {
   id: string;
@@ -112,7 +121,15 @@ export default async function Page() {
   let patrols: PatrolRow[] = [];
   let lastPatrolFlightAt: Date | null = null;
   const patrolLastByid = new Map<string, Date>();
-  let counts = { detections: 0, dispatches: 0, suppressed: 0, flights: 0 };
+  let counts = {
+    detections: 0,
+    dispatches: 0,
+    suppressed: 0,
+    flights: 0,
+    passages: 0,
+    unknownPlates: 0,
+  };
+  let unknownPlates: { plate: string | null; armed: boolean }[] = [];
   let cameras = { total: 0, withoutZone: 0 };
   let silence: { name: string; lastSeenAt: Date | null; online: boolean }[] = [];
   let events: EventRow[] = [];
@@ -129,7 +146,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, passageCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -149,6 +166,16 @@ export default async function Page() {
           supabase.from("cameras").select("id, name, zone_id, status, last_seen_at")
             .eq("site_id", site.id).neq("status", "decommissioned")
             .returns<CameraRow[]>(),
+          supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
+            .eq("site_id", site.id).gte("passed_at", since),
+          // Vjezdy s neznámou nebo nepřečtenou značkou. Ostrý režim se
+          // vyhodnocuje až v paměti — SQL na to funkci nemá a dotaz
+          // s podmínkou na okno střežení by ji opisoval potřetí.
+          supabase.from("vehicle_passages")
+            .select("plate, confidence, list_match, passed_at")
+            .eq("site_id", site.id).gte("passed_at", since)
+            .is("list_match", null)
+            .returns<PassageWarningRow[]>(),
           // Poslední lety hlídek: jedním dotazem, nejnovější první.
           // Z nich se v paměti vybere poslední let ke každé hlídce.
           supabase.from("flights").select("patrol_id, started_at")
@@ -173,7 +200,20 @@ export default async function Page() {
         dispatches: dispatches.count ?? 0,
         suppressed: suppressed.count ?? 0,
         flights: flights.count ?? 0,
+        passages: passageCount.count ?? 0,
+        // Doplní se níž, až se vjezdy profiltrují ostrým režimem.
+        unknownPlates: 0,
       };
+
+      unknownPlates = (passageRows.data ?? [])
+        .filter((row) => isSiteArmed(site, new Date(row.passed_at)))
+        .map((row) => ({
+          // Nejistá značka se se seznamem nepárovala, takže se do
+          // varování hlásí jako nepřečtená, ne jako neznámá.
+          plate: isPlateReliable(row.plate, row.confidence) ? row.plate : null,
+          armed: true,
+        }));
+      counts.unknownPlates = unknownPlates.length;
       patrols = patrolRows.data ?? [];
       const cameraList = cameraRows.data ?? [];
       cameras = {
@@ -264,6 +304,7 @@ export default async function Page() {
     // Kamery bez zóny první — je to tichý výpadek celé lokality,
     // ne provozní drobnost jako plné úložiště.
     ...cameraWarnings(cameras),
+    ...unknownPlateWarnings(unknownPlates),
     ...cameraSilenceWarnings(silence, now),
     ...patrolWarnings(health, now),
   ];
@@ -604,13 +645,25 @@ function Warnings({ items }: { items: Warning[] }) {
 function Numbers({
   counts,
 }: {
-  counts: { detections: number; dispatches: number; suppressed: number; flights: number };
+  counts: {
+    detections: number;
+    dispatches: number;
+    suppressed: number;
+    flights: number;
+    passages: number;
+    unknownPlates: number;
+  };
 }) {
   const cells = [
     { label: "Detekcí", value: counts.detections, muted: false },
+    { label: "Vjezdů", value: counts.passages, muted: false },
     { label: "Zásahů", value: counts.dispatches, muted: false },
     { label: "Potlačených", value: counts.suppressed, muted: true },
     { label: "Letů", value: counts.flights, muted: false },
+    // Šestý údaj tu není na dorovnání mřížky, ale proto, že po
+    // přidání vjezdů je to první číslo, na které se člověk podívá:
+    // kolik aut projelo, aniž by je někdo znal.
+    { label: "Neznámých značek", value: counts.unknownPlates, muted: false },
   ];
 
   return (
