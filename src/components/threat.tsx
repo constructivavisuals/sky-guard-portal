@@ -109,7 +109,10 @@ export function ThreatCallout({ state }: { state: ThreatState }) {
       <div className="min-w-0">
         <p className={`text-sm font-medium tracking-tight ${tone.text}`}>{v.label}</p>
         <p className="mt-1 text-sm leading-relaxed text-[var(--text-muted)]">
-          {state.threat_note?.trim() || v.fallback}
+          {/* Poznámka platí jen k proběhlé kontrole. Bez razítka je to
+              zbytek po dřívějším pokusu a vedle „nekontrolováno“ by si
+              odporovala. */}
+          {(state.threat_checked_at ? state.threat_note?.trim() : null) || v.fallback}
         </p>
       </div>
     </div>
@@ -124,7 +127,7 @@ export function ThreatBadge({ state }: { state: ThreatState }) {
   return (
     <span
       className={`inline-flex h-6 items-center whitespace-nowrap rounded-[var(--radius-pill)] border px-2.5 text-[11px] font-medium uppercase tracking-[0.08em] ${tone.border} ${tone.bg} ${tone.text}`}
-      title={state.threat_note ?? undefined}
+      title={(state.threat_checked_at ? state.threat_note : null) ?? undefined}
     >
       {v.label}
     </span>
