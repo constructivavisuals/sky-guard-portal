@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Bell, MapPin, ShieldAlert, Users } from "lucide-react";
+import Link from "next/link";
+import { Bell, MapPin, ScrollText, ShieldAlert, Users } from "lucide-react";
 
 import { DataTable, Td, Th, Tr } from "@/components/table.tsx";
 import {
@@ -200,6 +201,27 @@ export default async function Page() {
             />
           )}
         </Section>
+
+        {admin ? (
+          <Section>
+            <BlockTitle>
+              <span className="inline-flex items-center gap-2">
+                <ScrollText className="h-3.5 w-3.5" aria-hidden="true" />
+                Deník změn
+              </span>
+            </BlockTitle>
+            <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+              Kdo co změnil v konfiguraci — lokality, zóny, kamery, značky,
+              dopravce a klienty. Zápisy jde jen číst.
+            </p>
+            <Link
+              href="/nastaveni/audit"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm text-[var(--accent)] hover:underline"
+            >
+              Otevřít deník
+            </Link>
+          </Section>
+        ) : null}
 
         {/* Přehled uživatelů je jen pro čtení — udělovat granty se bude
             jinde. RLS na profiles i site_grants stejně nikomu jinému
