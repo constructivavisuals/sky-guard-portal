@@ -168,17 +168,15 @@ export function cameraWarnings(cameras: {
   if (cameras.withoutZone <= 0) return [];
 
   const all = cameras.withoutZone === cameras.total && cameras.total > 0;
-  const count =
-    cameras.withoutZone === 1
-      ? "Jedna kamera nemá"
-      : `${cameras.withoutZone} kamer nemá`;
+  const jedna = cameras.withoutZone === 1;
+  const count = jedna ? "Jedna kamera nemá" : `${cameras.withoutZone} kamer nemá`;
 
   return [
     {
       key: "cameras_without_zone",
       text: all
         ? `${count} přiřazenou zónu — na téhle lokalitě proto nevznikne žádný zásah, i když kamery detekují.`
-        : `${count} přiřazenou zónu, takže z ní zásah nevznikne.`,
+        : `${count} přiřazenou zónu, takže z ${jedna ? "ní" : "nich"} zásah nevznikne.`,
     },
   ];
 }
@@ -201,17 +199,15 @@ export function zoneWarnings(zones: {
   if (zones.withoutWayline <= 0) return [];
 
   const all = zones.withoutWayline === zones.total && zones.total > 0;
-  const count =
-    zones.withoutWayline === 1
-      ? "Jedna zóna nemá"
-      : `${zones.withoutWayline} zón nemá`;
+  const jedna = zones.withoutWayline === 1;
+  const count = jedna ? "Jedna zóna nemá" : `${zones.withoutWayline} zón nemá`;
 
   return [
     {
       key: "zones_without_wayline",
       text: all
         ? `${count} přiřazenou trasu — na téhle lokalitě proto nevznikne žádný zásah, i když kamery detekují.`
-        : `${count} přiřazenou trasu, takže z ní dron nevzlétne.`,
+        : `${count} přiřazenou trasu, takže z ${jedna ? "ní" : "nich"} dron nevzlétne.`,
     },
   ];
 }

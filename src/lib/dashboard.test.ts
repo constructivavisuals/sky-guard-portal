@@ -358,3 +358,20 @@ describe("zoneWarnings", () => {
     assert.match(warning.text, /nevznikne žádný zásah/);
   });
 });
+
+describe("skloňování ve varováních", () => {
+  it("víc zón bez trasy má „z nich“, ne „z ní“", () => {
+    const [warning] = zoneWarnings({ total: 5, withoutWayline: 2 });
+    assert.match(warning.text, /z nich dron nevzlétne/);
+  });
+
+  it("jedna zóna má „z ní“", () => {
+    const [warning] = zoneWarnings({ total: 5, withoutWayline: 1 });
+    assert.match(warning.text, /z ní dron nevzlétne/);
+  });
+
+  it("totéž u kamer bez zóny", () => {
+    assert.match(cameraWarnings({ total: 5, withoutZone: 2 })[0].text, /z nich zásah/);
+    assert.match(cameraWarnings({ total: 5, withoutZone: 1 })[0].text, /z ní zásah/);
+  });
+});
