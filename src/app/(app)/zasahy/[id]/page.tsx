@@ -3,17 +3,25 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
+  ArrowRight,
   Crosshair,
   ExternalLink,
   MapPin,
   Plane,
   ScanEye,
   Send,
-  Sparkles,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { DispatchOutcomeBadge, LevelBadge, ObjectClassBadge } from "@/components/badges.tsx";
+import {
+  MEDIA_COLUMNS,
+  MediaGallery,
+  signMedia,
+  type MediaRow,
+  type SignedMedia,
+} from "@/components/media-gallery.tsx";
+import { ThreatCallout } from "@/components/threat.tsx";
 import {
   EmptyState,
   IconBadge,
@@ -27,22 +35,27 @@ import {
   levelFromReason,
   mapUrl,
 } from "@/lib/dispatch/explain.ts";
+import { ARRIVAL_RADIUS_M, arrivalAt, trajectoryPoints } from "@/lib/flights/trajectory.ts";
 import {
+  durationBetween,
   formatArmedDays,
   formatArmedWindow,
   formatConfidence,
   formatDateTime,
+  formatDuration,
   orDash,
 } from "@/lib/format.ts";
 import { parsePointEwkbHex } from "@/lib/geo.ts";
 import { isOperator } from "@/lib/profile.ts";
 import { createClient } from "@/lib/supabase/server.ts";
-import type {
-  DecisionReason,
-  DetectionObjectClass,
-  DispatchOutcome,
-  IsoWeekday,
-  Json,
+import {
+  FLIGHT_STATUS_LABELS,
+  type DecisionReason,
+  type DetectionObjectClass,
+  type DispatchOutcome,
+  type FlightStatus,
+  type IsoWeekday,
+  type Json,
 } from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Detail zásahu" };
@@ -75,6 +88,31 @@ interface DispatchDetail {
   } | null;
 }
 
+interface DispatchFlight {
+  id: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_s: number | null;
+  status: FlightStatus;
+  trajectory: Json;
+  threat_confirmed: boolean | null;
+  threat_note: string | null;
+  threat_checked_at: string | null;
+}
+
+/**
+ * Kolik náhledů se v ose zásahu ukáže.
+ *
+ * Osa je přehled, ne archiv — celá galerie patří do detailu letu
+ * a odkaz na ni je hned vedle.
+ */
+const MEDIA_NAHLEDU = 3;
+
+const FLIGHT_BASE =
+  "id, started_at, ended_at, duration_s, status, trajectory";
+/** Sloupce kontroly snímků přidává migrace 20260903120000. */
+const FLIGHT_THREAT = "threat_confirmed, threat_note, threat_checked_at";
+
 export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
   const { id } = await params;
 
@@ -82,6 +120,8 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
   const showDiagnostics = isOperator(profile);
 
   let dispatch: DispatchDetail | null = null;
+  let flight: DispatchFlight | null = null;
+  let media: SignedMedia[] = [];
   let failed = false;
 
   try {
@@ -99,6 +139,51 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
 
     if (error) failed = true;
     else dispatch = data;
+
+    if (dispatch) {
+      // Let se dohledává zvlášť, ne vnořeným výběrem: sloupce kontroly
+      // snímků přidává nenasazená migrace a PostgREST odmítne celý
+      // dotaz, když jediný chybí. Takhle přijde o obsah jen tenhle krok
+      // osy, ne celá stránka.
+      const sKontrolou = await supabase
+        .from("flights")
+        .select(`${FLIGHT_BASE}, ${FLIGHT_THREAT}`)
+        .eq("dispatch_id", id)
+        .order("started_at", { ascending: true, nullsFirst: false })
+        .limit(1)
+        .maybeSingle<DispatchFlight>();
+
+      if (sKontrolou.error) {
+        const bez = await supabase
+          .from("flights")
+          .select(FLIGHT_BASE)
+          .eq("dispatch_id", id)
+          .order("started_at", { ascending: true, nullsFirst: false })
+          .limit(1)
+          .maybeSingle<DispatchFlight>();
+        flight = bez.data
+          ? {
+              ...bez.data,
+              threat_confirmed: null,
+              threat_note: null,
+              threat_checked_at: null,
+            }
+          : null;
+      } else {
+        flight = sKontrolou.data;
+      }
+
+      if (flight) {
+        const { data: rows } = await supabase
+          .from("media")
+          .select(MEDIA_COLUMNS)
+          .eq("flight_id", flight.id)
+          .order("captured_at", { ascending: true, nullsFirst: false })
+          .limit(MEDIA_NAHLEDU)
+          .returns<MediaRow[]>();
+        media = await signMedia(supabase, rows ?? []);
+      }
+    }
   } catch {
     failed = true;
   }
@@ -299,21 +384,67 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
           )}
         </Step>
 
-        {/* ── Let a záznam — zatím prázdné místo v ose ─────────── */}
+        {/* ── Let a záznam ────────────────────────────────────── */}
         <Step
           icon={<Plane className="h-5 w-5" aria-hidden="true" />}
           title="Let a záznam"
-          muted
+          time={flight ? formatDateTime(flight.started_at, timeZone) : null}
+          muted={!flight}
           last
         >
-          <p className="text-sm text-[var(--text-muted)]">
-            Trasa letu, doba a pořízené snímky se doplní, až se budou tahat
-            data z DJI FlightHub.
-          </p>
-          <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            Připravovaný krok
-          </p>
+          {!flight ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              {suppressed
+                ? "Zásah byl potlačen, takže se nikam neletělo."
+                : "K tomuhle zásahu zatím není let. Objeví se, až ho dotáhne synchronizace s FlightHubem."}
+            </p>
+          ) : (
+            <>
+              <Facts
+                items={[
+                  ["Vzlet", formatDateTime(flight.started_at, timeZone)],
+                  [
+                    "Dolet na místo",
+                    <Arrival
+                      key="a"
+                      flight={flight}
+                      target={point}
+                      timeZone={timeZone}
+                    />,
+                  ],
+                  [
+                    "Trvání",
+                    formatDuration(
+                      flight.duration_s ??
+                        durationBetween(flight.started_at, flight.ended_at),
+                    ),
+                  ],
+                  ["Stav", FLIGHT_STATUS_LABELS[flight.status]],
+                ]}
+              />
+
+              <div className="mt-4">
+                <ThreatCallout state={flight} />
+              </div>
+
+              <div className="mt-4">
+                <MediaGallery
+                  items={media}
+                  timeZone={timeZone}
+                  columns={3}
+                  emptyText="Z letu zatím nejsou žádné snímky."
+                />
+              </div>
+
+              <Link
+                href={`/lety/${flight.id}`}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm text-[var(--accent)] hover:underline"
+              >
+                Otevřít detail letu
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </>
+          )}
         </Step>
       </ol>
     </>
@@ -392,4 +523,46 @@ function Facts({ items }: { items: [string, ReactNode][] }) {
       ))}
     </dl>
   );
+}
+
+/**
+ * Kdy dron doletěl nad zónu.
+ *
+ * Počítá se z trajektorie, ne z hlášení DJI — to skutečný čas doletu
+ * nedává. Bere se první bod do padesáti metrů od zóny; když jich je
+ * míň, nechá se pomlčka, protože „nedoletěl" a „nevíme, kudy letěl"
+ * není totéž a rozliší je věta pod tím.
+ */
+function Arrival({
+  flight,
+  target,
+  timeZone,
+}: {
+  flight: DispatchFlight;
+  target: { latitude: number; longitude: number } | null;
+  timeZone: string | undefined;
+}) {
+  if (!target) {
+    return <span className="text-[var(--text-muted)]">Zóna nemá souřadnice</span>;
+  }
+
+  const points = trajectoryPoints(flight.trajectory);
+  if (points.length === 0) {
+    return (
+      <span className="text-[var(--text-muted)]">
+        {flight.ended_at ? "Trasa nedorazila" : "Let ještě běží"}
+      </span>
+    );
+  }
+
+  const arrival = arrivalAt(points, target);
+  if (!arrival) {
+    return (
+      <span className="text-[var(--warning)]" title={`Ani jeden bod trasy nebyl blíž než ${ARRIVAL_RADIUS_M} m`}>
+        Nedoletěl k zóně
+      </span>
+    );
+  }
+
+  return <>{formatDateTime(arrival.toISOString(), timeZone)}</>;
 }
