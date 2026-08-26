@@ -5,13 +5,13 @@
 --   sites (lokalita s dockem) → zones (body perimetru) → cameras
 --   cameras → detections (co kamera viděla)
 --   detections → dispatches (výjezd poslaný do DJI FlightHub)
---   dispatches → flights (co dron skutečně odletěl) → media (foto/video v R2)
+--   dispatches → flights (co dron skutečně odletěl) → media (foto/video v úložišti)
 --
 -- Konvence mazání: konfigurace se maže kaskádou, důkazy přežívají.
 -- Tabulky s důkazy (detections, dispatches, flights, media) drží FK
 -- s ON DELETE RESTRICT — kameru/lokalitu s historií nelze smazat,
--- místo toho se přepne status na 'decommissioned'. R2 objekty maže
--- aplikace, DB o nich drží jen klíč.
+-- místo toho se přepne status na 'decommissioned'. Soubory v úložišti maže
+-- aplikace, DB o nich drží jen cestu.
 --
 -- Idempotentní: bezpečné spustit víckrát (CREATE … IF NOT EXISTS,
 -- DROP POLICY/TRIGGER IF EXISTS, enumy přes DO bloky).
@@ -203,7 +203,6 @@ CREATE TABLE IF NOT EXISTS detections (
   detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   object_class detection_object_class NOT NULL DEFAULT 'unknown',
   confidence NUMERIC(5,4) CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
-  -- Klíč snímku v R2, ne veřejná URL.
   -- Cesta snímku v úložišti, ne URL. Přejmenováno migrací
   -- 20260902180000 z snapshot_r2_key; tady je nová podoba proto, aby
   -- čerstvá databáze vznikla rovnou správně a znovuspuštění tohohle

@@ -310,7 +310,6 @@ export type Detection = {
   object_class: DetectionObjectClass;
   /** 0–1, NUMERIC(5,4). */
   confidence: number | null;
-  /** Klíč snímku v R2, ne veřejná URL. */
   /** Cesta snímku detekce v úložišti, ne URL. */
   storage_path: string | null;
   /** Syrová odpověď detektoru (bounding boxy, model, verze). */

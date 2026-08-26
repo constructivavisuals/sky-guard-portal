@@ -137,9 +137,9 @@ INSERT INTO flights (id, dispatch_id, fh_task_uuid, status) VALUES
   ('00000000-0000-0000-0000-000000000053', NULL, 'task-3', 'completed');
 
 INSERT INTO media (flight_id, kind, storage_path) VALUES
-  ('00000000-0000-0000-0000-000000000051', 'photo', 'r2/f1.jpg'),
-  ('00000000-0000-0000-0000-000000000052', 'photo', 'r2/f2.jpg'),
-  ('00000000-0000-0000-0000-000000000053', 'photo', 'r2/f3.jpg');
+  ('00000000-0000-0000-0000-000000000051', 'photo', '11111111-1111-1111-1111-111111111111/f1/foto.jpg'),
+  ('00000000-0000-0000-0000-000000000052', 'photo', '11111111-1111-1111-1111-111111111111/f2/foto.jpg'),
+  ('00000000-0000-0000-0000-000000000053', 'photo', '11111111-1111-1111-1111-111111111111/f3/foto.jpg');
 
 -- Klient A dostane přístup jen na Kralupy.
 INSERT INTO site_grants (profile_id, site_id) VALUES
