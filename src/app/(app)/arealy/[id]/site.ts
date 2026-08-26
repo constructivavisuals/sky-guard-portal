@@ -19,6 +19,7 @@ export interface SiteDetail {
   armed_to: string;
   armed_days: IsoWeekday[];
   cooldown_seconds: number;
+  retention_days: number;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -33,7 +34,7 @@ export interface SiteDetail {
 }
 
 const COLUMNS =
-  "id, name, address, timezone, armed_from, armed_to, armed_days, cooldown_seconds, " +
+  "id, name, address, timezone, armed_from, armed_to, armed_days, cooldown_seconds, retention_days, " +
   `dock_sn, drone_sn, fh_project_uuid, fh_workflow_uuid, ${AREA_MAP_SITE_COLUMNS}, ` +
   "zones(count), cameras(count)";
 

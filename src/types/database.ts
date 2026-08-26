@@ -202,6 +202,11 @@ export type Site = {
   /** Identifikátory z DJI FlightHub 2 — opaque stringy, ne validované UUID. */
   fh_project_uuid: string | null;
   fh_workflow_uuid: string | null;
+  /**
+   * Po kolika dnech se z úložiště mažou snímky a záznamy z letů.
+   * Migrace 20260909120000. Řádky zůstávají — mizí jen soubory.
+   */
+  retention_days: number;
   /** Perimetr lokality, geography(Polygon, 4326). */
   geofence: Geography | null;
   /**

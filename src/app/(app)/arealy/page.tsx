@@ -23,6 +23,7 @@ interface SiteRow {
   armed_to: string;
   armed_days: IsoWeekday[];
   cooldown_seconds: number;
+  retention_days: number;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -52,7 +53,7 @@ export default async function Page() {
     const { data, error } = await supabase
       .from("sites")
       .select(
-        "id, name, address, timezone, armed_from, armed_to, armed_days, cooldown_seconds, dock_sn, drone_sn, fh_project_uuid, fh_workflow_uuid, zones(count), cameras(count)",
+        "id, name, address, timezone, armed_from, armed_to, armed_days, cooldown_seconds, retention_days, dock_sn, drone_sn, fh_project_uuid, fh_workflow_uuid, zones(count), cameras(count)",
       )
       .order("name")
       .returns<SiteRow[]>();
@@ -185,6 +186,7 @@ function SiteCard({
               armed_to: site.armed_to,
               armed_days: site.armed_days,
               cooldown_seconds: site.cooldown_seconds,
+                retention_days: site.retention_days,
               dock_sn: site.dock_sn,
               drone_sn: site.drone_sn,
               fh_project_uuid: site.fh_project_uuid,

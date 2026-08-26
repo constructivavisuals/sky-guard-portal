@@ -195,6 +195,28 @@ normální provozní stav a končí stavem 200; jakékoli **selhání vrací
 500**, aby `-f` v curlu poslalo mail. Bez toho by běh, ve kterém
 selhalo plánování všech hlídek, prošel tiše.
 
+## Úklid úložiště
+
+`GET /api/cron/retence` maže soubory starší než `sites.retention_days`
+(výchozí 90 dní, nastavuje se u areálu). Volá se **jednou denně**.
+
+```cron
+17 3 * * * . /etc/sky-guard.env && curl -fsS -m 300 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/retence
+```
+
+**Mažou se jen soubory, řádky zůstávají.** Detekce, vjezd i let jsou
+důkazy a mizet nesmí; po lhůtě jen přestanou nést obrázek. Cesta se
+přitom v databázi vynuluje, aby UI nenabízelo odkaz na soubor, který už
+není — „snímek se nepodařilo načíst“ vypadá jako porucha, kdežto
+„snímek už není“ je stav, který se dá vysvětlit.
+
+Cesta se nuluje **až po** úspěšném smazání. Kdyby se zapsala dřív
+a mazání selhalo, soubor by v úložišti zůstal navždy a nikdo by o něm
+nevěděl.
+
+Jeden běh smaže nejvýš 500 souborů; zbytek vezme zítřek a useknutí je
+vidět v souhrnu jako `truncated`.
+
 ## Push notifikace
 
 ### Klíče

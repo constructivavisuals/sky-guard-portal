@@ -22,6 +22,9 @@ export const CRON_JOBS: readonly CronJob[] = [
   { name: "patrols", label: "Plánování hlídek", intervalMinutes: 5 },
   { name: "flights", label: "Dotahování letů z DJI", intervalMinutes: 15 },
   { name: "warnings", label: "Kontrola varování", intervalMinutes: 30 },
+  // Denně. Trojnásobek intervalu jsou tři dny, což je u úklidu úložiště
+  // rozumná tolerance — jeden vynechaný běh nic nezkazí.
+  { name: "retention", label: "Úklid úložiště", intervalMinutes: 24 * 60 },
 ];
 
 /** Kolikanásobek intervalu se ještě toleruje. */

@@ -95,10 +95,12 @@ describe("cronWarnings", () => {
     assert.match(cronWarnings([{ name: "patrols", lastRunAt: pred(60 * 72) }], NOW, [JOBS[0]])[0].text, /3 dní/);
   });
 
-  it("výchozí seznam pokrývá všechny tři endpointy", () => {
+  it("výchozí seznam pokrývá všechny hlídané endpointy", () => {
+    // Když přibude cron, musí přibýt i tady — jinak by se jeho výpadek
+    // nikde neprojevil.
     assert.deepEqual(
       CRON_JOBS.map((job) => job.name).sort(),
-      ["flights", "patrols", "warnings"],
+      ["flights", "patrols", "retention", "warnings"],
     );
   });
 });

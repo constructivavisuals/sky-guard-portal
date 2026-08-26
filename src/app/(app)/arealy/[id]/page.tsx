@@ -42,6 +42,7 @@ export default async function Page({ params }: PageProps<"/arealy/[id]">) {
                 armed_to: site.armed_to,
                 armed_days: site.armed_days,
                 cooldown_seconds: site.cooldown_seconds,
+                retention_days: site.retention_days,
                 dock_sn: site.dock_sn,
                 drone_sn: site.drone_sn,
                 fh_project_uuid: site.fh_project_uuid,

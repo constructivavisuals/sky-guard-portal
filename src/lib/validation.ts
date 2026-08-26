@@ -59,6 +59,7 @@ export interface SiteFormValue {
   armed_to: string;
   armed_days: IsoWeekday[];
   cooldown_seconds: number;
+  retention_days: number;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -103,12 +104,25 @@ export function parseSiteForm(data: FormData): Validated<SiteFormValue> {
     errors.cooldown_seconds = "Cooldown delší než 24 hodin nedává smysl.";
   }
 
+  const retencniRaw = text(data, "retention_days");
+  const retence = Number.parseInt(retencniRaw, 10);
+  if (retencniRaw === "" || !Number.isInteger(retence)) {
+    errors.retention_days = "Zadejte počet dní.";
+  } else if (retence < 1) {
+    errors.retention_days = "Nejméně jeden den.";
+  } else if (retence > 3650) {
+    // Táž hranice jako CHECK v migraci 20260909120000: 9000 místo 90
+    // by znamenalo „nikdy“, ale vypadalo by jako číslo.
+    errors.retention_days = "Nejvýš deset let.";
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
     ok: true,
     value: {
       name,
+      retention_days: retence,
       address: optionalText(data, "address"),
       timezone,
       // Databáze má sloupec TIME; sekundy doplníme, ať je tvar jednotný.
