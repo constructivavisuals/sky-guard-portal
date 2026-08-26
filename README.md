@@ -319,6 +319,22 @@ Aby se to dalo rozhodnout dřív, musela by značku posílat sama kamera
 v těle požadavku (ANPR na bráně to umí). Zatím to `/api/ingest/passage`
 nepřijímá.
 
+### Přehled v portálu
+
+`/prijezdy` ukazuje, co dopravci avizovali: datum, značku, dopravce,
+poznámku, jestli platí i na noc a jestli už vozidlo dorazilo (vazba na
+`vehicle_passages`). Výchozí rozsah je **dnes a dál**; historie je za
+přepínačem, protože je to archiv, ne provozní pohled.
+
+Vidí ho admin, operátor i klient — každý svou lokalitu, jak určí RLS.
+Zakládat a rušit může jen admin (migrace 20260907120000): ohlášení je
+závazek dopravce vůči areálu a kdo ho smí vytvořit, rozhoduje o tom, na
+koho nevyletí dron.
+
+Sloupec „Dorazilo“ rozlišuje tři stavy: odkaz na vjezd, „Čeká se“
+u budoucích a **„Nedorazilo“** u ohlášení, kterému den prošel. Poslední
+z nich není chyba, ale je to jiný stav než „ještě může přijet“.
+
 ### Párování
 
 Značka se porovnává přes `plate_normalize()`, stejně jako

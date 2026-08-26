@@ -37,6 +37,7 @@ import {
   type Warning,
 } from "@/lib/dashboard.ts";
 import { boundsAspectRatio } from "@/lib/area-map.ts";
+import { localDateISO } from "@/lib/arrivals/rules.ts";
 import { CRON_JOBS, cronWarnings, type CronRunSummary } from "@/lib/cron/runs.ts";
 import { loadAreaMap, siteBounds } from "@/lib/area-map-data.ts";
 import { getDockStateCached } from "@/lib/dispatch/dock-cache.ts";
@@ -130,6 +131,7 @@ export default async function Page() {
     flights: 0,
     passages: 0,
     unknownPlates: 0,
+    announced: 0,
   };
   let unknownPlates: { plate: string | null; armed: boolean }[] = [];
   let cameras = { total: 0, withoutZone: 0 };
@@ -153,7 +155,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, announcedCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -191,6 +193,12 @@ export default async function Page() {
           ),
           supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("passed_at", since),
+          // Ohlášení na dnešek. Kalendářní datum, ne časové razítko —
+          // arrival_date je DATE a „dnešek“ je ten místní.
+          supabase.from("announced_arrivals").select("id", { count: "exact", head: true })
+            .eq("site_id", site.id)
+            .eq("arrival_date", localDateISO(site.timezone, now))
+            .is("cancelled_at", null),
           // Vjezdy s neznámou nebo nepřečtenou značkou. Ostrý režim se
           // vyhodnocuje až v paměti — SQL na to funkci nemá a dotaz
           // s podmínkou na okno střežení by ji opisoval potřetí.
@@ -224,6 +232,8 @@ export default async function Page() {
         suppressed: suppressed.count ?? 0,
         flights: flights.count ?? 0,
         passages: passageCount.count ?? 0,
+        // Chybějící tabulka (nenasazená migrace) dá nulu, ne pád.
+        announced: announcedCount.error ? 0 : (announcedCount.count ?? 0),
         // Doplní se níž, až se vjezdy profiltrují ostrým režimem.
         unknownPlates: 0,
       };
@@ -701,6 +711,7 @@ function Numbers({
     flights: number;
     passages: number;
     unknownPlates: number;
+    announced: number;
   };
 }) {
   const cells = [
@@ -713,6 +724,9 @@ function Numbers({
     // přidání vjezdů je to první číslo, na které se člověk podívá:
     // kolik aut projelo, aniž by je někdo znal.
     { label: "Neznámých značek", value: counts.unknownPlates, muted: false },
+    // Kolik aut je na dnešek ohlášených. Vedle „vjezdů“ to dává smysl
+    // jako druhá strana téže mince: co se čekalo a co doopravdy přijelo.
+    { label: "Ohlášeno na dnešek", value: counts.announced, muted: true },
   ];
 
   return (

@@ -163,11 +163,51 @@ EXCEPTION
     RAISE NOTICE 'ok    klient ohlášení nezaloží — odmítnuto právy';
 END $$;
 
+-- Klient ohlášení ani nezruší — je to závazek dopravce vůči areálu.
+DO $$
+BEGIN
+  UPDATE announced_arrivals SET cancelled_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000110002';
+  IF (SELECT cancelled_at FROM announced_arrivals
+      WHERE id = '00000000-0000-0000-0000-000000110002') IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL  klient zrušil ohlášení, ačkoli neměl';
+  END IF;
+  RAISE NOTICE 'ok    klient ohlášení nezruší';
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ok    klient ohlášení nezruší — odmítnuto právy';
+END $$;
+
 RESET ROLE;
 
 SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000d0001"}';
 SELECT test_expect('admin vidí všechny dopravce', (SELECT count(*) FROM carriers), 2);
+
+-- Admin ohlášení zakládá i ruší: řidič se dovolá telefonem a nikdo ho
+-- nebude nutit klikat do odkazu.
+INSERT INTO announced_arrivals (carrier_id, site_id, plate, arrival_date)
+VALUES ('00000000-0000-0000-0000-0000000f0001',
+        '00000000-0000-0000-0000-0000000e0001', '7GG7777', CURRENT_DATE);
+SELECT test_expect('admin ohlášení založí',
+  (SELECT count(*) FROM announced_arrivals WHERE plate = '7GG7777'), 1);
+
+UPDATE announced_arrivals SET cancelled_at = now()
+WHERE id = '00000000-0000-0000-0000-000000110002';
+SELECT test_expect('admin ohlášení zruší',
+  (SELECT count(*) FROM announced_arrivals
+   WHERE id = '00000000-0000-0000-0000-000000110002'
+     AND cancelled_at IS NOT NULL), 1);
+
+-- Ale ne na lokalitu, na kterou nevidí. U dnešního admina to nenastane
+-- (vidí všude); podmínka je tu proto, aby se rozsah zúžil zároveň
+-- s site_is_visible(), až přestane být „admin vidí vše“.
+SELECT test_expect('politika zápisu stojí na site_is_visible',
+  (SELECT count(*) FROM pg_policies
+   WHERE tablename = 'announced_arrivals'
+     AND policyname = 'write_announced_arrivals'
+     AND qual LIKE '%site_is_visible%'), 1);
+
 RESET ROLE;
 
 DO $$ BEGIN RAISE NOTICE 'VŠECHNY TESTY PROŠLY'; END $$;

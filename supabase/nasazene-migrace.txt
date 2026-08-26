@@ -28,3 +28,4 @@
 20260903180000_zone_wayline.sql
 20260904120000_push_notifications.sql
 20260905120000_silent_failures.sql
+20260906120000_announced_arrivals.sql
