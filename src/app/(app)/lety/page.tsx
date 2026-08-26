@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Plane } from "lucide-react";
 
 import { PAGE_SIZE, Pagination, pageFromParam, pageRange } from "@/components/pagination.tsx";
+import { ThreatBadge } from "@/components/threat.tsx";
 import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import {
@@ -31,6 +32,8 @@ export interface FlightRow {
   ended_at: string | null;
   duration_s: number | null;
   status: FlightStatus;
+  threat_confirmed: boolean | null;
+  threat_checked_at: string | null;
   conditions: FlightConditions | null;
   sites: { name: string; timezone: string } | null;
   patrols: { id: string; name: string } | null;
@@ -40,6 +43,9 @@ export interface FlightRow {
 const SELECT =
   "id, kind, started_at, ended_at, duration_s, status, conditions, " +
   "sites(name, timezone), patrols(id, name), dispatches(id, zones(name))";
+
+/** Sloupce kontroly snímků přidává migrace 20260903120000. */
+const SELECT_THREAT = "threat_confirmed, threat_checked_at";
 
 export default async function Page({ searchParams }: PageProps<"/lety">) {
   const { strana } = await searchParams;
@@ -55,15 +61,35 @@ export default async function Page({ searchParams }: PageProps<"/lety">) {
     const supabase = await createClient();
     // Let zná svou lokalitu přímo (migrace 20260827180000), takže filtr
     // jde do dotazu a platí na hlídkové i zásahové stejně.
-    let query = supabase
-      .from("flights")
-      .select(SELECT, { count: "exact" })
-      .order("started_at", { ascending: false, nullsFirst: false })
-      .range(from, to);
+    // Dvoustupňový výběr: sloupce kontroly snímků přidává migrace,
+    // která se nasazuje ručně, a PostgREST odmítne celý dotaz, když
+    // jediný sloupec chybí. Bez záchytné větve by seznam letů zůstal
+    // prázdný.
+    const dotaz = (sloupce: string) => {
+      let query = supabase
+        .from("flights")
+        .select(sloupce, { count: "exact" })
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .range(from, to);
+      if (selected) query = query.eq("site_id", selected.id);
+      return query.returns<FlightRow[]>();
+    };
 
-    if (selected) query = query.eq("site_id", selected.id);
+    let { data, count, error } = await dotaz(`${SELECT}, ${SELECT_THREAT}`);
 
-    const { data, count, error } = await query.returns<FlightRow[]>();
+    if (error) {
+      ({ data, count, error } = await dotaz(SELECT));
+      // Bez sloupců vypadá každý let jako nezkontrolovaný, což je
+      // pravda: kontrola opravdu neproběhla.
+      if (data) {
+        data = data.map((row) => ({
+          ...row,
+          threat_confirmed: null,
+          threat_checked_at: null,
+        }));
+      }
+    }
+
     if (error) failed = true;
     else {
       rows = data ?? [];
@@ -107,6 +133,7 @@ export default async function Page({ searchParams }: PageProps<"/lety">) {
                 <Th>Původ</Th>
                 <Th className="text-right">Trvání</Th>
                 <Th>Podmínky</Th>
+                <Th>Nález</Th>
                 <Th>Stav</Th>
               </>
             }
@@ -134,6 +161,9 @@ export default async function Page({ searchParams }: PageProps<"/lety">) {
                 </TdTight>
                 <Td label="Podmínky" className="text-[var(--text-muted)]">
                   {formatConditions(row.conditions)}
+                </Td>
+                <Td label="Nález">
+                  <ThreatBadge state={row} />
                 </Td>
                 <Td label="Stav">{FLIGHT_STATUS_LABELS[row.status]}</Td>
               </Tr>

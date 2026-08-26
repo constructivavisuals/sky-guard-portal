@@ -19,6 +19,7 @@ import {
   MAX_THREAT_IMAGE_BYTES,
   MAX_THREAT_PHOTOS,
   readThreatFromImage,
+  threatCheckConfigured,
   type ThreatReading,
 } from "./threat.ts";
 import { FLIGHT_BUCKET, MAX_MEDIA_BYTES } from "./storage.ts";
@@ -227,6 +228,15 @@ export async function checkFlightThreat(
     skipped: 0,
     problems: [],
   };
+
+  if (!threatCheckConfigured()) {
+    // Ne problém běhu, ale chybějící nastavení. Let zůstane
+    // nezkontrolovaný a druhý průchod ho vezme, jakmile klíč přibude.
+    console.warn("ANTHROPIC_API_KEY chybí — kontrola snímků se přeskakuje", {
+      flight_id: flight.id,
+    });
+    return result;
+  }
 
   const { data: photos, count, error } = await db
     .from("media")

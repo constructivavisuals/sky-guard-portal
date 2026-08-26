@@ -178,6 +178,17 @@ export function combineThreatReadings(
 }
 
 /**
+ * Je čtení snímků vůbec nastavené?
+ *
+ * Chybějící klíč není selhání běhu, ale konfigurace. Bez tohohle
+ * rozlišení by cron hlásil chybu při každém spuštění, dokud klíč
+ * někdo nedoplní — a `curl -f` by to poslal mailem pokaždé.
+ */
+export function threatCheckConfigured(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
+/**
  * Zeptá se modelu na jeden snímek.
  *
  * Vrací null, když volání selhalo (chybí klíč, chyba API, nečitelná

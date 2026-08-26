@@ -121,6 +121,26 @@ Média jdou do privátního bucketu `lety` v Supabase Storage, ne do R2 —
 adresa se podepisuje a první složka v cestě je UUID lokality, takže
 čtení pouští táž funkce jako u řádků.
 
+### Potvrzení nebezpečí
+
+Po stažení médií projdou fotky z letu modelem Claude Haiku s jedinou
+otázkou: je na nich člověk nebo vozidlo? Výsledek se zapíše do
+`flights.threat_confirmed` a je TŘÍHODNOTOVÝ — `NULL` znamená nejistý
+výsledek, ne „nic tam není“. Kontrolu vypíná chybějící
+`ANTHROPIC_API_KEY`: běh se pak jen zaloguje a pokračuje, protože
+chybějící nastavení není selhání a `curl -f` by kvůli němu chodil
+mailem po každé čtvrthodině.
+
+Tentýž endpoint dělá druhý průchod: dobírá dokončené lety, u kterých
+kontrola dřív selhala. Bez něj by se na ně už nikdo nepodíval —
+jakmile má let `ended_at`, první dotaz ho nevybere. Okno je týden,
+pak se na let rezignuje a zůstane u „nekontrolováno“.
+
+Na jeden let se posílá nejvýš osm fotek a snímek nad 5 MB se
+přeskakuje (limit API). Přeskočený snímek se počítá jako nepřečtený,
+takže závěr spadne na `NULL` — tvrdit „nic tam není“ na základě části
+snímků by lhalo.
+
 Endpoint vrací souhrn, co naplánoval, co přeskočil (dron mimo dok,
 baterie pod 40 %, zaplněné úložiště) a co selhalo. Přeskočení je
 normální provozní stav a končí stavem 200; jakékoli **selhání vrací
