@@ -34,6 +34,8 @@ export interface IngestCameraRow {
     name: string;
     enabled: boolean;
     location: string | null;
+    /** Spodní hranice stupně. Ve schématu od první migrace. */
+    default_level: number | null;
     wayline_uuid: string | null;
   } | null;
 }
@@ -52,7 +54,7 @@ function columns(hasKey: boolean, hasWayline: boolean): string {
   return (
     `id, site_id, zone_id, serial_number${klic}, ` +
     "sites(id, cooldown_seconds, timezone, dock_sn), " +
-    `zones(id, name, enabled, location${trasa})`
+    `zones(id, name, enabled, location, default_level${trasa})`
   );
 }
 

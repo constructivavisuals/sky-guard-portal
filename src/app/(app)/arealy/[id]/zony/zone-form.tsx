@@ -191,7 +191,7 @@ function ZoneDialog({
         />
 
         <SelectField
-          label="Výchozí úroveň"
+          label="Nejnižší úroveň"
           name="default_level"
           error={e.default_level}
           defaultValue={keep("default_level", String(zone?.default_level ?? 1))}
@@ -199,7 +199,7 @@ function ZoneDialog({
             value: String(level),
             label: String(level),
           }))}
-          hint="Stupeň zásahu předaný do FlightHubu."
+          hint="Spodní hranice stupně zásahu z téhle zóny. Nižší stupeň se na ni zvedne, vyšší zůstane — eskalace na 5 projde odkudkoliv. Stupeň neřídí let, jde do názvu úlohy ve FlightHubu a do odznaku v portálu."
         />
 
         <CheckboxField

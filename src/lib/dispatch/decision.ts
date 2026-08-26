@@ -43,6 +43,31 @@ export function resolveDispatchLevel(
   return BASE_LEVEL_BY_CLASS[objectClass];
 }
 
+/**
+ * Zvedne stupeň na spodní hranici zóny (`zones.default_level`).
+ *
+ * ═══ Co stupeň dělá a co ne ══════════════════════════════════════
+ * Stupeň neřídí let — ten je daný trasou zóny. Jde do názvu úlohy ve
+ * FlightHubu a do odznaku v portálu, tedy do toho, jak vážně se událost
+ * bere. Právě proto má smysl ho u exponovaného místa podržet nahoře:
+ * neznámý objekt u hlavní brány není totéž co neznámý objekt na kraji
+ * pozemku, i když detektor vidí v obou případech totéž.
+ *
+ * Jen spodní hranice, ne pevná hodnota: eskalace na 5 musí projít i ze
+ * zóny s hranicí 2. Hranice zvedá, nikdy nesnižuje.
+ *
+ * Hodnota mimo rozsah 1–5 (poškozený řádek, chybějící sloupec) se
+ * ignoruje — v takovém případě se nic netvrdí a platí spočtený stupeň.
+ */
+export function applyZoneFloor(
+  level: DispatchLevel,
+  zoneDefaultLevel: number | null,
+): DispatchLevel {
+  if (zoneDefaultLevel === null || !Number.isInteger(zoneDefaultLevel)) return level;
+  if (zoneDefaultLevel < 1 || zoneDefaultLevel > 5) return level;
+  return Math.max(level, zoneDefaultLevel) as DispatchLevel;
+}
+
 /** Poslední odeslaný zásah, nebo přiznání, že se to nezjistilo. */
 export interface LastDispatch {
   /** false = dotaz selhal. `at` je pak bezcenné. */

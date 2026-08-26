@@ -166,6 +166,21 @@ export function levelFromReason(reason: DecisionReason): LevelExplanation {
       ? null
       : DETECTION_OBJECT_CLASS_LABELS[reason.object_class].toLowerCase();
 
+  // Spodní hranice zóny se zmiňuje jen tam, kde stupeň opravdu zvedla.
+  // Jinak by u každého zásahu přibyla věta o nastavení, které nic
+  // neudělalo.
+  if (reason.zone_floor_applied && reason.zone_default_level) {
+    const zaklad = label
+      ? `Základ pro ${label} je ${reason.base_level}`
+      : `Základ je ${reason.base_level}`;
+    return {
+      base: reason.base_level,
+      sent: reason.level_sent,
+      escalated: reason.escalated,
+      text: `${zaklad}. Zvednuto na ${reason.level_sent}, protože zóna má nastavenou spodní hranici ${reason.zone_default_level}.`,
+    };
+  }
+
   if (reason.escalated) {
     const window = reason.escalation?.window_seconds;
     return {

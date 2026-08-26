@@ -190,6 +190,36 @@ describe("parseCameraForm", () => {
     assert.equal(r.value.zone_id, null);
     assert.equal(r.value.focal_mm, null);
     assert.equal(r.value.model, null);
+    assert.equal(r.value.lan_ip, null);
+    assert.equal(r.value.mount_description, null);
+  });
+
+  it("adresa v LAN projde a uloží se", () => {
+    const r = parseCameraForm(form({ ...validCamera, lan_ip: "192.168.1.50" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.lan_ip, "192.168.1.50");
+  });
+
+  it("nesmyslná adresa se zastaví u kolonky, ne až v databázi", () => {
+    // Sloupec je INET, takže by to stejně neprošlo — ale hláška
+    // z Postgresu je anglicky a o poli nic neříká.
+    for (const nesmysl of ["192.168.1.300", "192.168.1", "brána", "192.168.001.5"]) {
+      const r = parseCameraForm(form({ ...validCamera, lan_ip: nesmysl }));
+      assert.equal(r.ok, false, nesmysl);
+    }
+  });
+
+  it("popis umístění se uloží, delší než 500 znaků ne", () => {
+    const r = parseCameraForm(
+      form({ ...validCamera, mount_description: "Sloup u brány, 4 m nad vjezdem" }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.mount_description, "Sloup u brány, 4 m nad vjezdem");
+
+    const dlouhy = parseCameraForm(
+      form({ ...validCamera, mount_description: "a".repeat(501) }),
+    );
+    assert.equal(dlouhy.ok, false);
   });
 
   it("zóna se přijme jako UUID", () => {

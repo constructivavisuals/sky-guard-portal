@@ -27,6 +27,8 @@ interface CameraRow {
   model: string | null;
   focal_mm: number | null;
   serial_number: string | null;
+  lan_ip: string | null;
+  mount_description: string | null;
   /** EWKB hex; formulář ho rozebírá na šířku a délku. */
   location: string | null;
   azimuth: number | null;
@@ -56,7 +58,8 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
     let query = supabase
       .from("cameras")
       .select(
-        "id, site_id, zone_id, name, model, focal_mm, serial_number, location, azimuth, status, " +
+        "id, site_id, zone_id, name, model, focal_mm, serial_number, lan_ip, mount_description, " +
+          "location, azimuth, status, " +
           "sites(name), zones(name)",
       )
       .order("name");
@@ -114,7 +117,10 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
               <Th>Zóna</Th>
               <Th>Model</Th>
               <Th className="text-right">Ohnisko</Th>
-              {showSerial ? <Th>Sériové číslo</Th> : null}
+              {/* IP se přidává k sériovému číslu do jednoho sloupce:
+                  obojí je údaj pro správu hardwaru a samostatný sloupec
+                  by tabulku na mobilu rozjel. */}
+              {showSerial ? <Th>Sériové číslo a IP</Th> : null}
               <Th>Stav</Th>
               {admin ? <Th className="w-12"><span className="sr-only">Úpravy</span></Th> : null}
             </>
@@ -122,15 +128,28 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
         >
           {rows.map((row) => (
             <Tr key={row.id}>
-              <Td label="Název" className="font-medium">{row.name}</Td>
+              <Td label="Název" className="font-medium">
+                {row.name}
+                {/* Popis umístění pod názvem: kdo čte detekci, potřebuje
+                    vědět, kam se kamera dívá. */}
+                {row.mount_description ? (
+                  <span className="mt-0.5 block text-xs font-normal text-[var(--text-muted)]">
+                    {row.mount_description}
+                  </span>
+                ) : null}
+              </Td>
               <Td label="Zóna">{orDash(row.zones?.name)}</Td>
               <Td label="Model">{orDash(row.model)}</Td>
               <TdTight label="Ohnisko" className="text-right tabular-nums">
                 {formatFocalLength(row.focal_mm)}
               </TdTight>
               {showSerial ? (
-                <TdTight label="Sériové číslo" className="font-mono text-xs text-[var(--text-muted)]">
+                <TdTight
+                  label="Sériové číslo a IP"
+                  className="font-mono text-xs text-[var(--text-muted)]"
+                >
                   {orDash(row.serial_number)}
+                  {row.lan_ip ? <span className="block">{row.lan_ip}</span> : null}
                 </TdTight>
               ) : null}
               <Td label="Stav">
@@ -148,6 +167,8 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
                       name: row.name,
                       model: row.model,
                       serial_number: row.serial_number,
+                      lan_ip: row.lan_ip,
+                      mount_description: row.mount_description,
                       focal_mm: row.focal_mm,
                       latitude: parsePointEwkbHex(row.location)?.latitude ?? null,
                       longitude: parsePointEwkbHex(row.location)?.longitude ?? null,

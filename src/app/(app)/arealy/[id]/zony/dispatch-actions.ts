@@ -67,6 +67,7 @@ interface ZoneRow {
   name: string;
   enabled: boolean;
   location: string | null;
+  default_level: number | null;
   wayline_uuid: string | null;
   site_id: string;
   sites: {
@@ -77,7 +78,9 @@ interface ZoneRow {
 }
 
 /** Sloupce bez těch, které přidávají ručně nasazované migrace. */
-const ZAKLAD = "id, name, enabled, location, site_id, sites(timezone, cooldown_seconds, dock_sn)";
+const ZAKLAD =
+  "id, name, enabled, location, default_level, site_id, " +
+  "sites(timezone, cooldown_seconds, dock_sn)";
 
 export async function poslatDronDoZony(
   _prev: ManualDispatchState,
@@ -131,6 +134,9 @@ export async function poslatDronDoZony(
     siteTimezone: zone.sites.timezone,
     siteDockSn: zone.sites.dock_sn,
     zoneWaylineUuid: zone.wayline_uuid,
+    // Hranice zóny platí i tady, i když ruční zásah stejně jede na
+    // nejvyšším stupni — zvednout se dá jen nahoru, takže nic nezmění.
+    zoneDefaultLevel: zone.default_level,
     manual: { actorId: profile?.id ?? null },
     // Třída objektu je vstup rozhodování o stupni, který si ruční zásah
     // určuje sám. Do důvodu se neuloží.

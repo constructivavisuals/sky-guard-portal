@@ -337,6 +337,13 @@ export type DecisionReason = {
    */
   manual?: { actor_id: string | null };
   /**
+   * Spodní hranice stupně podle zóny (`zones.default_level`) a jestli
+   * stupeň opravdu zvedla. U zásahů z doby, kdy se hranice ještě
+   * neuplatňovala, obojí chybí — proto volitelné.
+   */
+  zone_default_level?: number | null;
+  zone_floor_applied?: boolean;
+  /**
    * Stav doku v okamžiku rozhodnutí. Migrace 20260903180000, takže
    * u starších zásahů chybí úplně — proto volitelné, ne jen nullable.
    */

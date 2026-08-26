@@ -13,6 +13,7 @@ import {
 import {
   BASE_LEVEL_BY_CLASS,
   PERSON_ESCALATION_WINDOW_SECONDS,
+  applyZoneFloor,
   decideDispatch,
   resolveDispatchLevel,
   type LastDispatch,
@@ -93,6 +94,11 @@ export interface DispatchContext {
   siteDockSn: string | null;
   /** Trasa zóny ve FlightHubu. Bez ní se úloha nedá založit. */
   zoneWaylineUuid: string | null;
+  /**
+   * `zones.default_level` — spodní hranice stupně pro tuhle zónu.
+   * NULL = nezjištěno; stupeň pak vyjde jen z toho, co se vidělo.
+   */
+  zoneDefaultLevel: number | null;
   /**
    * Ohlášený příjezd, kterému vjezd odpovídal. Když je vyplněný,
    * rozhodování se dál neřeší: zásah se nepošle a důvod se zapíše.
@@ -361,9 +367,13 @@ async function prepareDispatchRow(
     });
   }
 
-  const level = context.manual
+  const spocteny = context.manual
     ? MANUAL_DISPATCH_LEVEL
     : resolveDispatchLevel(context.objectClass, recentPerson);
+  // Spodní hranice zóny stupeň jen zvedá. Exponované místo se nemá
+  // řešit jako okraj pozemku, i když detektor viděl v obou případech
+  // totéž.
+  const level = applyZoneFloor(spocteny, context.zoneDefaultLevel);
   const decision = decideDispatch({
     armed,
     cooldownSeconds: context.siteCooldownSeconds,
@@ -406,6 +416,11 @@ async function prepareDispatchRow(
         ? null
         : Math.max(0, Math.round(context.siteCooldownSeconds - elapsedSeconds)),
     zone_has_wayline: Boolean(context.zoneWaylineUuid),
+    // Hranice zóny se ukládá vždycky, i když nic nezvedla — jinak by
+    // z detailu nešlo poznat, jestli stupeň vyšel z detekce, nebo
+    // z nastavení zóny.
+    zone_default_level: context.zoneDefaultLevel,
+    zone_floor_applied: level > spocteny,
     dock: null,
     ...(context.manual ? { manual: { actor_id: context.manual.actorId } } : {}),
     ...(neznamé.length > 0 ? { unknown_inputs: neznamé } : {}),
@@ -610,7 +625,10 @@ export async function runDispatch(
         triggered_by_detection: resolved.detectionId,
         // Bez dat o okolních zónách se eskalace nedá posoudit, bere se
         // základní stupeň podle toho, co kamera viděla.
-        level_sent: resolveDispatchLevel(resolved.objectClass, null),
+        level_sent: applyZoneFloor(
+          resolveDispatchLevel(resolved.objectClass, null),
+          resolved.zoneDefaultLevel,
+        ),
         outcome: "failed",
         fh_incident_uuid: null,
         fh_task_uuid: null,

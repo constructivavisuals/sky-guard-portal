@@ -213,12 +213,43 @@ export function parseZoneForm(data: FormData): Validated<ZoneFormValue> {
 
 // ── Kamera ───────────────────────────────────────────────────────
 
+/**
+ * Adresa kamery v LAN.
+ *
+ * Sloupec je INET, takže formát hlídá i databáze — ale její chybová
+ * hláška je v angličtině a mluví o typu, ne o poli. Kontrola tady je
+ * proto kvůli tomu, aby se překlep ukázal u kolonky.
+ *
+ * IPv4 přísně po oktetech, IPv6 volněji: v LAN u kamer se nepoužívá
+ * a odmítnout platnou adresu by bylo horší než pustit dál nesmysl,
+ * který stejně zastaví databáze.
+ */
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+const IPV6 = /^[0-9a-f:]+$/i;
+
+export function isLanIp(raw: string): boolean {
+  const ipv4 = IPV4.exec(raw);
+  if (ipv4) {
+    return ipv4.slice(1).every((octet) => {
+      const value = Number(octet);
+      // Vedoucí nula je v adrese dvojznačná (leckde znamená osmičkovou
+      // soustavu), takže „192.168.001.5“ neprojde.
+      return String(value) === octet && value >= 0 && value <= 255;
+    });
+  }
+  return raw.includes(":") && IPV6.test(raw);
+}
+
 export interface CameraFormValue {
   site_id: string;
   zone_id: string | null;
   name: string;
   model: string | null;
   serial_number: string | null;
+  /** Adresa v LAN lokality. Sloupec INET, formát hlídá i databáze. */
+  lan_ip: string | null;
+  /** Kde a jak je kamera pověšená — pro toho, kdo k ní jde. */
+  mount_description: string | null;
   focal_mm: number | null;
   /** Obojí naráz, nebo ani jedno — půlka bodu nedává smysl. */
   latitude: number | null;
@@ -239,6 +270,16 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
   const name = text(data, "name");
   if (!name) errors.name = "Zadejte název kamery.";
   else if (name.length > 200) errors.name = "Název je delší než 200 znaků.";
+
+  const lanIp = text(data, "lan_ip");
+  if (lanIp !== "" && !isLanIp(lanIp)) {
+    errors.lan_ip = "Zadejte adresu v LAN, například 192.168.1.50.";
+  }
+
+  const mount = text(data, "mount_description");
+  if (mount.length > 500) {
+    errors.mount_description = "Popis je delší než 500 znaků.";
+  }
 
   const focalRaw = text(data, "focal_mm");
   let focal: number | null = null;
@@ -303,6 +344,8 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
       name,
       model: optionalText(data, "model"),
       serial_number: optionalText(data, "serial_number"),
+      lan_ip: optionalText(data, "lan_ip"),
+      mount_description: optionalText(data, "mount_description"),
       focal_mm: focal,
       latitude,
       longitude,

@@ -318,6 +318,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     siteTimezone: camera.sites.timezone,
     siteDockSn: camera.sites.dock_sn,
     zoneWaylineUuid: camera.zones?.wayline_uuid ?? null,
+    zoneDefaultLevel: camera.zones?.default_level ?? null,
     objectClass: "vehicle",
     detectedAt: payload.passedAt,
     receivedAt,

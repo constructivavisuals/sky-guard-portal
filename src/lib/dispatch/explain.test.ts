@@ -207,3 +207,45 @@ describe("conditionsFromReason", () => {
     assert.match(c.join(" "), /žádný zásah neodešel/);
   });
 });
+
+describe("levelFromReason — spodní hranice zóny", () => {
+  const base = {
+    object_class: "unknown" as const,
+    base_level: 1,
+    level_sent: 3,
+    escalated: false,
+    escalation: null,
+    armed: true,
+    zone_enabled: true,
+    cooldown_seconds: 900,
+    seconds_since_last_sent: null,
+    cooldown_remaining_seconds: null,
+    decided_at: "2026-08-25T10:00:00Z",
+  };
+
+  it("řekne, že stupeň zvedlo nastavení zóny", () => {
+    const e = levelFromReason({
+      ...base,
+      zone_default_level: 3,
+      zone_floor_applied: true,
+    });
+    assert.match(e.text, /spodní hranici 3/);
+    assert.match(e.text, /neurčeno/i);
+  });
+
+  it("mlčí o hranici, která nic nezvedla", () => {
+    // Věta o nastavení, které neudělalo nic, by přibyla u každého zásahu.
+    const e = levelFromReason({
+      ...base,
+      level_sent: 1,
+      zone_default_level: 1,
+      zone_floor_applied: false,
+    });
+    assert.equal(/hranic/i.test(e.text), false);
+  });
+
+  it("u zásahu z doby před hranicí se nic nedomýšlí", () => {
+    const e = levelFromReason({ ...base, level_sent: 1 });
+    assert.equal(/hranic/i.test(e.text), false);
+  });
+});

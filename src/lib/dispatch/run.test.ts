@@ -31,6 +31,7 @@ function context(overrides: Partial<DispatchContext> = {}): DispatchContext {
     siteTimezone: "Europe/Prague",
     siteDockSn: "DOCK-1",
     zoneWaylineUuid: "wayline-1",
+    zoneDefaultLevel: 1,
     objectClass: "person",
     detectedAt: new Date("2026-08-24T22:00:00Z"),
     receivedAt: new Date("2026-08-24T22:00:00Z"),
@@ -735,5 +736,52 @@ describe("runDispatch — ruční zásah z portálu", () => {
     assert.equal(flights[0].fhTaskUuid, "task-1");
     assert.equal(flights[0].dispatchId, "dispatch-1");
     assert.ok(DISPATCH_LEAD_SECONDS > 0);
+  });
+});
+
+describe("runDispatch — spodní hranice zóny", () => {
+  it("zóna s hranicí 3 nepustí neurčený objekt na stupeň 1", async () => {
+    const { deps: d, inserted } = deps();
+    await runDispatch(context({ objectClass: "unknown", zoneDefaultLevel: 3 }), d);
+
+    assert.equal(inserted[0].level_sent, 3);
+    assert.equal(inserted[0].decision_reason?.zone_floor_applied, true);
+    assert.equal(inserted[0].decision_reason?.zone_default_level, 3);
+    // Základ zůstává tím, co viděl detektor — hranice ho nepřepisuje,
+    // jinak by z detailu nešlo poznat, odkud stupeň je.
+    assert.equal(inserted[0].decision_reason?.base_level, 1);
+  });
+
+  it("eskalace na 5 projde i ze zóny s hranicí 2", async () => {
+    const { deps: d, inserted } = deps({ hasRecentPersonInOtherZone: async () => true });
+    await runDispatch(context({ objectClass: "vehicle", zoneDefaultLevel: 2 }), d);
+
+    assert.equal(inserted[0].level_sent, 5);
+    assert.equal(inserted[0].decision_reason?.zone_floor_applied, false);
+  });
+
+  it("hranice se zapíše i tam, kde nic nezvedla", async () => {
+    // Bez toho by z detailu nešlo poznat, jestli stupeň vyšel z detekce,
+    // nebo z nastavení zóny.
+    const { deps: d, inserted } = deps();
+    await runDispatch(context({ objectClass: "person", zoneDefaultLevel: 2 }), d);
+
+    assert.equal(inserted[0].level_sent, 5);
+    assert.equal(inserted[0].decision_reason?.zone_default_level, 2);
+    assert.equal(inserted[0].decision_reason?.zone_floor_applied, false);
+  });
+
+  it("platí i pro řádek zapsaný po výjimce v přípravě", async () => {
+    // Zásah, který skončil výjimkou, se zapisuje s náhradním stupněm.
+    // I ten musí respektovat nastavení zóny.
+    const { deps: d, inserted } = deps({
+      getDockState: async () => {
+        throw new Error("dok neodpovídá");
+      },
+    });
+
+    await runDispatch(context({ objectClass: "unknown", zoneDefaultLevel: 4 }), d);
+    assert.equal(inserted[0].outcome, "failed");
+    assert.equal(inserted[0].level_sent, 4);
   });
 });

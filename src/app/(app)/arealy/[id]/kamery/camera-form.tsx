@@ -30,6 +30,8 @@ export interface CameraInitial {
   name: string;
   model: string | null;
   serial_number: string | null;
+  lan_ip: string | null;
+  mount_description: string | null;
   focal_mm: number | null;
   latitude: number | null;
   longitude: number | null;
@@ -163,6 +165,25 @@ function CameraDialog({
             placeholder="2,8"
           />
         </div>
+
+        <TextField
+          label="IP v LAN"
+          name="lan_ip"
+          error={e.lan_ip}
+          inputMode="decimal"
+          defaultValue={keep("lan_ip", camera?.lan_ip)}
+          placeholder="192.168.1.50"
+          hint="Adresa, na které je kamera dostupná v síti areálu. Portál se na ni nepřipojuje, je to údaj pro toho, kdo jede na místo."
+        />
+
+        <TextField
+          label="Popis umístění"
+          name="mount_description"
+          error={e.mount_description}
+          defaultValue={keep("mount_description", camera?.mount_description)}
+          placeholder="Sloup u hlavní brány, 4 m nad vjezdem"
+          hint="Kde kamera visí a kam se dívá. Bez toho se detekce těžko zasazuje do místa."
+        />
 
         <div className="grid gap-3 sm:grid-cols-3">
           <TextField

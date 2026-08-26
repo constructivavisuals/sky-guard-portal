@@ -102,7 +102,7 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/zony">) {
               <Th className="text-right">Šířka</Th>
               <Th className="text-right">Délka</Th>
               <Th>Trasa</Th>
-              <Th className="text-center">Úroveň</Th>
+              <Th className="text-center">Nejnižší úroveň</Th>
               <Th className="text-right">Kamery</Th>
               <Th>Stav</Th>
               {operator ? (
@@ -132,7 +132,9 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/zony">) {
                     <span className="text-[var(--warning)]">Bez trasy</span>
                   )}
                 </Td>
-                <Td label="Úroveň" className="text-center tabular-nums">{row.default_level}</Td>
+                <Td label="Nejnižší úroveň" className="text-center tabular-nums">
+                  {row.default_level}
+                </Td>
                 <Td label="Kamery" className="text-right tabular-nums">{row.cameras[0]?.count ?? 0}</Td>
                 <Td label="Stav">
                   {row.enabled ? (

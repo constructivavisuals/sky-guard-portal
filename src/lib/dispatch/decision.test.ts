@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import {
   PERSON_ESCALATION_WINDOW_SECONDS,
+  applyZoneFloor,
   decideDispatch,
   resolveDispatchLevel,
   type DispatchDecisionInput,
@@ -190,5 +191,34 @@ describe("decideDispatch — nezjištěné vstupy", () => {
     assert.equal(resolveDispatchLevel("vehicle", null), 2);
     assert.equal(resolveDispatchLevel("vehicle", true), 5);
     assert.equal(resolveDispatchLevel("vehicle", false), 2);
+  });
+});
+
+describe("applyZoneFloor — spodní hranice zóny", () => {
+  it("zvedne nižší stupeň na hranici zóny", () => {
+    // Neznámý objekt u hlavní brány není totéž co neznámý objekt na
+    // kraji pozemku, i když detektor vidí v obou případech totéž.
+    assert.equal(applyZoneFloor(1, 3), 3);
+  });
+
+  it("vyšší stupeň nesnižuje", () => {
+    // Eskalace na 5 musí projít i ze zóny s hranicí 2.
+    assert.equal(applyZoneFloor(5, 2), 5);
+  });
+
+  it("hranice 1 nemění nic", () => {
+    assert.equal(applyZoneFloor(2, 1), 2);
+  });
+
+  it("nezjištěná hranice se ignoruje", () => {
+    assert.equal(applyZoneFloor(2, null), 2);
+  });
+
+  it("hodnota mimo rozsah se ignoruje, netvrdí se nic", () => {
+    // Poškozený řádek nesmí poslat zásah na stupeň, který schéma
+    // nepřipouští.
+    for (const nesmysl of [0, -3, 6, 99, 2.5, Number.NaN]) {
+      assert.equal(applyZoneFloor(2, nesmysl), 2, String(nesmysl));
+    }
   });
 });

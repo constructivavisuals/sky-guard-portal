@@ -108,6 +108,23 @@ a detailu zásahu, takže zóna bez souřadnic zásah nezastaví.
 
 `FH_WORKFLOW_UUID` už nikdo nečte a není povinná.
 
+### Stupeň a spodní hranice zóny
+
+Stupeň neřídí let — ten je daný trasou zóny. Jde do názvu úlohy ve
+FlightHubu a do odznaku v portálu, tedy do toho, jak vážně se událost
+bere.
+
+`zones.default_level` je **spodní hranice** stupně pro danou zónu: nižší
+spočtený stupeň se na ni zvedne, vyšší zůstane. Neznámý objekt u hlavní
+brány tak neskončí na stupni 1 jako neznámý objekt na kraji pozemku,
+i když detektor viděl v obou případech totéž. Eskalace na 5 projde
+i ze zóny s hranicí 2 — hranice zvedá, nikdy nesnižuje.
+
+Do `decision_reason` se ukládá hranice i to, jestli něco zvedla
+(`zone_default_level`, `zone_floor_applied`), aby z detailu šlo poznat,
+odkud stupeň je. U zásahů z doby, kdy se hranice neuplatňovala, obojí
+chybí a detail o ní mlčí.
+
 ### Ruční zásah z portálu
 
 Na kartě **Zóny** areálu má každá zapnutá zóna tlačítko „poslat dron“.
