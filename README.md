@@ -108,6 +108,24 @@ a detailu zásahu, takže zóna bez souřadnic zásah nezastaví.
 
 `FH_WORKFLOW_UUID` už nikdo nečte a není povinná.
 
+### Zápis zásahu (migrace 20260909180000 je nutná)
+
+Podmínka `dispatches_incident_matches_outcome` zůstala z doby workflow
+triggeru a žádala u `outcome = 'sent'` vyplněné `fh_incident_uuid`. Od
+přechodu na plánované úlohy se ale vyplňuje `fh_task_uuid`, takže
+databáze odmítala **čtyři ze sedmi výsledků**: `sent`, `suppressed_dock`,
+`suppressed_unknown` a `suppressed_announced`.
+
+Projevovalo se to jako tiché selhání: úloha se ve FlightHubu založí
+PŘED zápisem, takže dron vzlétl, ale v portálu po něm nezůstalo nic —
+žádný zásah, tím pádem ani řádek letu, ani notifikace. V logu jediná
+řádka „Zápis dispatche selhal“.
+
+Opravuje to migrace `20260909180000_dispatch_outcome_constraint.sql`.
+**Dokud neproběhne, žádný odeslaný zásah se nezapíše.** Pojistkou proti
+opakování je `supabase/tests/dispatch_outcomes.sql`: zkouší zapsat každý
+výsledek, který kód umí vyrobit.
+
 ### Stupeň a spodní hranice zóny
 
 Stupeň neřídí let — ten je daný trasou zóny. Jde do názvu úlohy ve
