@@ -8,6 +8,7 @@ import {
   formatUntil,
   patrolWarnings,
   unknownPlateWarnings,
+  zoneWarnings,
 } from "./dashboard.ts";
 import type { DockState } from "./dispatch/flighthub.ts";
 
@@ -329,5 +330,31 @@ describe("unknownPlateWarnings", () => {
       { plate: "5XY0000", armed: false },
     ]);
     assert.match(w.text, /2 vozidel/);
+  });
+});
+
+describe("zoneWarnings", () => {
+  it("mlčí, když mají všechny zóny trasu", () => {
+    assert.deepEqual(zoneWarnings({ total: 3, withoutWayline: 0 }), []);
+  });
+
+  it("mlčí i bez zón", () => {
+    assert.deepEqual(zoneWarnings({ total: 0, withoutWayline: 0 }), []);
+  });
+
+  it("část zón bez trasy", () => {
+    const [warning] = zoneWarnings({ total: 3, withoutWayline: 2 });
+    assert.match(warning.text, /2 zón nemá/);
+    assert.ok(!warning.text.includes("žádný zásah"));
+  });
+
+  it("jedna zóna se skloňuje", () => {
+    const [warning] = zoneWarnings({ total: 3, withoutWayline: 1 });
+    assert.match(warning.text, /^Jedna zóna nemá/);
+  });
+
+  it("když je bez trasy úplně všechno, řekne to natvrdo", () => {
+    const [warning] = zoneWarnings({ total: 3, withoutWayline: 3 });
+    assert.match(warning.text, /nevznikne žádný zásah/);
   });
 });

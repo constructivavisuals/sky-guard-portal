@@ -1,8 +1,15 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { runDispatch, type DispatchDeps, type DispatchRow } from "./run.ts";
+import {
+  DISPATCH_LEAD_SECONDS,
+  runDispatch,
+  type DispatchDeps,
+  type DispatchRow,
+  type FlightPlan,
+} from "./run.ts";
 import type { DispatchContext } from "./run.ts";
+import type { DockState } from "./flighthub.ts";
 
 // Testy zaručují hlavní slib orchestrace: každý pokus o zásah nechá
 // v dispatches řádek. Závislosti se podstrkávají, takže neběží ani
@@ -20,7 +27,9 @@ function context(overrides: Partial<DispatchContext> = {}): DispatchContext {
     zoneEnabled: true,
     zoneLocation: LOCATION,
     siteCooldownSeconds: 900,
-    siteWorkflowUuid: "wf-uuid",
+    siteTimezone: "Europe/Prague",
+    siteDockSn: "DOCK-1",
+    zoneWaylineUuid: "wayline-1",
     objectClass: "person",
     detectedAt: new Date("2026-08-24T22:00:00Z"),
     receivedAt: new Date("2026-08-24T22:00:00Z"),
@@ -28,15 +37,38 @@ function context(overrides: Partial<DispatchContext> = {}): DispatchContext {
   };
 }
 
+/** Dok, ze kterého se dá vzlétnout. */
+function dockState(over: Partial<DockState> = {}): DockState {
+  return {
+    droneInDock: true,
+    droneStatus: "power_off",
+    batteryPercent: 96,
+    chargeState: "idle",
+    storageUsedPercent: 40,
+    remainUpload: 0,
+    conditions: {
+      wind_speed: 2,
+      rainfall: "no_rain",
+      environment_temperature: 18,
+      measured_at: "2026-08-24T22:00:00.000Z",
+    },
+    latitude: 50.3305,
+    longitude: 15.4256,
+    ...over,
+  };
+}
+
 /** Závislosti, které vždycky uspějí; jednotlivé testy si je přebijí. */
 function deps(overrides: Partial<DispatchDeps> = {}) {
   const inserted: DispatchRow[] = [];
+  const flights: FlightPlan[] = [];
   const base: DispatchDeps = {
     isSiteArmed: async () => true,
     lastSentDispatchAt: async () => null,
     hasRecentPersonInOtherZone: async () => false,
-    triggerWorkflow: async () => ({
-      incidentUuid: "incident-1",
+    getDockState: async () => ({ ok: true, state: dockState() }),
+    createFlightTask: async () => ({
+      taskUuid: "task-1",
       httpStatus: 200,
       response: { code: 0 },
       ok: true,
@@ -45,9 +77,12 @@ function deps(overrides: Partial<DispatchDeps> = {}) {
       inserted.push(row);
       return "dispatch-1";
     },
+    insertFlight: async (plan) => {
+      flights.push(plan);
+    },
     ...overrides,
   };
-  return { deps: base, inserted };
+  return { deps: base, inserted, flights };
 }
 
 describe("runDispatch — chybějící konfigurace FlightHubu", () => {
@@ -55,7 +90,7 @@ describe("runDispatch — chybějící konfigurace FlightHubu", () => {
     // Přesně to, co dělal flightHubConfig() před opravou: vyhodil dřív,
     // než se stihlo cokoli zapsat.
     const { deps: d, inserted } = deps({
-      triggerWorkflow: async () => {
+      createFlightTask: async () => {
         throw new Error("Chybí povinná proměnná prostředí FH_USER_TOKEN");
       },
     });
@@ -69,7 +104,7 @@ describe("runDispatch — chybějící konfigurace FlightHubu", () => {
 
   it("zapsaný řádek nese kategorii dispatch_error a hlášku", async () => {
     const { deps: d, inserted } = deps({
-      triggerWorkflow: async () => {
+      createFlightTask: async () => {
         throw new Error("Chybí povinná proměnná prostředí FH_USER_TOKEN");
       },
     });
@@ -83,7 +118,7 @@ describe("runDispatch — chybějící konfigurace FlightHubu", () => {
 
   it("výjimka v přípravě nechá stupeň podle třídy objektu", async () => {
     const { deps: d, inserted } = deps({
-      triggerWorkflow: async () => {
+      createFlightTask: async () => {
         throw new Error("konfigurace chybí");
       },
     });
@@ -94,10 +129,10 @@ describe("runDispatch — chybějící konfigurace FlightHubu", () => {
   });
 
   it("konfigurační chyba vrácená jako výsledek se taky zapíše", async () => {
-    // Cesta po opravě: triggerWorkflow už nevyhazuje, vrací výsledek.
+    // Cesta po opravě: createFlightTask už nevyhazuje, vrací výsledek.
     const { deps: d, inserted } = deps({
-      triggerWorkflow: async () => ({
-        incidentUuid: null,
+      createFlightTask: async () => ({
+        taskUuid: null,
         httpStatus: null,
         response: {
           error: "configuration_error",
@@ -162,7 +197,10 @@ describe("runDispatch — nedotčené cesty", () => {
     const result = await runDispatch(context(), d);
 
     assert.equal(inserted[0].outcome, "sent");
-    assert.equal(inserted[0].fh_incident_uuid, "incident-1");
+    assert.equal(inserted[0].fh_task_uuid, "task-1");
+    // Stará cesta přes workflow trigger je pryč — incident se
+    // nevyplňuje ani omylem.
+    assert.equal(inserted[0].fh_incident_uuid, null);
     assert.deepEqual(result, {
       status: "recorded",
       outcome: "sent",
@@ -174,7 +212,7 @@ describe("runDispatch — nedotčené cesty", () => {
     let triggered = 0;
     const { deps: d, inserted } = deps({
       isSiteArmed: async () => false,
-      triggerWorkflow: async () => {
+      createFlightTask: async () => {
         triggered += 1;
         throw new Error("nemělo se volat");
       },
@@ -195,25 +233,186 @@ describe("runDispatch — nedotčené cesty", () => {
     assert.equal(inserted.length, 0);
   });
 
-  it("zóna bez souřadnic se zapíše jako failed bez volání FlightHubu", async () => {
-    let triggered = 0;
-    const { deps: d, inserted } = deps({
-      triggerWorkflow: async () => {
-        triggered += 1;
+  it("zóna bez souřadnic zásah NEZASTAVÍ — dron letí po trase", async () => {
+    // Plánovaná úloha souřadnice nechce. zones.location zůstává kvůli
+    // mapě a detailu, ale o tom, kudy se letí, rozhoduje trasa.
+    const { deps: d, inserted } = deps();
+
+    await runDispatch(context({ zoneLocation: null }), d);
+
+    assert.equal(inserted[0].outcome, "sent");
+  });
+});
+
+describe("runDispatch — co musí být připravené, než se letí", () => {
+  it("zóna bez trasy se zapíše jako failed a FlightHub se nevolá", async () => {
+    let volano = 0;
+    const { deps: d, inserted, flights } = deps({
+      createFlightTask: async () => {
+        volano += 1;
         throw new Error("nemělo se volat");
       },
     });
 
-    await runDispatch(context({ zoneLocation: null }), d);
+    await runDispatch(context({ zoneWaylineUuid: null }), d);
 
     assert.equal(inserted[0].outcome, "failed");
     assert.equal(
       (inserted[0].response as Record<string, unknown>).error,
-      "zone_without_location",
+      "zone_without_wayline",
     );
-    assert.equal(triggered, 0);
+    assert.equal(inserted[0].decision_reason?.zone_has_wayline, false);
+    assert.equal(volano, 0);
+    assert.equal(flights.length, 0);
+  });
+
+  it("lokalita bez sériového čísla doku se zapíše jako failed", async () => {
+    const { deps: d, inserted } = deps();
+
+    await runDispatch(context({ siteDockSn: null }), d);
+
+    assert.equal(inserted[0].outcome, "failed");
+    assert.equal(
+      (inserted[0].response as Record<string, unknown>).error,
+      "site_without_dock_sn",
+    );
+  });
+
+  it("dron mimo dok potlačí zásah, ale není to chyba", async () => {
+    let volano = 0;
+    const { deps: d, inserted } = deps({
+      getDockState: async () => ({ ok: true, state: dockState({ droneInDock: false }) }),
+      createFlightTask: async () => {
+        volano += 1;
+        throw new Error("nemělo se volat");
+      },
+    });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_dock");
+    assert.equal(inserted[0].decision_reason?.dock?.reason, "drone_not_in_dock");
+    assert.equal(volano, 0);
+  });
+
+  it("vybitá baterie potlačí zásah a důvod je v decision_reason", async () => {
+    const { deps: d, inserted } = deps({
+      getDockState: async () => ({ ok: true, state: dockState({ batteryPercent: 12 }) }),
+    });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_dock");
+    assert.equal(inserted[0].decision_reason?.dock?.reason, "low_battery");
+    assert.equal(inserted[0].decision_reason?.dock?.battery_percent, 12);
+  });
+
+  it("plné úložiště doku potlačí zásah", async () => {
+    const { deps: d, inserted } = deps({
+      getDockState: async () => ({
+        ok: true,
+        state: dockState({ storageUsedPercent: 99.4 }),
+      }),
+    });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_dock");
+    assert.equal(inserted[0].decision_reason?.dock?.reason, "storage_full");
+  });
+
+  it("nedostupný dok zásah potlačí, neposílá naslepo", async () => {
+    // Planý let stojí víc než zmeškaný a bez stavu doku nevíme ani to,
+    // jestli je dron doma.
+    const { deps: d, inserted } = deps({
+      getDockState: async () => ({ ok: false, message: "FlightHub odpověděl 503." }),
+    });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_dock");
+    assert.equal(inserted[0].decision_reason?.dock?.reason, "unreachable");
+  });
+
+  it("stav doku se nezjišťuje, když se stejně neletí", async () => {
+    // Mimo ostrý režim by to bylo volání po síti pro nic.
+    let volano = 0;
+    const { deps: d } = deps({
+      isSiteArmed: async () => false,
+      getDockState: async () => {
+        volano += 1;
+        throw new Error("nemělo se volat");
+      },
+    });
+
+    await runDispatch(context(), d);
+    assert.equal(volano, 0);
   });
 });
+
+describe("runDispatch — let k zásahu", () => {
+  it("po odeslání se založí let, aby ho sync dotáhl", async () => {
+    const { deps: d, flights } = deps();
+    const pred = Date.now();
+
+    await runDispatch(context(), d);
+
+    assert.equal(flights.length, 1);
+    assert.equal(flights[0].dispatchId, "dispatch-1");
+    assert.equal(flights[0].fhTaskUuid, "task-1");
+    assert.equal(flights[0].siteId, "site-1");
+    // Počasí z doku se ukládá k letu, stejně jako u hlídek.
+    assert.equal(flights[0].conditions?.wind_speed, 2);
+
+    const lead = flights[0].beginAt.getTime() - pred;
+    assert.ok(
+      lead >= (DISPATCH_LEAD_SECONDS - 2) * 1000 &&
+        lead <= (DISPATCH_LEAD_SECONDS + 2) * 1000,
+      `začátek za ${lead} ms`,
+    );
+  });
+
+  it("potlačený zásah let nezakládá", async () => {
+    const { deps: d, flights } = deps({ isSiteArmed: async () => false });
+    await runDispatch(context(), d);
+    assert.equal(flights.length, 0);
+  });
+
+  it("neúspěšná úloha let nezakládá", async () => {
+    const { deps: d, flights, inserted } = deps({
+      createFlightTask: async () => ({
+        taskUuid: null,
+        httpStatus: 400,
+        response: { code: 300001 },
+        ok: false,
+      }),
+    });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "failed");
+    assert.equal(flights.length, 0);
+  });
+
+  it("selhání zápisu letu neshodí výsledek zásahu", async () => {
+    // Úloha je ve FlightHubu založená a dron poletí; zásah nese
+    // fh_task_uuid, takže se let dá dohledat ručně.
+    const { deps: d } = deps({
+      insertFlight: async () => {
+        throw new Error("databáze nedostupná");
+      },
+    });
+
+    const result = await runDispatch(context(), d);
+
+    assert.deepEqual(result, {
+      status: "recorded",
+      outcome: "sent",
+      dispatchId: "dispatch-1",
+    });
+  });
+});
+
 
 describe("cooldown se počítá z času přijetí", () => {
   it("detekce datovaná zpět cooldown neobejde", async () => {

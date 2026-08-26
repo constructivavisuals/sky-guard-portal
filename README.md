@@ -60,6 +60,44 @@ kamera otisk nemá, podepisuje se společným `INGEST_SECRET` a server to
 při každé detekci zaloguje — podle toho se pozná, na které kamery se
 zapomnělo.
 
+## Zásah
+
+Zásah se ve FlightHubu zakládá jako **plánovaná úloha**
+(`POST /openapi/v0.1/flight-task`, `task_type: "timed"`), stejně jako
+hlídka. Ne přes `POST /openapi/v0.1/workflow`: Triggered Workflow čeká
+na ruční potvrzení v Message Centru, takže bez kliknutí mise nevzlétne.
+Ověřeno naostro. Workflow trigger je proto z kódu pryč celý — mrtvá
+větev, která vypadá funkčně, je horší než žádná.
+
+Z toho plyne, co musí být nastavené, aby zásah odletěl:
+
+* **zóna musí mít trasu** (`zones.wayline_uuid`). Plánovaná úloha nechce
+  souřadnice, chce trasu — dron po ní letí. Vybírá se ve formuláři zóny
+  ze seznamu z `GET /openapi/v0.1/wayline`. Zóna bez trasy zásah
+  neodešle, jen zaloguje, a přehled na to upozorní varováním.
+* **lokalita musí mít sériové číslo doku** (`sites.dock_sn`) — doku,
+  ne dronu.
+* **dok musí být ve stavu, ze kterého se dá vzlétnout**: dron v doku,
+  baterie nad 40 %, úložiště pod 95 %. Táž kritéria jako u hlídek,
+  sdílená v `lib/dispatch/dock-readiness.ts`. Když nevyhoví, zásah se
+  neodešle a důvod je v `dispatches.decision_reason.dock`; výsledek je
+  `suppressed_dock`, ne `failed` — nic se nepokazilo, jen dron nemohl
+  letět.
+
+Úloha začíná **za minutu** (`begin_at` i `latest_begin_at`). Nula slacku
+je schválně: dron, který vyrazí o pět minut později, přiletí k prázdné
+zóně.
+
+Vrácené `task_uuid` se ukládá do `dispatches.fh_task_uuid` a zároveň se
+zakládá řádek ve `flights` s `kind = 'dispatch'`, aby let dotáhla
+synchronizace. `dispatches.fh_incident_uuid` zůstává jen kvůli
+historickým řádkům ze staré cesty.
+
+`zones.location` se do FlightHubu neposílá. Zůstává kvůli mapě
+a detailu zásahu, takže zóna bez souřadnic zásah nezastaví.
+
+`FH_WORKFLOW_UUID` už nikdo nečte a není povinná.
+
 ## Plánování hlídek
 
 `GET /api/cron/patrols` projde zapnuté hlídky a pro ty, které mají

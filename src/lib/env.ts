@@ -35,7 +35,6 @@ export function ingestSecret(): string {
 export interface FlightHubConfig {
   host: string;
   projectUuid: string;
-  workflowUuid: string;
   creator: string;
   userToken: string;
 }
@@ -45,7 +44,8 @@ export function flightHubConfig(): FlightHubConfig {
     // Bez koncového lomítka, ať se cesty skládají předvídatelně.
     host: required("FH_HOST").replace(/\/+$/, ""),
     projectUuid: required("FH_PROJECT_UUID"),
-    workflowUuid: required("FH_WORKFLOW_UUID"),
+    // FH_WORKFLOW_UUID se už nečte: workflow trigger je pryč
+    // a povinná proměnná, kterou nikdo nepoužívá, jen brání nasazení.
     creator: required("FH_CREATOR"),
     userToken: required("FH_USER_TOKEN"),
   };

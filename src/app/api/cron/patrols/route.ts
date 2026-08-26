@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
+import { checkDockReadiness } from "@/lib/dispatch/dock-readiness.ts";
 import { createFlightTask, getDockState } from "@/lib/dispatch/flighthub.ts";
 import { patrolRunsBetween } from "@/lib/patrols/schedule.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
@@ -24,16 +25,6 @@ const HORIZON_MINUTES = 10;
 
 /** Kolik smí FlightHub start odložit, než ho zahodí. */
 const LATEST_BEGIN_SLACK_MINUTES = 5;
-
-/**
- * Pod tímhle nabitím se hlídka neplánuje. Dron by nemusel doletět
- * a vracel by se do doku nedokončený, což je horší než hlídka
- * vynechaná — na tu se aspoň dá reagovat.
- */
-const MIN_BATTERY_PERCENT = 40;
-
-/** Nad tímhle zaplněním nemá dok kam ukládat pořízené snímky. */
-const MAX_STORAGE_PERCENT = 95;
 
 interface PatrolRow {
   id: string;
@@ -138,44 +129,23 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     const state = dock.state;
 
-    // Vypnutý dron není překážka — probouzí ho naplánovaná úloha.
-    // Rozhoduje, jestli vůbec sedí v doku; venku nemá odkud odstartovat.
-    if (!state.droneInDock) {
-      console.warn("Hlídka přeskočena — dron není v doku", {
+    // Táž kritéria jako u zásahu — sdílená, aby se nedala změnit jen
+    // na jednom místě. Vypnutý dron překážka není, probouzí ho úloha.
+    const readiness = checkDockReadiness(state);
+    if (!readiness.ok) {
+      console.warn("Hlídka přeskočena — dok není připravený", {
         patrol_id: patrol.id,
         site: site.name,
+        duvod: readiness.reason,
         drone_status: state.droneStatus,
-      });
-      report.skipped += runs.length;
-      continue;
-    }
-
-    if (
-      state.batteryPercent !== null &&
-      state.batteryPercent < MIN_BATTERY_PERCENT
-    ) {
-      console.warn("Hlídka přeskočena — nízká baterie", {
-        patrol_id: patrol.id,
-        site: site.name,
         battery_percent: state.batteryPercent,
         charge_state: state.chargeState,
-        minimum: MIN_BATTERY_PERCENT,
-      });
-      report.skipped += runs.length;
-      continue;
-    }
-
-    if (
-      state.storageUsedPercent !== null &&
-      state.storageUsedPercent > MAX_STORAGE_PERCENT
-    ) {
-      console.warn("Hlídka přeskočena — plné úložiště doku", {
-        patrol_id: patrol.id,
-        site: site.name,
-        storage_used_percent: Math.round(state.storageUsedPercent * 10) / 10,
+        storage_used_percent:
+          state.storageUsedPercent === null
+            ? null
+            : Math.round(state.storageUsedPercent * 10) / 10,
         // Nevyzvednuté soubory bývají důvod, proč se dok zaplnil.
         remain_upload: state.remainUpload,
-        maximum: MAX_STORAGE_PERCENT,
       });
       report.skipped += runs.length;
       continue;

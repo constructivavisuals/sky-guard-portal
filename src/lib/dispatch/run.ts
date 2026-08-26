@@ -1,11 +1,10 @@
-import { parsePointEwkbHex } from "../geo.ts";
 import { supabaseAdmin } from "../supabase-admin.ts";
 import {
-  DETECTION_OBJECT_CLASS_LABELS,
   type DetectionObjectClass,
   type DecisionReason,
   type DispatchInsert,
   type DispatchOutcome,
+  type FlightConditions,
 } from "../../types/database.ts";
 
 import {
@@ -14,16 +13,48 @@ import {
   decideDispatch,
   resolveDispatchLevel,
 } from "./decision.ts";
+import { checkDockReadiness } from "./dock-readiness.ts";
 import {
-  triggerWorkflow,
-  type TriggerWorkflowInput,
-  type TriggerWorkflowResult,
+  createFlightTask,
+  getDockState,
+  type DockStateResult,
+  type FlightTaskInput,
+  type FlightTaskResult,
 } from "./flighthub.ts";
 
 // Orchestrace zásahu: obstará vstupy pro rozhodovací funkce, zavolá
 // FlightHub a uloží řádek do dispatches. Běží až PO odeslání odpovědi
 // (next/server `after`), takže se sem nesmí dostat nic, co by muselo
 // stihnout 1s limit endpointu.
+//
+// ═══ Zásah letí jako PLÁNOVANÁ ÚLOHA ═══════════════════════════════
+// Ne přes workflow trigger — ten čeká na ruční potvrzení v Message
+// Centru a bez kliknutí nevzlétne (viz flighthub.ts). Zásah tedy jede
+// touž cestou jako hlídka: POST /flight-task, task_type 'timed',
+// začátek za minutu.
+//
+// Z toho plyne, co všechno musí být připravené, než se dá letět:
+//
+//   * zóna musí mít TRASU — plánovaná úloha nechce souřadnice, chce
+//     wayline_uuid. Zóna bez trasy zásah neodešle.
+//   * lokalita musí mít sériové číslo DOKU (ne dronu).
+//   * dok musí být ve stavu, ze kterého se dá vzlétnout — táž
+//     kritéria jako u hlídek, sdílená v dock-readiness.ts.
+//
+// Souřadnice zóny se do FlightHubu už neposílají. Zůstávají kvůli
+// mapě a detailu zásahu, ale kudy dron letí, určuje trasa — zóna bez
+// souřadnic proto zásah nezastaví.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Za jak dlouho od rozhodnutí má úloha začít.
+ *
+ * Minuta je tam proto, že FlightHub odmítá úlohy s časem v minulosti
+ * a mezi rozhodnutím a přijetím požadavku uteče kus vteřiny.
+ * `latest_begin_at` je stejný: u zásahu nemá smysl start odkládat —
+ * dron, který vyrazí o pět minut později, přiletí k prázdné zóně.
+ */
+export const DISPATCH_LEAD_SECONDS = 60;
 
 export interface DispatchContext {
   detectionId: string;
@@ -33,7 +64,12 @@ export interface DispatchContext {
   zoneEnabled: boolean;
   zoneLocation: string | null;
   siteCooldownSeconds: number;
-  siteWorkflowUuid: string | null;
+  /** Časové pásmo lokality; jde do plánované úlohy. */
+  siteTimezone: string;
+  /** Sériové číslo DOKU, ne dronu. Bez něj není odkud vzlétnout. */
+  siteDockSn: string | null;
+  /** Trasa zóny ve FlightHubu. Bez ní se úloha nedá založit. */
+  zoneWaylineUuid: string | null;
   objectClass: DetectionObjectClass;
   /** Čas hlášený kamerou. Ukládá se, ale nic se podle něj nerozhoduje. */
   detectedAt: Date;
@@ -72,8 +108,25 @@ export interface DispatchDeps {
   hasRecentPersonInOtherZone(
     context: ResolvedDispatchContext,
   ): Promise<boolean>;
-  triggerWorkflow(input: TriggerWorkflowInput): Promise<TriggerWorkflowResult>;
+  getDockState(dockSn: string): Promise<DockStateResult>;
+  createFlightTask(input: FlightTaskInput): Promise<FlightTaskResult>;
   insertDispatch(row: DispatchRow): Promise<string | null>;
+  insertFlight(plan: FlightPlan): Promise<void>;
+}
+
+/**
+ * Let, který se má založit po zapsání zásahu.
+ *
+ * Zakládá se až po něm, protože potřebuje dispatch_id — a bez řádku
+ * ve flights by synchronizace o úloze nevěděla a trasa ani snímky by
+ * se nikdy nedotáhly.
+ */
+export interface FlightPlan {
+  siteId: string;
+  dispatchId: string;
+  fhTaskUuid: string;
+  beginAt: Date;
+  conditions: FlightConditions | null;
 }
 
 /** Byla v posledních 60 s osoba v jiné zóně téhož areálu? */
@@ -155,17 +208,21 @@ function safeErrorMessage(error: unknown): string {
   return message.slice(0, 500);
 }
 
+interface PreparedDispatch {
+  row: DispatchRow;
+  /** null, když se neletí. */
+  flight: Omit<FlightPlan, "dispatchId"> | null;
+}
+
 /**
  * Sestaví řádek do dispatches: obstará vstupy, rozhodne a případně
- * zavolá FlightHub. Nic nezapisuje — zápis dělá runDispatch, aby i
+ * naplánuje úlohu. Nic nezapisuje — zápis dělá runDispatch, aby i
  * výjimka odsud skončila zapsaným pokusem.
  */
 async function prepareDispatchRow(
   context: ResolvedDispatchContext,
   deps: DispatchDeps,
-): Promise<DispatchRow> {
-  const coordinates = parsePointEwkbHex(context.zoneLocation);
-
+): Promise<PreparedDispatch> {
   const [armed, lastSentAt, recentPerson] = await Promise.all([
     // Vypnutá zóna se chová jako mimo ostrý režim.
     context.zoneEnabled ? deps.isSiteArmed(context) : Promise.resolve(false),
@@ -209,6 +266,8 @@ async function prepareDispatchRow(
       elapsedSeconds === null
         ? null
         : Math.max(0, Math.round(context.siteCooldownSeconds - elapsedSeconds)),
+    zone_has_wayline: Boolean(context.zoneWaylineUuid),
+    dock: null,
     decided_at: new Date().toISOString(),
   };
 
@@ -220,43 +279,139 @@ async function prepareDispatchRow(
     decision_reason: reason,
   };
 
-  if (!decision.send) {
-    return {
+  /** Zkratka pro „neletí se“ — pořád se zapisuje, jen bez úlohy. */
+  const bezLetu = (
+    outcome: DispatchOutcome,
+    response: Record<string, unknown>,
+  ): PreparedDispatch => ({
+    row: {
       ...base,
-      outcome: decision.outcome,
+      outcome,
       fh_incident_uuid: null,
+      fh_task_uuid: null,
       http_status: null,
-      response: {},
-    };
+      response: response as DispatchRow["response"],
+    },
+    flight: null,
+  });
+
+  if (!decision.send) return bezLetu(decision.outcome, {});
+
+  // ── Co musí být připravené, než se dá letět ────────────────────
+  // Konfigurace první: pozná se bez volání po síti a je to chyba,
+  // kterou má někdo opravit, ne provozní stav, co sám přejde.
+
+  if (!context.zoneWaylineUuid) {
+    // Bez trasy se plánovaná úloha nedá založit. Loguje se, protože
+    // jinak je tenhle stav nerozeznatelný od klidné noci — a přehled
+    // na něj upozorňuje varováním „zóna bez trasy“.
+    console.warn("Zóna bez trasy — zásah neodejde", {
+      detection_id: context.detectionId,
+      zone_id: context.zoneId,
+      site_id: context.siteId,
+    });
+    return bezLetu("failed", {
+      error: "zone_without_wayline",
+      zone_id: context.zoneId,
+    });
   }
 
-  if (!coordinates) {
-    // Zóna bez waypointu — FlightHub by dostal prázdné souřadnice.
-    return {
-      ...base,
-      outcome: "failed",
-      fh_incident_uuid: null,
-      http_status: null,
-      response: { error: "zone_without_location", zone_id: context.zoneId },
-    };
+  if (!context.siteDockSn) {
+    console.warn("Lokalita bez sériového čísla doku — zásah neodejde", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+    });
+    return bezLetu("failed", { error: "site_without_dock_sn" });
   }
 
+  // ── Stav doku ──────────────────────────────────────────────────
+  // Táž kritéria jako u hlídek. Nevyhovující dok NENÍ chyba: dron
+  // mimo dok nebo vybitá baterie jsou provozní stavy, na které se dá
+  // reagovat — proto suppressed_dock, ne failed.
+
+  const dock = await deps.getDockState(context.siteDockSn);
+
+  if (!dock.ok) {
+    reason.dock = {
+      ok: false,
+      reason: "unreachable",
+      drone_in_dock: null,
+      battery_percent: null,
+      storage_used_percent: null,
+    };
+    console.warn("Stav doku se nepodařilo zjistit — zásah neodejde", {
+      detection_id: context.detectionId,
+      dock_sn: context.siteDockSn,
+      message: dock.message,
+    });
+    return bezLetu("suppressed_dock", {
+      error: "dock_unreachable",
+      message: dock.message,
+    });
+  }
+
+  const state = dock.state;
+  const readiness = checkDockReadiness(state);
+  reason.dock = {
+    ok: readiness.ok,
+    reason: readiness.reason,
+    drone_in_dock: state.droneInDock,
+    battery_percent: state.batteryPercent,
+    storage_used_percent:
+      state.storageUsedPercent === null
+        ? null
+        : Math.round(state.storageUsedPercent * 10) / 10,
+  };
+
+  if (!readiness.ok) {
+    console.warn("Dok není připravený — zásah neodejde", {
+      detection_id: context.detectionId,
+      dock_sn: context.siteDockSn,
+      duvod: readiness.reason,
+      battery_percent: state.batteryPercent,
+      storage_used_percent: state.storageUsedPercent,
+      drone_status: state.droneStatus,
+    });
+    return bezLetu("suppressed_dock", {
+      error: "dock_not_ready",
+      reason: readiness.reason,
+    });
+  }
+
+  // ── Plánovaná úloha ────────────────────────────────────────────
+
+  const beginAt = new Date(Date.now() + DISPATCH_LEAD_SECONDS * 1_000);
   const zoneLabel = context.zoneName ?? "neznámá zóna";
-  const result = await deps.triggerWorkflow({
-    workflowUuid: context.siteWorkflowUuid ?? "",
-    name: `Perimetr — ${zoneLabel}`,
-    latitude: coordinates.latitude,
-    longitude: coordinates.longitude,
-    level,
-    desc: `${DETECTION_OBJECT_CLASS_LABELS[context.objectClass]} v zóně ${zoneLabel}`,
+
+  const result = await deps.createFlightTask({
+    // Stupeň jde do názvu: plánovaná úloha pole pro úroveň nemá,
+    // takže jinak by v DJI nebylo poznat, jak vážný zásah to byl.
+    name: `Zásah ${level} — ${zoneLabel}`,
+    dockSn: context.siteDockSn,
+    waylineUuid: context.zoneWaylineUuid,
+    timeZone: context.siteTimezone,
+    beginAt,
+    latestBeginAt: beginAt,
   });
 
   return {
-    ...base,
-    outcome: result.ok ? "sent" : "failed",
-    fh_incident_uuid: result.incidentUuid,
-    http_status: result.httpStatus,
-    response: result.response,
+    row: {
+      ...base,
+      outcome: result.ok ? "sent" : "failed",
+      fh_incident_uuid: null,
+      fh_task_uuid: result.taskUuid,
+      http_status: result.httpStatus,
+      response: result.response,
+    },
+    flight:
+      result.ok && result.taskUuid
+        ? {
+            siteId: context.siteId,
+            fhTaskUuid: result.taskUuid,
+            beginAt,
+            conditions: state.conditions,
+          }
+        : null,
   };
 }
 
@@ -280,9 +435,9 @@ export async function runDispatch(
 
   const resolved: ResolvedDispatchContext = { ...context, zoneId: context.zoneId };
 
-  let row: DispatchRow;
+  let prepared: PreparedDispatch;
   try {
-    row = await prepareDispatchRow(resolved, deps);
+    prepared = await prepareDispatchRow(resolved, deps);
   } catch (error) {
     // Cokoli neočekávaného — chybějící proměnná prostředí, rozbité
     // spojení, chyba v dotazu — skončí zapsaným pokusem. Pokus o zásah
@@ -291,22 +446,56 @@ export async function runDispatch(
       detection_id: context.detectionId,
       message: safeErrorMessage(error),
     });
-    row = {
-      site_id: resolved.siteId,
-      zone_id: resolved.zoneId,
-      triggered_by_detection: resolved.detectionId,
-      // Bez dat o okolních zónách se eskalace nedá posoudit, bere se
-      // základní stupeň podle toho, co kamera viděla.
-      level_sent: resolveDispatchLevel(resolved.objectClass, false),
-      outcome: "failed",
-      fh_incident_uuid: null,
-      http_status: null,
-      response: { error: "dispatch_error", message: safeErrorMessage(error) },
+    prepared = {
+      row: {
+        site_id: resolved.siteId,
+        zone_id: resolved.zoneId,
+        triggered_by_detection: resolved.detectionId,
+        // Bez dat o okolních zónách se eskalace nedá posoudit, bere se
+        // základní stupeň podle toho, co kamera viděla.
+        level_sent: resolveDispatchLevel(resolved.objectClass, false),
+        outcome: "failed",
+        fh_incident_uuid: null,
+        fh_task_uuid: null,
+        http_status: null,
+        response: { error: "dispatch_error", message: safeErrorMessage(error) },
+      },
+      flight: null,
     };
   }
 
+  const { row, flight } = prepared;
+
   try {
     const dispatchId = await deps.insertDispatch(row);
+
+    // Let se zakládá až po zásahu, protože potřebuje jeho id. Bez
+    // řádku ve flights by synchronizace o úloze nevěděla a trasa ani
+    // snímky by se nikdy nedotáhly — dron by letěl, ale v portálu by
+    // po něm nezůstalo nic.
+    if (flight && dispatchId) {
+      try {
+        await deps.insertFlight({ ...flight, dispatchId });
+      } catch (error) {
+        // Úloha je ve FlightHubu založená, dron poletí. Zásah je
+        // zapsaný a nese fh_task_uuid, takže se let dá dohledat ručně;
+        // shodit kvůli tomu celý výsledek by bylo horší.
+        console.error("Zápis letu k zásahu selhal", {
+          dispatch_id: dispatchId,
+          fh_task_uuid: flight.fhTaskUuid,
+          message: safeErrorMessage(error),
+        });
+      }
+    } else if (flight && !dispatchId) {
+      // Zápis zásahu neprošel, takže na co let navěsit není. Úloha ale
+      // ve FlightHubu je — musí to být vidět v logu, jinak vzlétne dron
+      // bez jediné stopy v portálu.
+      console.error("Úloha založena, ale zásah se nezapsal", {
+        detection_id: context.detectionId,
+        fh_task_uuid: flight.fhTaskUuid,
+      });
+    }
+
     return { status: "recorded", outcome: row.outcome, dispatchId };
   } catch (error) {
     // Poslední instance: nefunguje ani zápis, stopu není kam uložit.
@@ -337,11 +526,36 @@ async function insertDispatch(row: DispatchRow): Promise<string | null> {
   return (data as { id: string }).id;
 }
 
+/**
+ * Založí let k zásahu, aby ho synchronizace dotáhla.
+ *
+ * kind 'dispatch' a dispatch_id ho odliší od hlídkových; started_at je
+ * plánovaný začátek, který si sync později přepíše skutečným časem
+ * z trajektorie.
+ */
+async function insertFlight(plan: FlightPlan): Promise<void> {
+  const { error } = await supabaseAdmin().from("flights").insert({
+    kind: "dispatch",
+    site_id: plan.siteId,
+    dispatch_id: plan.dispatchId,
+    fh_task_uuid: plan.fhTaskUuid,
+    started_at: plan.beginAt.toISOString(),
+    status: "pending",
+    // Počasí v okamžiku plánování; u přerušeného letu je to první věc,
+    // na kterou se člověk ptá.
+    conditions: plan.conditions,
+  });
+
+  if (error) throw new Error(error.message);
+}
+
 /** Výchozí závislosti — databáze a skutečný FlightHub. */
 export const databaseDeps: DispatchDeps = {
   isSiteArmed: isSiteArmedInDb,
   lastSentDispatchAt,
   hasRecentPersonInOtherZone,
-  triggerWorkflow,
+  getDockState,
+  createFlightTask,
   insertDispatch,
+  insertFlight,
 };

@@ -7,6 +7,10 @@ import {
   deriveCameraKey,
 } from "@/lib/ingest/camera-key.ts";
 import { parseDetectionPayload } from "@/lib/ingest/payload.ts";
+import {
+  findIngestCamera,
+  type IngestCameraRow,
+} from "@/lib/ingest/camera-lookup.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
 import { verifySignature, type SignatureResult } from "@/lib/ingest/signature.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
@@ -32,86 +36,11 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface CameraLookupRow {
-  id: string;
-  site_id: string;
-  zone_id: string | null;
-  serial_number: string | null;
-  /** NULL = kamera se ještě podepisuje společným INGEST_SECRET. */
-  ingest_secret_hash: string | null;
-  ingest_key_version: number;
-  sites: {
-    id: string;
-    cooldown_seconds: number;
-    fh_workflow_uuid: string | null;
-  } | null;
-  zones: {
-    id: string;
-    name: string;
-    enabled: boolean;
-    location: string | null;
-  } | null;
-}
-
 function jsonError(status: number, error: string, detail?: unknown) {
   return Response.json(
     detail === undefined ? { error } : { error, detail },
     { status },
   );
-}
-
-const CAMERA_BASE_COLUMNS =
-  "id, site_id, zone_id, serial_number, " +
-  "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)";
-
-/** Sloupce klíče přibyly migrací 20260829120000. */
-const CAMERA_KEY_COLUMNS =
-  "id, site_id, zone_id, serial_number, ingest_secret_hash, ingest_key_version, " +
-  "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)";
-
-/**
- * Dohledá kameru; nejdřív se sloupci klíče, a když ta migrace ještě
- * nedoběhla, znovu bez nich.
- *
- * Bez téhle záchytné větve stačí nasadit kód dřív než migraci
- * a PostgREST odmítne celý dotaz kvůli neznámému sloupci — ingest by
- * na každou detekci vrátil 500 a přestal přijímat cokoli. Kamera bez
- * vlastního klíče se pak ověří společným INGEST_SECRET, což je přesně
- * to, co dělá i kamera, které klíč zatím nikdo nevygeneroval.
- */
-async function najitKameru(
-  db: ReturnType<typeof supabaseAdmin>,
-  serial: string,
-): Promise<{ camera: CameraLookupRow | null; error: string | null }> {
-  const sKlicem = await db
-    .from("cameras")
-    .select(CAMERA_KEY_COLUMNS)
-    .eq("serial_number", serial)
-    .maybeSingle<CameraLookupRow>();
-
-  if (!sKlicem.error) {
-    return { camera: sKlicem.data, error: null };
-  }
-
-  const bezKlice = await db
-    .from("cameras")
-    .select(CAMERA_BASE_COLUMNS)
-    .eq("serial_number", serial)
-    .maybeSingle<CameraLookupRow>();
-
-  if (bezKlice.error) {
-    return { camera: null, error: bezKlice.error.message };
-  }
-
-  console.warn(
-    "Sloupce ingest klíče v databázi chybí — ověřuji společným tajemstvím",
-  );
-  return {
-    camera: bezKlice.data
-      ? { ...bezKlice.data, ingest_secret_hash: null, ingest_key_version: 1 }
-      : null,
-    error: null,
-  };
 }
 
 /**
@@ -128,7 +57,7 @@ function verifyForCamera(options: {
   timestamp: string | null;
   now: Date;
   masterSecret: string;
-  camera: CameraLookupRow | null;
+  camera: IngestCameraRow | null;
 }): SignatureResult {
   const { rawBody, signature, timestamp, now, masterSecret, camera } = options;
   const base = { rawBody, signature, timestamp, now };
@@ -250,7 +179,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(429, "rate_limited");
   }
 
-  const lookup = await najitKameru(db, payload.cameraSerial);
+  const lookup = await findIngestCamera(db, payload.cameraSerial);
 
   if (lookup.error) {
     console.error("Vyhledání kamery selhalo", { message: lookup.error });
@@ -363,7 +292,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     zoneEnabled: camera.zones?.enabled ?? false,
     zoneLocation: camera.zones?.location ?? null,
     siteCooldownSeconds: camera.sites.cooldown_seconds,
-    siteWorkflowUuid: camera.sites.fh_workflow_uuid,
+    siteTimezone: camera.sites.timezone,
+    siteDockSn: camera.sites.dock_sn,
+    zoneWaylineUuid: camera.zones?.wayline_uuid ?? null,
     objectClass: payload.objectClass,
     detectedAt: payload.detectedAt,
     receivedAt,

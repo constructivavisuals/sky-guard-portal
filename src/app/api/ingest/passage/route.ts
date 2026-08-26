@@ -11,6 +11,10 @@ import {
   MAX_IMAGE_BYTES,
   parsePassagePayload,
 } from "@/lib/ingest/passage-payload.ts";
+import {
+  findIngestCamera,
+  type IngestCameraRow,
+} from "@/lib/ingest/camera-lookup.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
 import { verifySignature, type SignatureResult } from "@/lib/ingest/signature.ts";
 import { resolvePlate } from "@/lib/plates/escalate.ts";
@@ -47,69 +51,11 @@ export const maxDuration = 60;
  */
 const MAX_BODY_BYTES = Math.ceil(MAX_IMAGE_BYTES * 1.4) + 8 * 1024;
 
-interface CameraRow {
-  id: string;
-  site_id: string;
-  zone_id: string | null;
-  serial_number: string | null;
-  ingest_secret_hash: string | null;
-  ingest_key_version: number;
-  sites: {
-    id: string;
-    cooldown_seconds: number;
-    fh_workflow_uuid: string | null;
-  } | null;
-  zones: {
-    id: string;
-    name: string;
-    enabled: boolean;
-    location: string | null;
-  } | null;
-}
-
-const CAMERA_COLUMNS =
-  "id, site_id, zone_id, serial_number, ingest_secret_hash, ingest_key_version, " +
-  "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)";
-
-const CAMERA_COLUMNS_BEZ_KLICE =
-  "id, site_id, zone_id, serial_number, " +
-  "sites(id, cooldown_seconds, fh_workflow_uuid), zones(id, name, enabled, location)";
-
 function jsonError(status: number, error: string, detail?: unknown) {
   return Response.json(
     detail === undefined ? { error } : { error, detail },
     { status },
   );
-}
-
-/** Táž záchytná větev jako u detekce — sloupce klíče nemusí být nasazené. */
-async function najitKameru(
-  db: ReturnType<typeof supabaseAdmin>,
-  serial: string,
-): Promise<{ camera: CameraRow | null; error: string | null }> {
-  const sKlicem = await db
-    .from("cameras")
-    .select(CAMERA_COLUMNS)
-    .eq("serial_number", serial)
-    .maybeSingle<CameraRow>();
-
-  if (!sKlicem.error) return { camera: sKlicem.data, error: null };
-
-  const bez = await db
-    .from("cameras")
-    .select(CAMERA_COLUMNS_BEZ_KLICE)
-    .eq("serial_number", serial)
-    .maybeSingle<CameraRow>();
-
-  if (bez.error) return { camera: null, error: bez.error.message };
-
-  console.warn("Sloupce ingest klíče chybí — ověřuji společným tajemstvím");
-  return {
-    camera: bez.data
-      ? { ...bez.data, ingest_secret_hash: null, ingest_key_version: 1 }
-      : null,
-    error: null,
-  };
 }
 
 /** Shodné s /api/ingest/detection: klíč kamery, jinak společné tajemství. */
@@ -119,7 +65,7 @@ function verifyForCamera(options: {
   timestamp: string | null;
   now: Date;
   masterSecret: string;
-  camera: CameraRow | null;
+  camera: IngestCameraRow | null;
 }): SignatureResult {
   const { rawBody, signature, timestamp, now, masterSecret, camera } = options;
   const base = { rawBody, signature, timestamp, now };
@@ -209,7 +155,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(429, "rate_limited");
   }
 
-  const lookup = await najitKameru(db, payload.cameraSerial);
+  const lookup = await findIngestCamera(db, payload.cameraSerial);
   if (lookup.error) {
     console.error("Vyhledání kamery selhalo", { message: lookup.error });
     return jsonError(500, "lookup_failed");
@@ -334,7 +280,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     zoneEnabled: camera.zones?.enabled ?? false,
     zoneLocation: camera.zones?.location ?? null,
     siteCooldownSeconds: camera.sites.cooldown_seconds,
-    siteWorkflowUuid: camera.sites.fh_workflow_uuid,
+    siteTimezone: camera.sites.timezone,
+    siteDockSn: camera.sites.dock_sn,
+    zoneWaylineUuid: camera.zones?.wayline_uuid ?? null,
     objectClass: "vehicle",
     detectedAt: payload.passedAt,
     receivedAt,

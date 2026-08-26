@@ -1,27 +1,29 @@
 import { strict as assert } from "node:assert";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { MAX_ERROR_MESSAGE_LENGTH, triggerWorkflow } from "./flighthub.ts";
+import { createFlightTask, MAX_ERROR_MESSAGE_LENGTH } from "./flighthub.ts";
 
 // Hodnoty, které se NIKDY nesmí objevit v dispatches.response.
 const TOKEN = "tajny-token-nesmi-uniknout";
 const PROJECT = "tajne-project-uuid";
 
+/** Povinné proměnné. FH_WORKFLOW_UUID mezi ně nepatří — workflow
+    trigger je pryč a povinná proměnná, kterou nikdo nečte, by jen
+    bránila nasazení. */
 const FH_VARS = [
   "FH_HOST",
   "FH_PROJECT_UUID",
-  "FH_WORKFLOW_UUID",
   "FH_CREATOR",
   "FH_USER_TOKEN",
 ] as const;
 
 const INPUT = {
-  workflowUuid: "wf-uuid",
-  name: "Perimetr — Brána sever",
-  latitude: 50.0755,
-  longitude: 14.4378,
-  level: 5,
-  desc: "Osoba v zóně Brána sever",
+  name: "Zásah 5 — Brána sever",
+  dockSn: "DOCK-1",
+  waylineUuid: "wayline-1",
+  timeZone: "Europe/Prague",
+  beginAt: new Date("2026-08-24T22:01:00Z"),
+  latestBeginAt: new Date("2026-08-24T22:01:00Z"),
 } as const;
 
 let savedEnv: Record<string, string | undefined> = {};
@@ -40,7 +42,6 @@ beforeEach(() => {
 
   process.env.FH_HOST = "https://fh.example.invalid";
   process.env.FH_PROJECT_UUID = PROJECT;
-  process.env.FH_WORKFLOW_UUID = "wf";
   process.env.FH_CREATOR = "constructiva";
   process.env.FH_USER_TOKEN = TOKEN;
 });
@@ -53,14 +54,14 @@ afterEach(() => {
   globalThis.fetch = savedFetch;
 });
 
-describe("triggerWorkflow — chybějící konfigurace", () => {
+describe("createFlightTask — chybějící konfigurace", () => {
   it("chybějící FH_USER_TOKEN nevyhodí, ale vrátí zapsatelný výsledek", async () => {
     delete process.env.FH_USER_TOKEN;
 
-    const result = await triggerWorkflow(INPUT);
+    const result = await createFlightTask(INPUT);
 
     assert.equal(result.ok, false);
-    assert.equal(result.incidentUuid, null);
+    assert.equal(result.taskUuid, null);
     assert.equal(result.httpStatus, null);
     assert.equal(fetchCalls, 0, "na síť se nemá sahat");
   });
@@ -68,7 +69,7 @@ describe("triggerWorkflow — chybějící konfigurace", () => {
   it("konfigurační chyba je v response odlišená od nedostupné sítě", async () => {
     delete process.env.FH_USER_TOKEN;
 
-    const { response } = await triggerWorkflow(INPUT);
+    const { response } = await createFlightTask(INPUT);
 
     assert.equal(response.error, "configuration_error");
     assert.notEqual(response.error, "network_error");
@@ -78,7 +79,7 @@ describe("triggerWorkflow — chybějící konfigurace", () => {
   it("hláška pojmenuje chybějící proměnnou", async () => {
     delete process.env.FH_USER_TOKEN;
 
-    const { response } = await triggerWorkflow(INPUT);
+    const { response } = await createFlightTask(INPUT);
 
     assert.match(String(response.message), /FH_USER_TOKEN/);
   });
@@ -88,7 +89,7 @@ describe("triggerWorkflow — chybějící konfigurace", () => {
     // a token tím poslal rovnou do databáze.
     delete process.env.FH_USER_TOKEN;
 
-    const { response } = await triggerWorkflow(INPUT);
+    const { response } = await createFlightTask(INPUT);
     const serialized = JSON.stringify(response);
 
     assert.equal(serialized.includes(TOKEN), false, "unikl token");
@@ -100,7 +101,7 @@ describe("triggerWorkflow — chybějící konfigurace", () => {
       const saved = process.env[key];
       delete process.env[key];
 
-      const result = await triggerWorkflow(INPUT);
+      const result = await createFlightTask(INPUT);
       assert.equal(result.ok, false, `${key}: mělo selhat`);
       assert.equal(
         result.response.error,
@@ -116,7 +117,7 @@ describe("triggerWorkflow — chybějící konfigurace", () => {
   it("prázdná hodnota se bere jako chybějící", async () => {
     process.env.FH_USER_TOKEN = "";
 
-    const { ok, response } = await triggerWorkflow(INPUT);
+    const { ok, response } = await createFlightTask(INPUT);
 
     assert.equal(ok, false);
     assert.equal(response.error, "configuration_error");
@@ -125,7 +126,7 @@ describe("triggerWorkflow — chybějící konfigurace", () => {
   it("hláška je useknutá na rozumnou délku", async () => {
     delete process.env.FH_USER_TOKEN;
 
-    const { response } = await triggerWorkflow(INPUT);
+    const { response } = await createFlightTask(INPUT);
 
     assert.ok(String(response.message).length <= MAX_ERROR_MESSAGE_LENGTH);
   });

@@ -50,6 +50,7 @@ import { isOperator } from "@/lib/profile.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import {
   FLIGHT_STATUS_LABELS,
+  isDispatchSuppressed,
   type DecisionReason,
   type DetectionObjectClass,
   type DispatchOutcome,
@@ -220,9 +221,7 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
     ? levelFromReason(reason)
     : explainLevel(detection?.object_class ?? null, dispatch.level_sent);
   const conditions = reason ? conditionsFromReason(reason) : null;
-  const suppressed =
-    dispatch.outcome === "suppressed_disarmed" ||
-    dispatch.outcome === "suppressed_cooldown";
+  const suppressed = isDispatchSuppressed(dispatch);
   const outcome = explainOutcome(dispatch.outcome, {
     armedWindow: site ? formatArmedWindow(site.armed_from, site.armed_to) : undefined,
     armedDays: site ? formatArmedDays(site.armed_days) : undefined,

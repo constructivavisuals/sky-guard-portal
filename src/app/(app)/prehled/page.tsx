@@ -32,6 +32,7 @@ import {
   formatUntil,
   patrolWarnings,
   unknownPlateWarnings,
+  zoneWarnings,
   type PatrolHealth,
   type Warning,
 } from "@/lib/dashboard.ts";
@@ -131,6 +132,7 @@ export default async function Page() {
   };
   let unknownPlates: { plate: string | null; armed: boolean }[] = [];
   let cameras = { total: 0, withoutZone: 0 };
+  let zones = { total: 0, withoutWayline: 0 };
   let silence: { name: string; lastSeenAt: Date | null; online: boolean }[] = [];
   let events: EventRow[] = [];
   let failed = false;
@@ -146,7 +148,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, passageCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, passageCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -154,7 +156,7 @@ export default async function Page() {
             .eq("site_id", site.id).gte("sent_at", since),
           supabase.from("dispatches").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("sent_at", since)
-            .in("outcome", ["suppressed_disarmed", "suppressed_cooldown"]),
+            .in("outcome", ["suppressed_disarmed", "suppressed_cooldown", "suppressed_dock"]),
           supabase.from("flights").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("started_at", since),
           supabase.from("patrols").select("id, name, interval_minutes, created_at")
@@ -166,6 +168,11 @@ export default async function Page() {
           supabase.from("cameras").select("id, name, zone_id, status, last_seen_at")
             .eq("site_id", site.id).neq("status", "decommissioned")
             .returns<CameraRow[]>(),
+          // Zóna bez trasy je tichý výpadek stejného druhu jako kamera
+          // bez zóny: detekce se zapíše, dron nikam neletí.
+          supabase.from("zones").select("id, wayline_uuid")
+            .eq("site_id", site.id).eq("enabled", true)
+            .returns<{ id: string; wayline_uuid: string | null }[]>(),
           supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("passed_at", since),
           // Vjezdy s neznámou nebo nepřečtenou značkou. Ostrý režim se
@@ -220,6 +227,17 @@ export default async function Page() {
         total: cameraList.length,
         withoutZone: cameraList.filter((camera) => camera.zone_id === null).length,
       };
+      // Chybějící sloupec (migrace 20260903180000 ještě neběžela)
+      // znamená „nevíme“, ne „nemá trasu“ — strašit varováním na
+      // základě neexistujícího sloupce by bylo horší než mlčet.
+      if (!zoneRows.error) {
+        const zoneList = zoneRows.data ?? [];
+        zones = {
+          total: zoneList.length,
+          withoutWayline: zoneList.filter((zone) => !zone.wayline_uuid).length,
+        };
+      }
+
       silence = cameraList.map((camera) => ({
         name: camera.name,
         lastSeenAt: camera.last_seen_at ? new Date(camera.last_seen_at) : null,
@@ -304,6 +322,7 @@ export default async function Page() {
     // Kamery bez zóny první — je to tichý výpadek celé lokality,
     // ne provozní drobnost jako plné úložiště.
     ...cameraWarnings(cameras),
+    ...zoneWarnings(zones),
     ...unknownPlateWarnings(unknownPlates),
     ...cameraSilenceWarnings(silence, now),
     ...patrolWarnings(health, now),

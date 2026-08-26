@@ -131,6 +131,12 @@ export interface ZoneFormValue {
   name: string;
   latitude: number;
   longitude: number;
+  /**
+   * Trasa ve FlightHubu. Nepovinná schválně: zóna smí vzniknout dřív,
+   * než jí někdo trasu nakreslí. Zásah z ní pak neodejde a přehled to
+   * hlásí varováním — což je lepší než nemoct zónu vůbec založit.
+   */
+  wayline_uuid: string | null;
   default_level: DispatchLevel;
   enabled: boolean;
 }
@@ -183,6 +189,7 @@ export function parseZoneForm(data: FormData): Validated<ZoneFormValue> {
       name,
       latitude,
       longitude,
+      wayline_uuid: optionalText(data, "wayline_uuid"),
       default_level: level as DispatchLevel,
       // Nezaškrtnutý checkbox se v FormData vůbec neobjeví.
       enabled: data.get("enabled") !== null,

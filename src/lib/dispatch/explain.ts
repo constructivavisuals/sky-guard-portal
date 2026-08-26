@@ -113,6 +113,14 @@ export function explainOutcome(
             : "Od předchozího odeslaného zásahu neuplynul nastavený odstup.",
         tone: "warning",
       };
+    case "suppressed_dock":
+      return {
+        title: "Potlačeno — dok nebyl připravený",
+        // Jantarová, ne červená: nic se nepokazilo, jen dron nemohl
+        // vzlétnout. Přesný důvod nese decision_reason.dock.
+        text: "Dron nebyl ve stavu, ze kterého se dá vzlétnout. Detekce zůstala zapsaná.",
+        tone: "warning",
+      };
     case "failed":
       return {
         title: "Odeslání selhalo",
@@ -189,5 +197,36 @@ export function conditionsFromReason(reason: DecisionReason): string[] {
     );
   }
 
+  if (reason.zone_has_wayline === false) {
+    out.push(
+      "Zóna nemá přiřazenou trasu ve FlightHubu, takže se plánovaná úloha nedala založit.",
+    );
+  }
+
+  const dock = reason.dock;
+  if (dock && !dock.ok) {
+    out.push(popisDoku(dock));
+  }
+
   return out;
+}
+
+/** Proč se z doku nedalo vzlétnout, česky. */
+function popisDoku(dock: NonNullable<DecisionReason["dock"]>): string {
+  switch (dock.reason) {
+    case "drone_not_in_dock":
+      return "Dron nebyl v doku, takže neměl odkud odstartovat.";
+    case "low_battery":
+      return dock.battery_percent === null
+        ? "Dron neměl dost nabito."
+        : `Dron měl ${Math.round(dock.battery_percent)} % baterie, což je pod hranicí pro vzlet.`;
+    case "storage_full":
+      return dock.storage_used_percent === null
+        ? "Úložiště doku bylo plné, nebylo kam ukládat snímky."
+        : `Úložiště doku bylo zaplněné na ${Math.round(dock.storage_used_percent)} %, nebylo kam ukládat snímky.`;
+    case "unreachable":
+      return "Stav doku se nepodařilo zjistit, takže se neletělo — planý let stojí víc než zmeškaný.";
+    default:
+      return "Dok nebyl ve stavu, ze kterého se dá vzlétnout.";
+  }
 }

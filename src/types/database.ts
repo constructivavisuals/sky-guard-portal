@@ -33,6 +33,12 @@ export const DISPATCH_OUTCOMES = [
   "sent",
   "suppressed_disarmed",
   "suppressed_cooldown",
+  /**
+   * Dok nebyl ve stavu, ze kterého se dá vzlétnout. Migrace
+   * 20260903180000. Není to chyba: dron mimo dok, vybitá baterie
+   * a plné úložiště jsou provozní stavy, na které se dá reagovat.
+   */
+  "suppressed_dock",
   "failed",
 ] as const;
 export type DispatchOutcome = (typeof DISPATCH_OUTCOMES)[number];
@@ -110,6 +116,7 @@ export const DISPATCH_OUTCOME_LABELS: Record<DispatchOutcome, string> = {
   sent: "Odesláno",
   suppressed_disarmed: "Potlačeno — mimo režim",
   suppressed_cooldown: "Potlačeno — cooldown",
+  suppressed_dock: "Potlačeno — dok",
   failed: "Chyba",
 };
 
@@ -210,8 +217,17 @@ export type Zone = {
   id: string;
   site_id: string;
   name: string;
-  /** Waypoint, na který dron letí, geography(Point, 4326). */
+  /**
+   * Waypoint zóny, geography(Point, 4326). Kreslí se z něj bod na
+   * podkladu a ukazuje se v detailu zásahu. Do plánované úlohy se
+   * NEPOSÍLÁ — tam vede dron trasa, viz wayline_uuid.
+   */
   location: Geography | null;
+  /**
+   * Trasa ve FlightHubu, po které dron k zóně letí. Migrace
+   * 20260903180000. NULL = zásah z téhle zóny neodejde.
+   */
+  wayline_uuid: string | null;
   default_level: DispatchLevel;
   enabled: boolean;
   created_at: string;
@@ -277,6 +293,23 @@ export type DecisionReason = {
   seconds_since_last_sent: number | null;
   /** Kolik z cooldownu zbývalo. 0, když už uplynul. */
   cooldown_remaining_seconds: number | null;
+  /**
+   * Stav doku v okamžiku rozhodnutí. Migrace 20260903180000, takže
+   * u starších zásahů chybí úplně — proto volitelné, ne jen nullable.
+   */
+  dock?: {
+    ok: boolean;
+    /** Strojový důvod, proč se nedalo vzlétnout. null, když šlo. */
+    reason: "drone_not_in_dock" | "low_battery" | "storage_full" | "unreachable" | null;
+    drone_in_dock: boolean | null;
+    battery_percent: number | null;
+    storage_used_percent: number | null;
+  } | null;
+  /**
+   * Měla zóna trasu? Bez ní se plánovaná úloha nedá založit.
+   * Chybí u zásahů z doby před migrací 20260903180000.
+   */
+  zone_has_wayline?: boolean;
   decided_at: string;
 };
 
@@ -325,8 +358,16 @@ export type Dispatch = {
   triggered_by_detection: string | null;
   sent_at: string;
   level_sent: DispatchLevel;
-  /** Incident z FlightHubu — neprázdný právě u outcome 'sent'. */
+  /**
+   * Incident ze staré cesty přes workflow trigger. Nové zásahy ho
+   * nevyplňují — viz migrace 20260903180000.
+   */
   fh_incident_uuid: string | null;
+  /**
+   * UUID plánované úlohy ve FlightHubu. Migrace 20260903180000.
+   * Neprázdné právě u outcome 'sent'.
+   */
+  fh_task_uuid: string | null;
   http_status: number | null;
   /** Celá odpověď FlightHubu včetně chybového těla. */
   response: Json;
@@ -628,14 +669,17 @@ export function isDispatchSent(
   return dispatch.outcome === "sent";
 }
 
-/** Potlačený zásah není chyba — jen se na detekci nereagovalo. */
+/**
+ * Potlačený zásah není chyba — jen se na detekci nereagovalo.
+ *
+ * Odvozeno z názvu, ne z výčtu: každý další důvod potlačení tím platí
+ * automaticky. Ruční výčet by se po přidání 'suppressed_dock' rozešel
+ * s pravdou přesně na těch dvou místech, kde se na něj nikdo nepodívá.
+ */
 export function isDispatchSuppressed(
   dispatch: Pick<Dispatch, "outcome">,
 ): boolean {
-  return (
-    dispatch.outcome === "suppressed_disarmed" ||
-    dispatch.outcome === "suppressed_cooldown"
-  );
+  return dispatch.outcome.startsWith("suppressed_");
 }
 
 const ISO_WEEKDAY_BY_SHORT_NAME: Record<string, IsoWeekday> = {

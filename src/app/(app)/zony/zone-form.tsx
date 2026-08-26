@@ -13,9 +13,11 @@ import {
   TextField,
 } from "@/components/form.tsx";
 import { Button } from "@/components/ui.tsx";
+import type { Wayline } from "@/lib/dispatch/flighthub.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
 import { saveZone } from "../entity-actions.ts";
+import { nacistTrasy } from "../wayline-actions.ts";
 
 export interface ZoneInitial {
   id: string;
@@ -23,6 +25,7 @@ export interface ZoneInitial {
   name: string;
   latitude: number | null;
   longitude: number | null;
+  wayline_uuid: string | null;
   default_level: number;
   enabled: boolean;
 }
@@ -36,9 +39,21 @@ export function ZoneForm({
 }) {
   const [session, setSession] = useState(0);
   const [open, setOpen] = useState(false);
+  // Trasy se tahají až při otevření, ne při renderu stránky — je to
+  // volání do FlightHubu, které by jinak zdržovalo každé zobrazení
+  // /zony. Stejný vzor jako u hlídek.
+  const [waylines, setWaylines] = useState<Wayline[] | null>(null);
+  const [waylineError, setWaylineError] = useState<string | null>(null);
+
   const show = () => {
     setSession((value) => value + 1);
     setOpen(true);
+    if (waylines === null && waylineError === null) {
+      void nacistTrasy().then((result) => {
+        if (result.ok) setWaylines(result.waylines);
+        else setWaylineError(result.message);
+      });
+    }
   };
 
   return (
@@ -64,6 +79,9 @@ export function ZoneForm({
           key={session}
           sites={sites}
           zone={zone}
+          waylines={waylines}
+          waylineError={waylineError}
+          waylinesLoading={waylines === null && waylineError === null}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -74,10 +92,16 @@ export function ZoneForm({
 function ZoneDialog({
   sites,
   zone,
+  waylines,
+  waylineError,
+  waylinesLoading,
   onClose,
 }: {
   sites: SiteOption[];
   zone?: ZoneInitial;
+  waylines: Wayline[] | null;
+  waylineError: string | null;
+  waylinesLoading: boolean;
   onClose: () => void;
 }) {
   const [state, formAction] = useActionState(saveZone, EMPTY_FORM_STATE);
@@ -95,11 +119,22 @@ function ZoneDialog({
 
   const e = state.errors;
 
+  // Trasa uložená u zóny nemusí být v seznamu z FlightHubu — mohla být
+  // přejmenovaná nebo smazaná. Ať ji formulář neztratí.
+  const options = (waylines ?? []).map((w) => ({ value: w.uuid, label: w.name }));
+  const current = zone?.wayline_uuid;
+  if (current && !options.some((o) => o.value === current)) {
+    options.unshift({ value: current, label: `${current} (mimo seznam)` });
+  }
+
   return (
     <FormDialog title={zone ? "Upravit zónu" : "Nová zóna"} open onClose={onClose}>
       <form key={state.attempt} action={formAction} className="space-y-4">
         {zone ? <input type="hidden" name="id" value={zone.id} /> : null}
         <FormError error={e._form} />
+        {waylineError ? (
+          <FormError error={`Trasy z FlightHubu se nepodařilo načíst: ${waylineError}`} />
+        ) : null}
 
         <SelectField
           label="Lokalita"
@@ -135,6 +170,25 @@ function ZoneDialog({
             required
           />
         </div>
+
+        {/* Trasa, ne souřadnice, určuje kudy dron letí: zásah se
+            zakládá jako plánovaná úloha a ta chce wayline. Souřadnice
+            výš zůstávají kvůli mapě a detailu zásahu. */}
+        <SelectField
+          label="Trasa zásahu"
+          name="wayline_uuid"
+          error={e.wayline_uuid}
+          defaultValue={keep("wayline_uuid", zone?.wayline_uuid ?? "")}
+          placeholder={
+            waylinesLoading
+              ? "Načítají se trasy…"
+              : options.length
+                ? "Bez trasy — zásah neodejde"
+                : "Žádné trasy z FlightHubu"
+          }
+          options={options}
+          hint="Po téhle trase dron k zóně letí. Bez ní se zásah nezaloží."
+        />
 
         <SelectField
           label="Výchozí úroveň"

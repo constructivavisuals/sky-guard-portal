@@ -184,6 +184,39 @@ export function cameraWarnings(cameras: {
 }
 
 /**
+ * Zóny, které nemají trasu.
+ *
+ * Zásah se od migrace 20260903180000 zakládá jako plánovaná úloha ve
+ * FlightHubu a ta chce trasu, ne souřadnice. Zóna bez trasy se tedy
+ * chová jako kamera bez zóny: detekce se zapíše, dron nikam neletí.
+ * Bez tohohle varování se ten stav nedá odlišit od klidné noci.
+ *
+ * Vypnuté zóny se nepočítají — z těch by zásah nevznikl tak jako tak
+ * a varovat u nich na chybějící trasu by bylo matoucí.
+ */
+export function zoneWarnings(zones: {
+  total: number;
+  withoutWayline: number;
+}): Warning[] {
+  if (zones.withoutWayline <= 0) return [];
+
+  const all = zones.withoutWayline === zones.total && zones.total > 0;
+  const count =
+    zones.withoutWayline === 1
+      ? "Jedna zóna nemá"
+      : `${zones.withoutWayline} zón nemá`;
+
+  return [
+    {
+      key: "zones_without_wayline",
+      text: all
+        ? `${count} přiřazenou trasu — na téhle lokalitě proto nevznikne žádný zásah, i když kamery detekují.`
+        : `${count} přiřazenou trasu, takže z ní dron nevzlétne.`,
+    },
+  ];
+}
+
+/**
  * Hlídka, která nelétá.
  *
  * Práh je dvojnásobek intervalu — jedno vynechání může být plné
