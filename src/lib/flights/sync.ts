@@ -23,6 +23,7 @@ import {
   type ThreatReading,
 } from "./threat.ts";
 import { FLIGHT_BUCKET, MAX_MEDIA_BYTES } from "./storage.ts";
+import { notify } from "../push/send.ts";
 import type { Database, Flight, FlightStatus } from "../../types/database.ts";
 
 // Dotažení letu z FlightHubu.
@@ -219,7 +220,7 @@ interface PhotoRow {
  */
 export async function checkFlightThreat(
   db: Db,
-  flight: Pick<FlightRow, "id">,
+  flight: Pick<FlightRow, "id" | "site_id">,
 ): Promise<ThreatCheckResult> {
   const result: ThreatCheckResult = {
     checked: false,
@@ -315,6 +316,28 @@ export async function checkFlightThreat(
 
   result.checked = true;
   result.confirmed = verdict.confirmed;
+
+  // Potvrzený nález je jediná věc, kvůli které portál někoho budí
+  // i v tichých hodinách. Odesílá se až po zápisu: kdyby zápis
+  // selhal, nemá smysl tvrdit, že se něco našlo.
+  if (verdict.confirmed === true && flight.site_id) {
+    try {
+      await notify({
+        siteId: flight.site_id,
+        kind: "threat_confirmed",
+        title: "Na snímcích z letu je člověk nebo vozidlo",
+        body: verdict.note,
+        url: `/lety/${flight.id}`,
+        tag: `threat-${flight.id}`,
+      });
+    } catch (error) {
+      console.error("Notifikace o nálezu selhala", {
+        flight_id: flight.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return result;
 }
 

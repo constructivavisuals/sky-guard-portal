@@ -5,6 +5,7 @@ import {
   DISPATCH_LEAD_SECONDS,
   runDispatch,
   type DispatchDeps,
+  type DispatchNotification,
   type DispatchRow,
   type FlightPlan,
 } from "./run.ts";
@@ -62,6 +63,7 @@ function dockState(over: Partial<DockState> = {}): DockState {
 function deps(overrides: Partial<DispatchDeps> = {}) {
   const inserted: DispatchRow[] = [];
   const flights: FlightPlan[] = [];
+  const notifikace: DispatchNotification[] = [];
   const base: DispatchDeps = {
     isSiteArmed: async () => true,
     lastSentDispatchAt: async () => null,
@@ -80,9 +82,13 @@ function deps(overrides: Partial<DispatchDeps> = {}) {
     insertFlight: async (plan) => {
       flights.push(plan);
     },
+    notifyDispatch: async (input) => {
+      notifikace.push(input);
+      return { sent: 1, skipped: 0, removed: 0, failed: 0 };
+    },
     ...overrides,
   };
-  return { deps: base, inserted, flights };
+  return { deps: base, inserted, flights, notifikace };
 }
 
 describe("runDispatch — chybějící konfigurace FlightHubu", () => {
@@ -455,5 +461,59 @@ describe("cooldown se počítá z času přijetí", () => {
     );
 
     assert.equal(inserted[0].outcome, "sent");
+  });
+});
+
+describe("runDispatch — notifikace", () => {
+  it("odeslaný zásah pošle notifikaci s odkazem na detail", async () => {
+    const { deps: d, notifikace } = deps();
+
+    await runDispatch(context(), d);
+
+    assert.equal(notifikace.length, 1);
+    assert.equal(notifikace[0].outcome, "sent");
+    assert.equal(notifikace[0].dispatchId, "dispatch-1");
+    assert.equal(notifikace[0].zoneName, "Brána sever");
+  });
+
+  it("potlačený zásah taky, ať je poznat, že se neletělo", async () => {
+    const { deps: d, notifikace } = deps({ isSiteArmed: async () => false });
+
+    await runDispatch(context(), d);
+
+    assert.equal(notifikace.length, 1);
+    assert.equal(notifikace[0].outcome, "suppressed_disarmed");
+  });
+
+  it("selhání notifikace nezmění výsledek zásahu", async () => {
+    // Notifikace je doplněk k zapsanému zásahu, ne jeho součást.
+    const { deps: d } = deps({
+      notifyDispatch: async () => {
+        throw new Error("push služba nedostupná");
+      },
+    });
+
+    const result = await runDispatch(context(), d);
+
+    assert.deepEqual(result, {
+      status: "recorded",
+      outcome: "sent",
+      dispatchId: "dispatch-1",
+    });
+  });
+
+  it("bez zapsaného zásahu se neposílá nic", async () => {
+    // Odkaz by nevedl nikam.
+    const { deps: d, notifikace } = deps({ insertDispatch: async () => null });
+
+    await runDispatch(context(), d);
+
+    assert.equal(notifikace.length, 0);
+  });
+
+  it("kamera bez zóny notifikaci nespustí", async () => {
+    const { deps: d, notifikace } = deps();
+    await runDispatch(context({ zoneId: null }), d);
+    assert.equal(notifikace.length, 0);
   });
 });

@@ -6,7 +6,7 @@ import { BellOff, BellRing, Smartphone } from "lucide-react";
 
 import { Button } from "@/components/ui.tsx";
 import { formatDateTime } from "@/lib/format.ts";
-import type { EffectivePrefs } from "@/lib/push/rules.ts";
+import { effectivePrefs, type EffectivePrefs } from "@/lib/push/rules.ts";
 import {
   NOTIFICATION_KINDS,
   NOTIFICATION_KIND_COLUMNS,
@@ -357,7 +357,10 @@ function PrefsForm({
   jedina: boolean;
 }) {
   const [state, formAction] = useActionState(ulozitPredvolby, PRAZDNY);
-  const hodnoty = prefs;
+  // Kdo předvolby ještě neuložil, nemá řádek — a přepínače by pak
+  // stály na „vypnuto“, ačkoli notifikace ve skutečnosti chodí.
+  // Uložením by je tím omylem doopravdy vypnul.
+  const hodnoty = effectivePrefs(prefs);
 
   return (
     <form action={formAction} className="border-t border-[var(--line)] pt-5">
@@ -372,9 +375,7 @@ function PrefsForm({
       <ul className="space-y-3">
         {NOTIFICATION_KINDS.map((kind) => {
           const column = NOTIFICATION_KIND_COLUMNS[kind];
-          const checked = hodnoty
-            ? Boolean(hodnoty[column as keyof EffectivePrefs])
-            : undefined;
+          const checked = Boolean(hodnoty[column as keyof EffectivePrefs]);
           return (
             <li key={kind}>
               <label className="flex cursor-pointer items-start gap-3">
@@ -410,7 +411,7 @@ function PrefsForm({
             <input
               type="time"
               name="quiet_from"
-              defaultValue={hodnoty?.quiet_from?.slice(0, 5) ?? ""}
+              defaultValue={hodnoty.quiet_from?.slice(0, 5) ?? ""}
               className="h-9 border border-[var(--line-strong)] bg-[var(--bg)] px-2"
             />
           </label>
@@ -419,7 +420,7 @@ function PrefsForm({
             <input
               type="time"
               name="quiet_to"
-              defaultValue={hodnoty?.quiet_to?.slice(0, 5) ?? ""}
+              defaultValue={hodnoty.quiet_to?.slice(0, 5) ?? ""}
               className="h-9 border border-[var(--line-strong)] bg-[var(--bg)] px-2"
             />
           </label>

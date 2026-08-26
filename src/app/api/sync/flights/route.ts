@@ -134,13 +134,15 @@ export async function GET(request: NextRequest): Promise<Response> {
     const okno = new Date(Date.now() - THREAT_RETRY_WINDOW_DAYS * 86_400_000);
     const { data: kontrola, error: kontrolaError } = await db
       .from("flights")
-      .select("id")
+      // site_id je potřeba na notifikaci o nálezu — bez něj by nebylo
+      // komu ji poslat.
+      .select("id, site_id")
       .not("ended_at", "is", null)
       .is("threat_checked_at", null)
       .gte("ended_at", okno.toISOString())
       .order("ended_at", { ascending: false })
       .limit(zbyva)
-      .returns<{ id: string }[]>();
+      .returns<{ id: string; site_id: string | null }[]>();
 
     if (kontrolaError) {
       // Sloupce přidává migrace 20260903120000. Dokud neproběhla,

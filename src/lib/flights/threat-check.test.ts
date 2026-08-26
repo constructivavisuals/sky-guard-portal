@@ -104,7 +104,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch(stav.odpovedi);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
 
     assert.equal(r.checked, true);
     assert.equal(r.confirmed, true);
@@ -125,7 +125,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch(stav.odpovedi);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.confirmed, false);
     assert.equal(stav.zapisy[0].threat_confirmed, false);
   });
@@ -141,7 +141,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch(stav.odpovedi);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.checked, true);
     assert.equal(r.confirmed, null);
     assert.equal(stav.zapisy[0].threat_confirmed, null);
@@ -152,7 +152,7 @@ describe("checkFlightThreat", () => {
     const stav: Stav = { photos: [], count: 0, odpovedi: [], zapisy: [], stazeno: [] };
     stubFetch([]);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.checked, true);
     assert.equal(r.confirmed, null);
     assert.match(String(stav.zapisy[0].threat_note), /žádné fotky/);
@@ -171,7 +171,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch(stav.odpovedi);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.checked, false);
     assert.equal(stav.zapisy.length, 0);
     assert.equal(r.problems.length, 1);
@@ -188,7 +188,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch([]);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.checked, false);
     // Chybějící nastavení není selhání běhu — cron nesmí kvůli němu
     // hlásit chybu při každém spuštění.
@@ -209,7 +209,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch(stav.odpovedi);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.skipped, 1);
     assert.equal(r.confirmed, null);
   });
@@ -227,7 +227,7 @@ describe("checkFlightThreat", () => {
     };
     stubFetch(stav.odpovedi);
 
-    const r = await checkFlightThreat(fakeDb(stav), { id: "f1" });
+    const r = await checkFlightThreat(fakeDb(stav), { id: "f1", site_id: null });
     assert.equal(r.confirmed, null);
     assert.equal(stav.stazeno.length, 8);
   });

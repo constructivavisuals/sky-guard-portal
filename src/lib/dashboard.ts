@@ -116,13 +116,24 @@ export const CAMERA_SILENT_MINUTES = 60;
  * zapojené, ne rozbité. Na ty upozorňuje jiné varování, když nemají
  * zónu.
  */
-export function cameraSilenceWarnings(
-  cameras: { name: string; lastSeenAt: Date | null; online: boolean }[],
+export interface CameraSilence {
+  name: string;
+  lastSeenAt: Date | null;
+  online: boolean;
+}
+
+/**
+ * Které kamery mlčí. Vystavené zvlášť, aby na tomtéž pravidle stály
+ * varování na přehledu i notifikace z cronu — dvě kopie podmínky by
+ * se rozešly u první změny prahu.
+ */
+export function silentCameras<T extends CameraSilence>(
+  cameras: T[],
   now: Date = new Date(),
-): Warning[] {
+): T[] {
   const prah = CAMERA_SILENT_MINUTES * 60_000;
 
-  const ticho = cameras.filter((camera) => {
+  return cameras.filter((camera) => {
     if (!camera.online) return false;
     if (!camera.lastSeenAt) return false;
     const od = now.getTime() - camera.lastSeenAt.getTime();
@@ -131,6 +142,13 @@ export function cameraSilenceWarnings(
     if (!Number.isFinite(od)) return false;
     return od > prah;
   });
+}
+
+export function cameraSilenceWarnings(
+  cameras: CameraSilence[],
+  now: Date = new Date(),
+): Warning[] {
+  const ticho = silentCameras(cameras, now);
 
   if (ticho.length === 0) return [];
 

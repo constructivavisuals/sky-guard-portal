@@ -184,3 +184,62 @@ baterie pod 40 %, zaplněné úložiště) a co selhalo. Přeskočení je
 normální provozní stav a končí stavem 200; jakékoli **selhání vrací
 500**, aby `-f` v curlu poslalo mail. Bez toho by běh, ve kterém
 selhalo plánování všech hlídek, prošel tiše.
+
+## Push notifikace
+
+### Klíče
+
+```bash
+npm run vapid
+```
+
+Vypíše dvojici VAPID klíčů a **nikam je nezapíše**. Veřejný patří do
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` (jde do prohlížeče, bez něj se odběr
+nedá založit), privátní do `VAPID_PRIVATE_KEY` (zůstává na serveru).
+Volitelně `VAPID_SUBJECT`, výchozí je `mailto:info@sky-guard.cz`.
+
+Bez obou klíčů se notifikace tiše neposílají a v logu je o tom řádek.
+Není to chyba běhu — zásahy a synchronizace jedou dál.
+
+**Změna klíčů zneplatní všechny existující odběry.** Push služba je
+váže na veřejný klíč, kterým vznikly; uživatelé si notifikace budou
+muset povolit znovu.
+
+### Odesílá se ze tří míst
+
+| Kdy | Kde | Druh |
+|---|---|---|
+| po zápisu zásahu | `lib/dispatch/run.ts`, v `after()` | `dispatch_sent` / `dispatch_suppressed` |
+| po potvrzení nálezu | `lib/flights/sync.ts` | `threat_confirmed` |
+| mlčící kamera, dok | `GET /api/cron/varovani` | `camera_silent` / `dock_problem` |
+
+```cron
+*/30 * * * * . /etc/sky-guard.env && curl -fsS -m 60 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/varovani
+```
+
+Zásah je událost — stane se jednou a jednou se ohlásí. Mlčící kamera
+je **stav**: mlčí i za půl hodiny. Cron proto drží v `notification_log`
+odstup (6 h) na dvojici lokalita–událost, jinak by posílal totéž při
+každém běhu a uživatel by si notifikace vypnul — čímž by přišel
+i o zásahy.
+
+### Předvolby
+
+Po lokalitách, v `/nastaveni`. Kdo si předvolby neuložil, dostává
+výchozí sadu: zapnuto všechno kromě potlačených zásahů. Tiché hodiny
+platí v čase lokality.
+
+**Potvrzený nález tiché hodiny ignoruje.** Vypnout se dá, umlčet ne:
+„v noci mě neruš“ neznamená „a nevadí, že mi na pozemku někdo je“.
+
+### Proč web-push
+
+Ověřeno, ne odhadnuto: balíček je čistě JavaScriptový, závisí jen na
+vestavěných modulech Node (`crypto`, `https`, `url`, `util`), nemá
+jediný `.node` soubor, `binding.gyp` ani install skript. Na Vercelu
+tedy běží v Node runtime bez dalšího zařizování a ruční podpis VAPID
+přes Web Crypto by byl řádově víc kódu bez výhody.
+
+Odběr, na který push služba odpoví **404 nebo 410**, se maže hned.
+Mrtvé odběry se jinak hromadí a každý stojí jedno volání po síti při
+každé další notifikaci.

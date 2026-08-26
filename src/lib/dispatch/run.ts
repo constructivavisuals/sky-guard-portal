@@ -1,8 +1,11 @@
 import { supabaseAdmin } from "../supabase-admin.ts";
 import {
+  DETECTION_OBJECT_CLASS_LABELS,
+  DISPATCH_OUTCOME_LABELS,
   type DetectionObjectClass,
   type DecisionReason,
   type DispatchInsert,
+  type DispatchLevel,
   type DispatchOutcome,
   type FlightConditions,
 } from "../../types/database.ts";
@@ -13,6 +16,7 @@ import {
   decideDispatch,
   resolveDispatchLevel,
 } from "./decision.ts";
+import { notify, type NotifyResult } from "../push/send.ts";
 import { checkDockReadiness } from "./dock-readiness.ts";
 import {
   createFlightTask,
@@ -112,6 +116,17 @@ export interface DispatchDeps {
   createFlightTask(input: FlightTaskInput): Promise<FlightTaskResult>;
   insertDispatch(row: DispatchRow): Promise<string | null>;
   insertFlight(plan: FlightPlan): Promise<void>;
+  notifyDispatch(input: DispatchNotification): Promise<NotifyResult>;
+}
+
+/** Co se pošle do notifikace o zásahu. */
+export interface DispatchNotification {
+  dispatchId: string;
+  siteId: string;
+  zoneName: string | null;
+  outcome: DispatchOutcome;
+  level: DispatchLevel;
+  objectClass: DetectionObjectClass;
 }
 
 /**
@@ -496,6 +511,27 @@ export async function runDispatch(
       });
     }
 
+    // Notifikace až nakonec a nikdy jako podmínka výsledku: je to
+    // doplněk k zapsanému zásahu, ne jeho součást. Selhání odeslání
+    // nesmí z odeslaného zásahu udělat neodeslaný.
+    if (dispatchId) {
+      try {
+        await deps.notifyDispatch({
+          dispatchId,
+          siteId: resolved.siteId,
+          zoneName: resolved.zoneName,
+          outcome: row.outcome,
+          level: row.level_sent,
+          objectClass: resolved.objectClass,
+        });
+      } catch (error) {
+        console.error("Notifikace o zásahu selhala", {
+          dispatch_id: dispatchId,
+          message: safeErrorMessage(error),
+        });
+      }
+    }
+
     return { status: "recorded", outcome: row.outcome, dispatchId };
   } catch (error) {
     // Poslední instance: nefunguje ani zápis, stopu není kam uložit.
@@ -549,6 +585,45 @@ async function insertFlight(plan: FlightPlan): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Notifikace o zásahu.
+ *
+ * Odeslaný a neodeslaný zásah jsou pro uživatele dvě různé zprávy,
+ * takže i dva druhy odběru. `failed` spadá pod „zásah potlačen“
+ * schválně: z pohledu člověka u telefonu je podstatné, že dron
+ * nevzlétl, a čím to bylo, řekne text.
+ */
+async function notifyDispatch(input: DispatchNotification): Promise<NotifyResult> {
+  const zona = input.zoneName ?? "neznámá zóna";
+  const co = DETECTION_OBJECT_CLASS_LABELS[input.objectClass].toLowerCase();
+
+  if (input.outcome === "sent") {
+    return notify({
+      siteId: input.siteId,
+      kind: "dispatch_sent",
+      title: `Zásah odeslán — ${zona}`,
+      body: `Dron letí k detekci (${co}), stupeň ${input.level}.`,
+      url: `/zasahy/${input.dispatchId}`,
+      // Vlastní tag na zásah: dva zásahy za sebou se nemají přepsat.
+      tag: `dispatch-${input.dispatchId}`,
+    });
+  }
+
+  const duvod =
+    input.outcome === "failed"
+      ? "Odeslání do FlightHubu selhalo."
+      : `${DISPATCH_OUTCOME_LABELS[input.outcome]}.`;
+
+  return notify({
+    siteId: input.siteId,
+    kind: "dispatch_suppressed",
+    title: `Zásah neodešel — ${zona}`,
+    body: `Detekce (${co}) zapsaná, dron nevzlétl. ${duvod}`,
+    url: `/zasahy/${input.dispatchId}`,
+    tag: `dispatch-${input.dispatchId}`,
+  });
+}
+
 /** Výchozí závislosti — databáze a skutečný FlightHub. */
 export const databaseDeps: DispatchDeps = {
   isSiteArmed: isSiteArmedInDb,
@@ -558,4 +633,5 @@ export const databaseDeps: DispatchDeps = {
   createFlightTask,
   insertDispatch,
   insertFlight,
+  notifyDispatch,
 };
