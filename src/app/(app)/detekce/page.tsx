@@ -116,9 +116,16 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
             }
           >
             {rows.map((row) => (
-              <Tr key={row.id}>
+              <Tr key={row.id} className="relative">
                 <TdTight label="Čas" className="text-[var(--text-muted)]">
-                  {formatDateTime(row.detected_at, row.sites?.timezone)}
+                  {/* Odkaz roztažený přes celý řádek — klik kamkoli
+                      otevře detail se snímkem. */}
+                  <Link
+                    href={`/detekce/${row.id}`}
+                    className="after:absolute after:inset-0 after:content-[''] hover:underline"
+                  >
+                    {formatDateTime(row.detected_at, row.sites?.timezone)}
+                  </Link>
                 </TdTight>
                 <Td label="Lokalita">{orDash(row.sites?.name)}</Td>
                 <Td label="Zdroj">{DETECTION_SOURCE_LABELS[row.source]}</Td>
@@ -196,7 +203,9 @@ function DispatchLink({
   return (
     <Link
       href={`/zasahy/${dispatch.id}`}
-      className="inline-flex rounded-[var(--radius-pill)] transition hover:opacity-80"
+      // z-10: odznak musí zůstat nad překryvem řádku, jinak by klik
+      // na něj otevřel detekci místo zásahu.
+      className="relative z-10 inline-flex rounded-[var(--radius-pill)] transition hover:opacity-80"
     >
       <DispatchOutcomeShortBadge outcome={dispatch.outcome} />
     </Link>

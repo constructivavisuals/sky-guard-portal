@@ -12,6 +12,8 @@ import {
   type IngestCameraRow,
 } from "@/lib/ingest/camera-lookup.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
+import { DETECTION_BUCKET } from "@/lib/detections/storage.ts";
+import { ingestImagePath, MAX_IMAGE_BYTES } from "@/lib/ingest/image.ts";
 import {
   publicFailureReason,
   verifySignature,
@@ -105,8 +107,13 @@ function verifyForCamera(options: {
   return verifySignature({ ...base, secret: derived });
 }
 
-/** Nad tímhle se tělo ani nečte. Detekce je pár set bajtů. */
-const MAX_BODY_BYTES = 32 * 1024;
+/**
+ * Nad tímhle se tělo ani nečte.
+ *
+ * Samotná detekce je pár set bajtů, ale smí s sebou nést snímek —
+ * base64 ho nafoukne o třetinu. Stejný výpočet jako u vjezdů.
+ */
+const MAX_BODY_BYTES = Math.ceil(MAX_IMAGE_BYTES * 1.4) + 8 * 1024;
 
 export async function POST(request: NextRequest): Promise<Response> {
   // Jeden čas pro celý požadavek: podle něj se ověřuje stáří podpisu,
@@ -270,6 +277,47 @@ export async function POST(request: NextRequest): Promise<Response> {
       message: detectionError?.message,
     });
     return jsonError(500, "detection_insert_failed");
+  }
+
+  // ── Snímek ─────────────────────────────────────────────────────
+  // Až po zápisu detekce a schválně mimo after(): cesta se ukládá na
+  // řádek, takže by ji zápis na pozadí musel dopisovat druhým dotazem.
+  // Nahrání je jedno volání, ne dlouhá práce.
+  //
+  // Selhání snímku NESMÍ shodit detekci. Přijít o obrázek je nepříjemné,
+  // přijít o záznam, že někdo byl v areálu, je něco jiného.
+  if (payload.image) {
+    const cesta = ingestImagePath(
+      camera.site_id,
+      detection.id,
+      payload.image.mediaType,
+    );
+    if (cesta) {
+      const { error: uploadError } = await db.storage
+        .from(DETECTION_BUCKET)
+        .upload(cesta, Buffer.from(payload.image.base64, "base64"), {
+          contentType: payload.image.mediaType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Nahrání snímku detekce selhalo", {
+          detection_id: detection.id,
+          message: uploadError.message,
+        });
+      } else {
+        const { error: pathError } = await db
+          .from("detections")
+          .update({ storage_path: cesta })
+          .eq("id", detection.id);
+        if (pathError) {
+          console.error("Zápis cesty snímku selhal", {
+            detection_id: detection.id,
+            message: pathError.message,
+          });
+        }
+      }
+    }
   }
 
   // Kamera se ozvala. Bez tohohle razítka nešlo odlišit klidnou noc od

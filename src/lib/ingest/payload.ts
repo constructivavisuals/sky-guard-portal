@@ -3,6 +3,7 @@ import {
   type DetectionObjectClass,
   type Json,
 } from "../../types/database.ts";
+import { parseIngestImage, type IngestImage } from "./image.ts";
 import { DEFAULT_TOLERANCE_SECONDS } from "./signature.ts";
 
 // Validace těla ingest požadavku. Zvlášť od podpisu, protože se testuje
@@ -20,6 +21,13 @@ export interface DetectionPayload {
   detectedAt: Date;
   objectClass: DetectionObjectClass;
   confidence: number | null;
+  /**
+   * Snímek okamžiku detekce. Null, když ho kamera neposlala.
+   *
+   * Nepovinný schválně: starší kamery ho neumí a detekce bez obrázku je
+   * pořád lepší než odmítnutá detekce.
+   */
+  image: IngestImage | null;
   raw: Json;
 }
 
@@ -108,10 +116,12 @@ export function parseDetectionPayload(
     }
   }
 
+  const image = parseIngestImage(body.image, errors);
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
     ok: true,
-    payload: { cameraSerial, detectedAt, objectClass, confidence, raw },
+    payload: { cameraSerial, detectedAt, objectClass, confidence, image, raw },
   };
 }
