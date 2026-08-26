@@ -50,3 +50,34 @@ export function flightHubConfig(): FlightHubConfig {
     userToken: required("FH_USER_TOKEN"),
   };
 }
+
+export interface VapidConfig {
+  publicKey: string;
+  privateKey: string;
+  /** Kontakt pro push službu podle RFC 8292; mailto: nebo https:. */
+  subject: string;
+}
+
+/**
+ * Klíče pro podpis push notifikací.
+ *
+ * Veřejný klíč je NEXT_PUBLIC_, protože ho potřebuje prohlížeč při
+ * zakládání odběru. Privátní zůstává na serveru — kdyby unikl, může
+ * jménem portálu poslat notifikaci komukoli s přihlášeným zařízením.
+ *
+ * Generuje je `npm run vapid`.
+ */
+export function vapidConfig(): VapidConfig {
+  return {
+    publicKey: required("NEXT_PUBLIC_VAPID_PUBLIC_KEY"),
+    privateKey: required("VAPID_PRIVATE_KEY"),
+    subject: process.env.VAPID_SUBJECT ?? "mailto:info@sky-guard.cz",
+  };
+}
+
+/** Jsou notifikace vůbec nastavené? Chybějící klíče nejsou chyba běhu. */
+export function pushConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY,
+  );
+}

@@ -72,6 +72,9 @@ run_test_file camera_location.sql
 echo "== práva na pomocné funkce =="
 run_test_file function_grants.sql
 
+echo "== odběry a předvolby notifikací =="
+run_test_file push_notifications.sql
+
 echo "== zpevnění ingestu =="
 run_test_file ingest_hardening.sql
 

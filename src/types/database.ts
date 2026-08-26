@@ -586,6 +586,21 @@ export type Database = {
       flights: TableShape<Flight, FlightInsert, Updatable<Flight>>;
       patrols: TableShape<Patrol, PatrolInsert, Updatable<Patrol>>;
       media: TableShape<Media, MediaInsert, Updatable<Media>>;
+      push_subscriptions: TableShape<
+        PushSubscription,
+        Insertable<PushSubscription, "profile_id" | "endpoint" | "p256dh" | "auth">,
+        Updatable<PushSubscription>
+      >;
+      notification_prefs: TableShape<
+        NotificationPrefs,
+        Insertable<NotificationPrefs, "profile_id" | "site_id">,
+        Updatable<NotificationPrefs>
+      >;
+      notification_log: TableShape<
+        NotificationLog,
+        Insertable<NotificationLog, "site_id" | "kind" | "target">,
+        Updatable<NotificationLog>
+      >;
       site_grants: TableShape<SiteGrant, SiteGrantInsert, Updatable<SiteGrant>>;
       known_plates: TableShape<
         KnownPlateRow,
@@ -760,6 +775,150 @@ export function isSiteArmed(
   if (now >= from) return site.armed_days.includes(isoWeekday);
   if (now < to) return site.armed_days.includes(isoYesterday);
   return false;
+}
+
+// ── Notifikace ───────────────────────────────────────────────────
+
+/** Zařízení, kterému se posílají push notifikace. Migrace 20260904120000. */
+export type PushSubscription = {
+  id: string;
+  profile_id: string;
+  /** Adresa u push služby. Unikátní — tentýž prohlížeč vrací tutéž. */
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: string;
+  /** Kdy na něj naposledy něco úspěšně odešlo. NULL = zatím nikdy. */
+  last_used_at: string | null;
+};
+
+/** Druhy událostí, na které se dá odebírat. */
+export const NOTIFICATION_KINDS = [
+  "dispatch_sent",
+  "dispatch_suppressed",
+  "threat_confirmed",
+  "camera_silent",
+  "dock_problem",
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+export const NOTIFICATION_KIND_LABELS: Record<NotificationKind, string> = {
+  dispatch_sent: "Zásah odeslán",
+  dispatch_suppressed: "Zásah potlačen",
+  threat_confirmed: "Nález potvrzen",
+  camera_silent: "Kamera mlčí",
+  dock_problem: "Dok v nepořádku",
+};
+
+export const NOTIFICATION_KIND_HINTS: Record<NotificationKind, string> = {
+  dispatch_sent: "Dron vzlétl k detekci.",
+  dispatch_suppressed: "Detekce byla, ale zásah neodešel — mimo režim, cooldown nebo nepřipravený dok.",
+  threat_confirmed: "Na snímcích z letu je člověk nebo vozidlo. Chodí i v tichých hodinách.",
+  camera_silent: "Kamera se dlouho neozvala, přestože je vedená jako online.",
+  dock_problem: "Dron mimo dok, vybitá baterie nebo plné úložiště.",
+};
+
+/** Sloupec předvoleb pro daný druh události. */
+export const NOTIFICATION_KIND_COLUMNS: Record<NotificationKind, keyof NotificationPrefs> = {
+  dispatch_sent: "on_dispatch_sent",
+  dispatch_suppressed: "on_dispatch_suppressed",
+  threat_confirmed: "on_threat_confirmed",
+  camera_silent: "on_camera_silent",
+  dock_problem: "on_dock_problem",
+};
+
+/**
+ * Které události tiché hodiny NEUMLČÍ.
+ *
+ * Potvrzený nález znamená, že na pozemku někdo je. To se člověk musí
+ * dozvědět i ve tři ráno — právě tehdy to platí nejvíc.
+ */
+export const NOTIFICATION_KINDS_IGNORING_QUIET: readonly NotificationKind[] = [
+  "threat_confirmed",
+];
+
+/** Kdy naposledy odešlo opakující se varování. Migrace 20260904120000. */
+export type NotificationLog = {
+  id: string;
+  site_id: string;
+  kind: string;
+  /** Čeho se týká: id kamery, nebo 'dock'. */
+  target: string;
+  last_sent_at: string;
+};
+
+/** Předvolby notifikací pro dvojici uživatel–lokalita. */
+export type NotificationPrefs = {
+  id: string;
+  profile_id: string;
+  site_id: string;
+  on_dispatch_sent: boolean;
+  on_dispatch_suppressed: boolean;
+  on_threat_confirmed: boolean;
+  on_camera_silent: boolean;
+  on_dock_problem: boolean;
+  /** `HH:MM:SS` v pásmu lokality. quiet_from > quiet_to = přes půlnoc. */
+  quiet_from: string | null;
+  quiet_to: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Výchozí předvolby pro uživatele, který si je ještě nenastavil.
+ *
+ * Musí sedět s DEFAULT hodnotami v migraci 20260904120000. Kdo si
+ * notifikace povolil, chce je dostávat — proto zapnuto u všeho kromě
+ * potlačených zásahů, kterých je v běžném provozu nejvíc.
+ */
+export const DEFAULT_NOTIFICATION_PREFS: Pick<
+  NotificationPrefs,
+  | "on_dispatch_sent"
+  | "on_dispatch_suppressed"
+  | "on_threat_confirmed"
+  | "on_camera_silent"
+  | "on_dock_problem"
+  | "quiet_from"
+  | "quiet_to"
+> = {
+  on_dispatch_sent: true,
+  on_dispatch_suppressed: false,
+  on_threat_confirmed: true,
+  on_camera_silent: true,
+  on_dock_problem: true,
+  quiet_from: null,
+  quiet_to: null,
+};
+
+/**
+ * Je `at` uvnitř tichých hodin?
+ *
+ * Stejná úmluva jako u okna střežení: from > to znamená okno přes
+ * půlnoc. Prázdné nebo nenastavené okno neumlčí nic.
+ */
+export function isQuietHour(
+  prefs: Pick<NotificationPrefs, "quiet_from" | "quiet_to">,
+  timezone: string,
+  at: Date = new Date(),
+): boolean {
+  if (!prefs.quiet_from || !prefs.quiet_to) return false;
+
+  const toMinutes = (hhmmss: string): number => {
+    const [hours, minutes] = hhmmss.split(":");
+    return Number(hours) * 60 + Number(minutes);
+  };
+
+  const from = toMinutes(prefs.quiet_from);
+  const to = toMinutes(prefs.quiet_to);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return false;
+  if (from === to) return false;
+
+  const { minutes: now } = wallClockIn(at, timezone);
+
+  // Na rozdíl od střežení se tu neřeší dny v týdnu: ticho platí každý
+  // den. Kdo chce ticho jen o víkendu, vypne si druh události.
+  return from < to ? now >= from && now < to : now >= from || now < to;
 }
 
 /** Uplynul od posledního zásahu cooldown lokality? */

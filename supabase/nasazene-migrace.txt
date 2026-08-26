@@ -25,3 +25,4 @@
 20260902120000_flight_sync.sql
 20260902180000_storage_path_rename.sql
 20260903120000_flight_threat.sql
+20260903180000_zone_wayline.sql
