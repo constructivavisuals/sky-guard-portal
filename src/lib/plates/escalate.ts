@@ -33,6 +33,36 @@ import { supabaseAdmin } from "../supabase-admin.ts";
 // sama kamera v těle požadavku.
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * Co se má stát po přečtení značky.
+ *
+ * Vytažené z I/O schválně: je to celé rozhodnutí o tom, jestli poslat
+ * dron na auto, které stojí v areálu, a takové rozhodnutí patří pod
+ * test — ne do funkce, která k tomu ještě chodí do databáze.
+ */
+export type PlateAction =
+  /** Nežádoucí značka bez krytí: druhý zásah na stupni osoby. */
+  | { action: "escalate" }
+  /** Ohlášený příjezd zásah ruší a zapíše se důvod. */
+  | { action: "announced_suppress" }
+  /** Nic navíc; první zásah za vozidlo už dávno rozhodl sám. */
+  | { action: "none" };
+
+export function planPlateAction(
+  verdict: PlateMatch["verdict"],
+  arrival: ArrivalVerdict,
+): PlateAction {
+  if (arrival.covered) {
+    // Zásah se zapisuje jen tam, kde by jinak nějaký vznikl. U značky
+    // mimo seznam se dosud nic nezakládalo a ohlášení na tom nic
+    // nemění — řádek „neodeslali jsme, co jsme stejně neposílali“ by
+    // z evidence zásahů udělal seznam neudálostí.
+    return verdict === "deny" ? { action: "announced_suppress" } : { action: "none" };
+  }
+
+  return verdict === "deny" ? { action: "escalate" } : { action: "none" };
+}
+
 export interface PlateOutcome {
   match: PlateMatch;
   /** Vznikl kvůli značce další zásah? */
@@ -94,39 +124,37 @@ export async function resolvePlate(options: {
     candidates: announced.data ?? [],
   });
 
-  if (arrival.covered) {
-    const dopravce =
-      (announced.data ?? []).find((row) => row.id === arrival.arrival.id)?.carriers
-        ?.name ?? null;
+  const plan = planPlateAction(match.verdict, arrival);
 
+  if (arrival.covered) {
     console.info("Vjezd byl ohlášený — zásah se neposílá", {
       site_id: options.siteId,
       arrival_id: arrival.arrival.id,
       duvod: arrival.reason,
       verdict: match.verdict,
     });
+  }
 
-    // Zásah se zapisuje jen tam, kde by jinak nějaký vznikl. U značky
-    // mimo seznam se dosud nic nezakládalo a ohlášení na tom nic
-    // nemění — řádek „neodeslali jsme, co jsme stejně neposílali“ by
-    // z evidence zásahů udělal seznam neudálostí.
-    if (match.verdict === "deny") {
-      await runDispatch({
-        ...options.dispatchContext,
-        objectClass: "person",
-        announcedArrival: {
-          id: arrival.arrival.id,
-          carrier_name: dopravce,
-          night_ok: arrival.arrival.night_ok,
-          armed: options.armed,
-        },
-      });
-    }
+  if (plan.action === "announced_suppress" && arrival.arrival) {
+    const dopravce =
+      (announced.data ?? []).find((row) => row.id === arrival.arrival?.id)?.carriers
+        ?.name ?? null;
+
+    await runDispatch({
+      ...options.dispatchContext,
+      objectClass: "person",
+      announcedArrival: {
+        id: arrival.arrival.id,
+        carrier_name: dopravce,
+        night_ok: arrival.arrival.night_ok,
+        armed: options.armed,
+      },
+    });
 
     return { match, escalated: false, arrival };
   }
 
-  if (match.verdict !== "deny") {
+  if (plan.action !== "escalate") {
     return { match, escalated: false, arrival };
   }
 

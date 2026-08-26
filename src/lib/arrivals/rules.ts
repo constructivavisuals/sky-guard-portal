@@ -19,6 +19,14 @@ import type { AnnouncedArrival } from "../../types/database.ts";
 //                              poslat dron.
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * Kolik dní dopředu se dá ohlásit.
+ *
+ * Dál je to plánování, ne avízo — a ohlášení na půl roku dopředu by
+ * v den D nikdo nepamatoval, že platí.
+ */
+export const MAX_DAYS_AHEAD = 30;
+
 /** Ohlášení tak, jak ho vyhodnocení potřebuje. */
 export type ArrivalCandidate = Pick<
   AnnouncedArrival,

@@ -15,6 +15,7 @@ import {
   ScanEye,
   Send,
   ScanLine,
+  Truck,
   Settings,
   Users,
   X,
@@ -44,6 +45,7 @@ const SECONDARY = [
 /** Jen pro administrátora; zámek je na stránce samotné. */
 const ADMIN_SECONDARY = [
   { href: "/znacky", label: "Značky", icon: ScanLine },
+  { href: "/dopravci", label: "Dopravci", icon: Truck },
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 

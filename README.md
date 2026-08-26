@@ -283,3 +283,50 @@ Prázdná tabulka **není** v pořádku a hlásí se jako „úloha zatím nikdy
 neproběhla“. Když ale chybí celá tabulka (migrace neběžela), přehled
 mlčí — varovat na základě něčeho, co neexistuje, by bylo totéž tiché
 selhání, jen obráceně.
+
+## Avizované příjezdy
+
+Dopravce dostane odkaz `/prijezd/<token>` a na samostatné stránce mimo
+portál ohlásí, kdy a s jakou značkou přijede. Ingest to při čtení SPZ
+najde a podle toho se rozhodne, jestli má dron vzlétnout. V podstatě
+denní allow seznam, který si plní někdo zvenčí: `known_plates` drží
+trvalá povolení, `announced_arrivals` jednorázová.
+
+Odkazy zakládá admin na `/dopravci`. Token je 32 náhodných bajtů
+v base64url; stránka je v `PUBLIC_PATHS` middlewaru a má vlastní
+omezení počtu požadavků, stejným mechanismem jako ingest.
+
+### Tři pravidla
+
+| Kdy vjezd nastal | night_ok | Co se stane |
+|---|---|---|
+| mimo ostrý režim | jedno | ohlášení kryje, zásah ze značky neodejde |
+| v ostrém režimu | ano | ohlášení kryje |
+| v ostrém režimu | ne | ohlášení NEKRYJE, značka se řeší normálně |
+
+Poslední řádek je ten podstatný: ohlásit denní rozvoz nesmí být zadní
+vrátka na noc.
+
+### Co ohlášení nezruší
+
+**První zásah za VOZIDLO už v tu chvíli dávno odešel.** Rozhodnutí
+o něm nečeká na přečtení značky a čekat nesmí — vjezd v nočním okně
+spustí výjezd okamžitě a SPZ dorazí jako doplněk. Ohlášení tedy ruší
+jen to, co by spustila značka; dron, který vzlétl na dvojce, se
+odvolat nedá.
+
+Aby se to dalo rozhodnout dřív, musela by značku posílat sama kamera
+v těle požadavku (ANPR na bráně to umí). Zatím to `/api/ingest/passage`
+nepřijímá.
+
+### Párování
+
+Značka se porovnává přes `plate_normalize()`, stejně jako
+`known_plates`, a jen když ji model přečetl **spolehlivě** (jistota nad
+`PLATE_CONFIDENCE_MIN`). Odbavit cizí auto kvůli špatně přečtené značce
+je díra v ostraze, ne kosmetická nepřesnost.
+
+Zásah s výsledkem `suppressed_announced` se zapisuje jen tam, kde by
+jinak nějaký vznikl, tedy u deny značky. Vazba na ohlášení se přesto
+ukládá na vjezd vždycky — i když nekrylo — a je vidět ve sloupci
+„Ohlášeno“ na `/vjezdy`.

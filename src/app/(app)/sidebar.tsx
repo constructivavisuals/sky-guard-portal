@@ -13,6 +13,7 @@ import {
   Cctv,
   CarFront,
   ScanLine,
+  Truck,
   Settings,
   Users,
   LogOut,
@@ -47,6 +48,7 @@ export const NAV_ITEMS = [
  */
 const ADMIN_ITEMS = [
   { href: "/znacky", label: "Značky", icon: ScanLine },
+  { href: "/dopravci", label: "Dopravci", icon: Truck },
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 

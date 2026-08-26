@@ -6,7 +6,10 @@ import type { Database } from "../../types/database.ts";
 /** Cesty dostupné bez přihlášení. */
 // /offline musí jít načíst i bez session — service worker si ji ukládá
 // při instalaci, tedy ještě než se kdokoli přihlásí.
-const PUBLIC_PATHS = ["/login", "/auth", "/offline"];
+// /prijezd je stránka pro řidiče dopravce: nemá session ani účet,
+// ověřuje se tokenem v adrese. Middleware ji musí pustit, jinak by
+// řidiče poslala na přihlášení, které nikdy nedostane.
+const PUBLIC_PATHS = ["/login", "/auth", "/offline", "/prijezd"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(
