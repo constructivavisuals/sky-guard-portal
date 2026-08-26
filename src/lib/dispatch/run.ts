@@ -75,6 +75,12 @@ export interface DispatchContext {
   siteDockSn: string | null;
   /** Trasa zóny ve FlightHubu. Bez ní se úloha nedá založit. */
   zoneWaylineUuid: string | null;
+  /**
+   * Ohlášený příjezd, kterému vjezd odpovídal. Když je vyplněný,
+   * rozhodování se dál neřeší: zásah se nepošle a důvod se zapíše.
+   * Migrace 20260906120000.
+   */
+  announcedArrival?: NonNullable<DecisionReason["announced_arrival"]>;
   objectClass: DetectionObjectClass;
   /** Čas hlášený kamerou. Ukládá se, ale nic se podle něj nerozhoduje. */
   detectedAt: Date;
@@ -390,6 +396,18 @@ async function prepareDispatchRow(
     },
     flight: null,
   });
+
+  // Ohlášený příjezd přebíjí i rozhodnutí o odeslání. Až za výpočtem
+  // důvodu, aby v něm zůstalo vidět, jak by to dopadlo bez ohlášení —
+  // jinak by z evidence nešlo poznat, jestli ohlášení něco zachránilo,
+  // nebo se stejně neletělo.
+  if (context.announcedArrival) {
+    reason.announced_arrival = context.announcedArrival;
+    return bezLetu("suppressed_announced", {
+      error: "announced_arrival",
+      arrival_id: context.announcedArrival.id,
+    });
+  }
 
   if (!decision.send) {
     return bezLetu(decision.outcome, { cause: decision.cause });

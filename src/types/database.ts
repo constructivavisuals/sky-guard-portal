@@ -47,6 +47,11 @@ export const DISPATCH_OUTCOMES = [
    * by pak o areálu tvrdil něco, co se nikdy nezjišťovalo.
    */
   "suppressed_unknown",
+  /**
+   * Vjezd byl předem ohlášený a ohlášení na něj sedělo. Migrace
+   * 20260906120000.
+   */
+  "suppressed_announced",
   "failed",
 ] as const;
 export type DispatchOutcome = (typeof DISPATCH_OUTCOMES)[number];
@@ -126,6 +131,7 @@ export const DISPATCH_OUTCOME_LABELS: Record<DispatchOutcome, string> = {
   suppressed_cooldown: "Potlačeno — cooldown",
   suppressed_dock: "Potlačeno — dok",
   suppressed_unknown: "Nevyhodnoceno",
+  suppressed_announced: "Ohlášený příjezd",
   failed: "Chyba",
 };
 
@@ -334,6 +340,17 @@ export type DecisionReason = {
    * Chybí u zásahů z doby před migrací 20260903180000.
    */
   zone_has_wayline?: boolean;
+  /**
+   * Ohlášení, kvůli kterému se neletělo. Migrace 20260906120000.
+   * Vyplněné právě u outcome 'suppressed_announced'.
+   */
+  announced_arrival?: {
+    id: string;
+    carrier_name: string | null;
+    night_ok: boolean;
+    /** Byla lokalita v ostrém režimu, když vjezd nastal? */
+    armed: boolean;
+  } | null;
   decided_at: string;
 };
 
@@ -563,6 +580,11 @@ export type VehiclePassage = {
   confidence: number | null;
   /** Cesta snímku od brány v bucketu `vjezdy`, ne URL. */
   storage_path: string | null;
+  /**
+   * Ohlášení, kterému vjezd odpovídal. Migrace 20260906120000.
+   * NULL = neohlášený, nebo se značka nepřečetla spolehlivě.
+   */
+  announced_arrival_id?: string | null;
   /** Jak vjezd dopadl proti seznamu V DOBĚ VJEZDU. */
   list_match: PlateListType | null;
   known_plate_id: string | null;
@@ -619,6 +641,16 @@ export type Database = {
         NotificationPrefs,
         Insertable<NotificationPrefs, "profile_id" | "site_id">,
         Updatable<NotificationPrefs>
+      >;
+      carriers: TableShape<
+        Carrier,
+        Insertable<Carrier, "site_id" | "name" | "token">,
+        Updatable<Carrier>
+      >;
+      announced_arrivals: TableShape<
+        AnnouncedArrival,
+        Insertable<AnnouncedArrival, "carrier_id" | "site_id" | "plate" | "arrival_date">,
+        Updatable<AnnouncedArrival>
       >;
       cron_runs: TableShape<
         CronRun,
@@ -866,6 +898,41 @@ export const NOTIFICATION_KIND_COLUMNS: Record<NotificationKind, keyof Notificat
 export const NOTIFICATION_KINDS_IGNORING_QUIET: readonly NotificationKind[] = [
   "threat_confirmed",
 ];
+
+// ── Avizované příjezdy. Migrace 20260906120000. ──────────────────
+
+/** Dopravce s odkazem na ohlašovací stránku. */
+export type Carrier = {
+  id: string;
+  site_id: string;
+  name: string;
+  contact: string | null;
+  /** Tajemství v odkazu /prijezd/<token>. Vidí ho jen admin. */
+  token: string;
+  /** Datum, po kterém odkaz neplatí. NULL = bez omezení. */
+  valid_until: string | null;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Jedno ohlášení příjezdu. */
+export type AnnouncedArrival = {
+  id: string;
+  carrier_id: string;
+  site_id: string;
+  /** Tak, jak ji řidič napsal. Porovnává se přes plate_normalize(). */
+  plate: string;
+  /** `YYYY-MM-DD` v pásmu lokality. */
+  arrival_date: string;
+  note: string | null;
+  /** Řidič ví, že přijede i v době střežení. */
+  night_ok: boolean;
+  /** Zrušeno řidičem. Řádek zůstává kvůli dohledatelnosti. */
+  cancelled_at: string | null;
+  created_at: string;
+};
 
 /** Jeden běh cronu. Migrace 20260905120000. */
 export type CronRun = {

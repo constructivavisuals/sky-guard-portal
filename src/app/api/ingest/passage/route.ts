@@ -50,6 +50,35 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
+ * Střeží lokalita? Ptáme se jen kvůli vyhodnocení ohlášení, protože
+ * to samo rozhodnutí o zásahu nedělá — od toho je runDispatch.
+ *
+ * Když se stav nepodaří zjistit, bere se jako STŘEŽENO. Ohlášení pak
+ * kryje jen s night_ok, což je ta přísnější varianta: neznámý stav
+ * nemá odbavovat auta.
+ */
+async function isSiteArmedNow(
+  db: ReturnType<typeof supabaseAdmin>,
+  siteId: string,
+  at: Date,
+): Promise<boolean> {
+  const { data, error } = await db.rpc("site_is_armed", {
+    p_site_id: siteId,
+    p_at: at.toISOString(),
+  });
+
+  if (error) {
+    console.warn("Režim střežení pro vyhodnocení ohlášení se nezjistil", {
+      site_id: siteId,
+      message: error.message,
+    });
+    return true;
+  }
+
+  return data === true;
+}
+
+/**
  * Strop na celé tělo. Snímek smí mít MAX_IMAGE_BYTES; base64 ho
  * nafoukne o třetinu a zbytek JSONu je pár set bajtů.
  */
@@ -320,8 +349,13 @@ export async function POST(request: NextRequest): Promise<Response> {
 
       const outcome = await resolvePlate({
         siteId: camera.site_id,
+        siteTimezone: camera.sites?.timezone ?? "Europe/Prague",
+        // Ostrý režim ke chvíli PŘIJETÍ, ne k času z těla. Stejně
+        // jako u rozhodnutí o zásahu: hlášený čas si určuje odesílatel.
+        armed: await isSiteArmedNow(db, camera.site_id, receivedAt),
         plate: reading.plate,
         confidence: reading.confidence,
+        at: receivedAt,
         dispatchContext: context,
       });
 
@@ -330,6 +364,9 @@ export async function POST(request: NextRequest): Promise<Response> {
         .update({
           plate: reading.plate,
           confidence: reading.confidence,
+          // Vazba na ohlášení se ukládá i tehdy, když nekrylo (denní
+          // ohlášení v noci) — do seznamu vjezdů patří obojí.
+          announced_arrival_id: outcome.arrival.arrival?.id ?? null,
           // Shoda se ukládá jen tehdy, když značka opravdu padla na
           // seznam. `unknown` i `unread` nechávají sloupec prázdný —
           // CHECK v databázi navíc brání shodě bez značky.
@@ -347,6 +384,8 @@ export async function POST(request: NextRequest): Promise<Response> {
         passage_id: passageId,
         vysledek: outcome.match.verdict,
         eskalovano: outcome.escalated,
+        ohlaseni: outcome.arrival.arrival?.id ?? null,
+        ohlaseni_kryje: outcome.arrival.covered,
       });
     } catch (error) {
       console.error("Čtení značky po vjezdu selhalo", {

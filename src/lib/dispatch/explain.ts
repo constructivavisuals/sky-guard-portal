@@ -113,6 +113,15 @@ export function explainOutcome(
             : "Od předchozího odeslaného zásahu neuplynul nastavený odstup.",
         tone: "warning",
       };
+    case "suppressed_announced":
+      return {
+        title: "Ohlášený příjezd",
+        // Zelená, ne jantarová: tohle není potlačení kvůli chybějícímu
+        // údaji, ale systém, který zafungoval — někdo dopředu řekl,
+        // že přijede, a dron proto nemusel vzlétnout.
+        text: "Vjezd odpovídal ohlášení od dopravce, takže dron nevzlétl.",
+        tone: "success",
+      };
     case "suppressed_unknown":
       return {
         title: "Nevyhodnoceno — chybějící údaje",
@@ -220,6 +229,15 @@ export function conditionsFromReason(reason: DecisionReason): string[] {
     // jinak by stupeň vypadal jako vědomé rozhodnutí.
     out.push(
       "Pohyb v sousedních zónách se nepodařilo ověřit, takže se letělo na základním stupni — mohl být vyšší.",
+    );
+  }
+
+  const ohlaseni = reason.announced_arrival;
+  if (ohlaseni) {
+    out.push(
+      ohlaseni.armed
+        ? `Vjezd byl ohlášený dopravcem${ohlaseni.carrier_name ? ` (${ohlaseni.carrier_name})` : ""} s tím, že přijede i v době střežení.`
+        : `Vjezd byl ohlášený dopravcem${ohlaseni.carrier_name ? ` (${ohlaseni.carrier_name})` : ""} a areál v tu chvíli nestřežil.`,
     );
   }
 

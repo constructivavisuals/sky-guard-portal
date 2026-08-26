@@ -27,3 +27,4 @@
 20260903120000_flight_threat.sql
 20260903180000_zone_wayline.sql
 20260904120000_push_notifications.sql
+20260905120000_silent_failures.sql
