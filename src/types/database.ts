@@ -376,6 +376,15 @@ export type Flight = {
   distance_m: number | null;
   duration_s: number | null;
   /**
+   * Stav úlohy doslova z FlightHubu. Migrace 20260902120000.
+   * `status` výš je jeho zjednodušení — osm hodnot DJI se mapuje na
+   * pět našich, takže bez tohohle sloupce by po synchronizaci nešlo
+   * odlišit přerušený let od vypršelého.
+   */
+  fh_status: string | null;
+  /** Kdy se let naposledy dotahoval z DJI. NULL = ještě nikdy. */
+  synced_at: string | null;
+  /**
    * Odečet z doku v okamžiku plánování: wind_speed, rainfall,
    * environment_temperature. Migrace 20260827120000. Null u letů, které
    * nevznikly z hlídky, a když dok hodnoty nehlásil.
@@ -389,8 +398,17 @@ export type Media = {
   id: string;
   flight_id: string;
   kind: MediaKind;
-  /** Klíč objektu v R2, ne veřejná URL. */
+  /**
+   * Klíč objektu v privátním úložišti, ne veřejná URL. Dnes cesta
+   * v bucketu `lety`; jméno je z doby, kdy se počítalo s R2.
+   */
   r2_key: string;
+  /**
+   * UUID souboru ve FlightHubu. Migrace 20260902120000. Na tomhle
+   * stojí idempotence synchronizace — co už tu je, se nestahuje
+   * podruhé. NULL u médií, která nepřišla z DJI.
+   */
+  fh_media_id: string | null;
   captured_at: string | null;
   size_bytes: number | null;
   meta: Json;

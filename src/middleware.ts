@@ -11,10 +11,14 @@ export const config = {
     /*
      * Vše kromě statických assetů a ingest API.
      *
-     * /api/ingest/* má vlastní autentizaci HMAC podpisem a /api/cron/*
-     * sdílené tajemství od Vercelu — ani jedno nemá session cookie
-     * a middleware by je odkláněl na /login.
+     * /api/ingest/* má vlastní autentizaci HMAC podpisem, /api/cron/*
+     * a /api/sync/* sdílené tajemství CRON_SECRET — nic z toho nemá
+     * session cookie a middleware by je odkláněl na /login.
+     *
+     * Na tohle se snadno zapomene: nová routa pod /api, která se
+     * ověřuje jinak než session, musí přibýt i sem, jinak vrací
+     * přesměrování místo odpovědi.
      */
-    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|api/ingest|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|api/ingest|api/cron|api/sync|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

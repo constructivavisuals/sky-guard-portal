@@ -100,6 +100,27 @@ chmod 600 /etc/sky-guard.env
 
 Doména v příkladu je zástupná — nahradit skutečnou.
 
+## Dotahování letů z DJI
+
+`GET /api/sync/flights` projde lety, které mají úlohu ve FlightHubu
+a nemají konec. Dokončené dotáhne včetně trasy a médií, běžící jen
+aktualizuje. Ověřuje se týmž `CRON_SECRET`.
+
+```cron
+*/15 * * * * . /etc/sky-guard.env && curl -fsS -m 300 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/sync/flights
+```
+
+Čtvrthodina stačí: média se objevují až po nahrání z doku, což trvá
+minuty. Jeden běh zpracuje nejvýš deset letů a useknutí hlásí
+v odpovědi (`truncated`), aby to nevypadalo jako „nic dalšího nebylo“.
+
+Selhání jednoho letu ostatní nezastaví; jakékoli selhání ale vrací
+**500**, aby `-f` v curlu poslalo mail.
+
+Média jdou do privátního bucketu `lety` v Supabase Storage, ne do R2 —
+adresa se podepisuje a první složka v cestě je UUID lokality, takže
+čtení pouští táž funkce jako u řádků.
+
 Endpoint vrací souhrn, co naplánoval, co přeskočil (dron mimo dok,
 baterie pod 40 %, zaplněné úložiště) a co selhalo. Přeskočení je
 normální provozní stav a končí stavem 200; jakékoli **selhání vrací
