@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { MapPin, ShieldAlert, Users } from "lucide-react";
+import { Bell, MapPin, ShieldAlert, Users } from "lucide-react";
 
 import { DataTable, Td, Th, Tr } from "@/components/table.tsx";
 import {
@@ -10,10 +10,17 @@ import {
   Section,
 } from "@/components/ui.tsx";
 import { orDash, plural } from "@/lib/format.ts";
+import type { EffectivePrefs } from "@/lib/push/rules.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { isAdmin, profileInitial } from "@/lib/profile.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import { USER_ROLE_LABELS, type UserRole } from "@/types/database.ts";
+
+import {
+  NotificationSettings,
+  type DeviceRow,
+  type SiteOption,
+} from "./notifications.tsx";
 
 export const metadata: Metadata = { title: "Nastavení" };
 
@@ -21,6 +28,7 @@ interface AccessibleSite {
   id: string;
   name: string;
   address: string | null;
+  timezone: string;
 }
 
 interface ManagedUser {
@@ -53,6 +61,8 @@ export default async function Page() {
   // dosáhne. Adminovi tedy všechny, klientovi ty s grantem.
   let sites: AccessibleSite[] = [];
   let users: ManagedUser[] = [];
+  let devices: DeviceRow[] = [];
+  let prefs: Record<string, EffectivePrefs> = {};
   let failed = false;
 
   try {
@@ -60,12 +70,33 @@ export default async function Page() {
 
     const { data: siteRows, error: siteError } = await supabase
       .from("sites")
-      .select("id, name, address")
+      .select("id, name, address, timezone")
       .order("name")
       .returns<AccessibleSite[]>();
 
     if (siteError) failed = true;
     else sites = siteRows ?? [];
+
+    // Odběry a předvolby filtruje RLS na vlastní řádky. Chybějící
+    // sloupce (migrace 20260904120000 ještě neběžela) se tu neprojeví
+    // jako pád stránky — sekce notifikací se prostě chová, jako by
+    // uživatel zatím nic nenastavil.
+    const [deviceRows, prefRows] = await Promise.all([
+      supabase
+        .from("push_subscriptions")
+        .select("id, endpoint, user_agent, created_at, last_used_at")
+        .order("created_at", { ascending: false })
+        .returns<DeviceRow[]>(),
+      supabase
+        .from("notification_prefs")
+        .select("*")
+        .returns<(EffectivePrefs & { site_id: string })[]>(),
+    ]);
+
+    devices = deviceRows.data ?? [];
+    prefs = Object.fromEntries(
+      (prefRows.data ?? []).map((row) => [row.site_id, row]),
+    );
 
     if (admin) {
       const { data: userRows, error: userError } = await supabase
@@ -144,6 +175,29 @@ export default async function Page() {
                 ))}
               </ul>
             </>
+          )}
+        </Section>
+
+        <Section>
+          <BlockTitle>
+            <span className="inline-flex items-center gap-2">
+              <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+              Notifikace
+            </span>
+          </BlockTitle>
+          {sites.length === 0 ? (
+            <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+              Bez přístupu k lokalitě není o čem dávat vědět.
+            </p>
+          ) : (
+            <NotificationSettings
+              // Veřejný klíč jde do prohlížeče schválně — bez něj se
+              // odběr nedá založit. Privátní zůstává na serveru.
+              vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null}
+              devices={devices}
+              sites={sites satisfies SiteOption[]}
+              prefs={prefs}
+            />
           )}
         </Section>
 
