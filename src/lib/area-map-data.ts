@@ -81,7 +81,7 @@ export async function loadAreaMap(
       longitude: at.longitude,
       label: zone.name,
       kind: "zone",
-      href: "/zony",
+      href: `/arealy/${site.id}/zony`,
     });
   }
 
@@ -114,7 +114,7 @@ export async function loadAreaMap(
       label: camera.name,
       kind: "camera",
       muted: camera.status !== "online",
-      href: "/kamery",
+      href: `/arealy/${site.id}/kamery`,
       azimuth: camera.azimuth,
       focalMm: camera.focal_mm,
       rangeM: camera.range_m,

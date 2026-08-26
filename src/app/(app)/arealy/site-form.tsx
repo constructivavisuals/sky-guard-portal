@@ -14,7 +14,7 @@ import {
 } from "@/components/form.tsx";
 import { Button } from "@/components/ui.tsx";
 
-import { saveSite } from "../entity-actions.ts";
+import { saveSite } from "@/app/(app)/entity-actions.ts";
 
 export interface SiteInitial {
   id: string;

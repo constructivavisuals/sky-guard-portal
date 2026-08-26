@@ -35,7 +35,7 @@ const SELECT =
   "id, plate, arrival_date, note, night_ok, cancelled_at, created_at, " +
   "carriers(name), sites(name, timezone), vehicle_passages(id, passed_at)";
 
-export default async function Page({ searchParams }: PageProps<"/prijezdy">) {
+export default async function Page({ searchParams }: PageProps<"/brana/prijezdy">) {
   const { strana, rozsah } = await searchParams;
   const page = pageFromParam(typeof strana === "string" ? strana : undefined);
   const { from, to } = pageRange(page);
@@ -107,7 +107,7 @@ export default async function Page({ searchParams }: PageProps<"/prijezdy">) {
     failed = true;
   }
 
-  const zaklad = `/prijezdy${rozsahKey === "budouci" ? "" : `?rozsah=${rozsahKey}`}`;
+  const zaklad = `/brana/prijezdy${rozsahKey === "budouci" ? "" : `?rozsah=${rozsahKey}`}`;
 
   return (
     <>
@@ -210,7 +210,7 @@ export default async function Page({ searchParams }: PageProps<"/prijezdy">) {
                       // Odkaz na vjezd: z ohlášení se má dát dostat
                       // ke snímku od brány jedním klikem.
                       <Link
-                        href={`/vjezdy/${vjezd.id}`}
+                        href={`/brana/vjezdy/${vjezd.id}`}
                         className="text-[var(--accent)] hover:underline"
                       >
                         {formatDateTime(vjezd.passed_at, row.sites?.timezone)}

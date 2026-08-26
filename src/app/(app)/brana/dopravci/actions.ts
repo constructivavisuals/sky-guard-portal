@@ -69,7 +69,7 @@ export async function zalozitDopravce(
     return { ok: false, error: "Dopravce se nepodařilo založit.", values };
   }
 
-  revalidatePath("/dopravci");
+  revalidatePath("/brana/dopravci");
   return { ok: true };
 }
 
@@ -97,6 +97,6 @@ export async function prepnoutDopravce(
     return { ok: false, error: "Změnu se nepodařilo uložit." };
   }
 
-  revalidatePath("/dopravci");
+  revalidatePath("/brana/dopravci");
   return { ok: true };
 }

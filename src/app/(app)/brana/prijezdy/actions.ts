@@ -100,7 +100,7 @@ export async function zalozitOhlaseni(
     return { ok: false, error: "Ohlášení se nepodařilo uložit.", values };
   }
 
-  revalidatePath("/prijezdy");
+  revalidatePath("/brana/prijezdy");
   return { ok: true };
 }
 
@@ -126,6 +126,6 @@ export async function zrusitOhlaseniAdmin(
     return { ok: false, error: "Ohlášení se nepodařilo zrušit." };
   }
 
-  revalidatePath("/prijezdy");
+  revalidatePath("/brana/prijezdy");
   return { ok: true };
 }

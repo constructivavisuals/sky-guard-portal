@@ -166,7 +166,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         const posláno = await poslat("camera_silent", camera.id, {
           title: `Kamera „${camera.name}“ mlčí`,
           body: `Neozvala se déle než ${CAMERA_SILENT_MINUTES} min, přestože je vedená jako online. ${site.name}.`,
-          url: "/kamery",
+          url: `/arealy/${site.id}/kamery`,
         });
         if (posláno) report.cameraWarnings += 1;
       }

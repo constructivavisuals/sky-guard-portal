@@ -10,12 +10,7 @@ import {
   Plane,
   Route,
   MapPin,
-  Radar,
-  Cctv,
-  CalendarClock,
-  CarFront,
-  ScanLine,
-  Truck,
+  DoorOpen,
   Settings,
   Users,
   LogOut,
@@ -33,11 +28,8 @@ export const NAV_ITEMS = [
   { href: "/zasahy", label: "Zásahy", icon: Send },
   { href: "/lety", label: "Lety", icon: Plane },
   { href: "/hlidky", label: "Hlídky", icon: Route },
-  { href: "/lokality", label: "Lokality", icon: MapPin },
-  { href: "/zony", label: "Zóny", icon: Radar },
-  { href: "/kamery", label: "Kamery", icon: Cctv },
-  { href: "/vjezdy", label: "Vjezdy", icon: CarFront },
-  { href: "/prijezdy", label: "Příjezdy", icon: CalendarClock },
+  { href: "/arealy", label: "Areály", icon: MapPin },
+  { href: "/brana", label: "Brána", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
@@ -51,8 +43,6 @@ export const NAV_ITEMS = [
  * neprošel.
  */
 const ADMIN_ITEMS = [
-  { href: "/znacky", label: "Značky", icon: ScanLine },
-  { href: "/dopravci", label: "Dopravci", icon: Truck },
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 

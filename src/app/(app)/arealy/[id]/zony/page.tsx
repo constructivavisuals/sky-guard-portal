@@ -2,16 +2,19 @@ import type { Metadata } from "next";
 import { Radar } from "lucide-react";
 
 import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
-import { EmptyState, PageHeader } from "@/components/ui.tsx";
+import { EmptyState, Section } from "@/components/ui.tsx";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { parsePointEwkbHex } from "@/lib/geo.ts";
 import { isAdmin } from "@/lib/profile.ts";
-import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
+import { nactiAreal } from "../site.ts";
 import { ZoneForm } from "./zone-form.tsx";
 
 export const metadata: Metadata = { title: "Zóny" };
+
+// Karta „Zóny“ areálu. Dřív to byl globální seznam s filtrem podle
+// lokality; ten filtr je teď součástí cesty, takže odsud zmizel.
 
 interface ZoneRow {
   id: string;
@@ -25,12 +28,14 @@ interface ZoneRow {
   cameras: { count: number }[];
 }
 
-export default async function Page() {
-  const [{ selected, sites }, profile] = await Promise.all([
-    getSiteSelection(),
-    getCurrentProfile(),
-  ]);
+export default async function Page({ params }: PageProps<"/arealy/[id]/zony">) {
+  const { id } = await params;
+  const [{ site }, profile] = await Promise.all([nactiAreal(id), getCurrentProfile()]);
   const admin = isAdmin(profile);
+
+  // Layout už na chybějící areál odpověděl; tady by se jen zdvojila.
+  if (!site) return null;
+  const sites = [{ id: site.id, name: site.name }];
 
   let rows: ZoneRow[] = [];
   let failed = false;
@@ -39,7 +44,7 @@ export default async function Page() {
     const supabase = await createClient();
     const dotaz = (sloupce: string) => {
       let query = supabase.from("zones").select(sloupce).order("name");
-      if (selected) query = query.eq("site_id", selected.id);
+      query = query.eq("site_id", id);
       return query.returns<ZoneRow[]>();
     };
 
@@ -63,15 +68,14 @@ export default async function Page() {
 
   return (
     <>
-      <PageHeader
-        title="Zóny"
-        description={
-          selected
-            ? `Hlídané body na lokalitě ${selected.name}.`
-            : "Hlídané body perimetru napříč lokalitami."
-        }
-        action={admin ? <ZoneForm sites={sites} /> : undefined}
-      />
+      <Section className="py-3 sm:py-3">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-[var(--text-muted)]">
+            Hlídané body perimetru. Zásah odejde jen ze zóny, která má trasu.
+          </p>
+          {admin ? <ZoneForm sites={sites} /> : null}
+        </div>
+      </Section>
 
       {failed ? (
         <EmptyState
@@ -91,7 +95,6 @@ export default async function Page() {
           head={
             <>
               <Th>Název</Th>
-              <Th>Lokalita</Th>
               <Th className="text-right">Šířka</Th>
               <Th className="text-right">Délka</Th>
               <Th>Trasa</Th>
@@ -107,7 +110,6 @@ export default async function Page() {
             return (
               <Tr key={row.id}>
                 <Td label="Název" className="font-medium">{row.name}</Td>
-                <Td label="Lokalita">{row.sites?.name ?? "—"}</Td>
                 <TdTight label="Šířka" className="text-right tabular-nums">
                   {point ? point.latitude.toFixed(5) : "—"}
                 </TdTight>

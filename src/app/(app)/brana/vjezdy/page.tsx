@@ -31,7 +31,7 @@ export interface PassageRow {
   cameras: { name: string } | null;
 }
 
-export default async function Page({ searchParams }: PageProps<"/vjezdy">) {
+export default async function Page({ searchParams }: PageProps<"/brana/vjezdy">) {
   const { strana, filtr } = await searchParams;
   const page = pageFromParam(typeof strana === "string" ? strana : undefined);
   const { from, to } = pageRange(page);
@@ -164,7 +164,7 @@ export default async function Page({ searchParams }: PageProps<"/vjezdy">) {
                   <Td label="Lokalita">{orDash(row.sites?.name)}</Td>
                   <Td className="text-right">
                     <Link
-                      href={`/vjezdy/${row.id}`}
+                      href={`/brana/vjezdy/${row.id}`}
                       className="text-[13px] text-[var(--accent-bright)] hover:underline"
                     >
                       Detail

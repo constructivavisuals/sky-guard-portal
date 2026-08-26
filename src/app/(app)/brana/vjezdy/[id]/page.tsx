@@ -36,7 +36,7 @@ interface DispatchRow {
   outcome: DispatchOutcome;
 }
 
-export default async function Page({ searchParams: _s, params }: PageProps<"/vjezdy/[id]">) {
+export default async function Page({ searchParams: _s, params }: PageProps<"/brana/vjezdy/[id]">) {
   void _s;
   const { id } = await params;
 
@@ -247,7 +247,7 @@ function BackLink() {
   return (
     <div className="border-b border-[var(--line)] px-5 py-2.5 sm:px-8">
       <Link
-        href="/vjezdy"
+        href="/brana/vjezdy"
         className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)] transition hover:text-[var(--text)]"
       >
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />

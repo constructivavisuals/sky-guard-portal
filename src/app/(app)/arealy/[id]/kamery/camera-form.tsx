@@ -15,7 +15,7 @@ import { Button } from "@/components/ui.tsx";
 import type { SiteOption } from "@/lib/site.ts";
 import { CAMERA_STATUSES, CAMERA_STATUS_LABELS } from "@/types/database.ts";
 
-import { saveCamera } from "../entity-actions.ts";
+import { saveCamera } from "@/app/(app)/entity-actions.ts";
 
 export interface ZoneChoice {
   id: string;

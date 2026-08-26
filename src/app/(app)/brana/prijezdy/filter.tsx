@@ -21,7 +21,7 @@ export function ArrivalFilter({ active }: { active: RozsahKey }) {
         return (
           <Link
             key={key}
-            href={key === "budouci" ? "/prijezdy" : `/prijezdy?rozsah=${key}`}
+            href={key === "budouci" ? "/brana/prijezdy" : `/brana/prijezdy?rozsah=${key}`}
             aria-current={aktivni ? "page" : undefined}
             className={`inline-flex h-8 items-center rounded-[var(--radius-pill)] border px-3 text-[11px] font-medium uppercase tracking-[0.08em] transition ${
               aktivni

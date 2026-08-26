@@ -16,8 +16,8 @@ import { Button } from "@/components/ui.tsx";
 import type { Wayline } from "@/lib/dispatch/flighthub.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
-import { saveZone } from "../entity-actions.ts";
-import { nacistTrasy } from "../wayline-actions.ts";
+import { saveZone } from "@/app/(app)/entity-actions.ts";
+import { nacistTrasy } from "@/app/(app)/wayline-actions.ts";
 
 export interface ZoneInitial {
   id: string;

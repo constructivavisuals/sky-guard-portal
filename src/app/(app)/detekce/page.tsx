@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ScanEye } from "lucide-react";
 
 import { DispatchOutcomeShortBadge, ObjectClassBadge } from "@/components/badges.tsx";
@@ -32,7 +33,7 @@ interface DetectionRow {
   flights: { id: string; fh_task_uuid: string | null } | null;
   // Vazba dispatches.triggered_by_detection → detections.id je 1:N,
   // PostgREST proto vrací pole. Prakticky bývá nejvýš jeden.
-  dispatches: { outcome: DispatchOutcome }[];
+  dispatches: { id: string; outcome: DispatchOutcome }[];
 }
 
 export default async function Page({ searchParams }: PageProps<"/detekce">) {
@@ -57,7 +58,7 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
         "id, detected_at, source, object_class, confidence, location, " +
           "sites(name, timezone), cameras(name), zones(name), " +
           "flights(id, fh_task_uuid), " +
-          "dispatches!dispatches_triggered_by_detection_fkey(outcome)",
+          "dispatches!dispatches_triggered_by_detection_fkey(id, outcome)",
         { count: "exact" },
       )
       .order("detected_at", { ascending: false })
@@ -131,9 +132,11 @@ export default async function Page({ searchParams }: PageProps<"/detekce">) {
                   {formatConfidence(row.confidence)}
                 </TdTight>
                 <Td label="Zásah">
-                  <DispatchOutcomeShortBadge
-                    outcome={row.dispatches[0]?.outcome ?? null}
-                  />
+                  {/* Odznak vede na detail zásahu. Ten už vypráví celý
+                      příběh detekce — kameru, zónu, rozhodnutí i let —
+                      takže seznam detekcí nemusí mít vlastní detail
+                      a přestal být slepou uličkou. */}
+                  <DispatchLink dispatch={row.dispatches[0] ?? null} />
                 </Td>
               </Tr>
             ))}
@@ -174,5 +177,28 @@ function Where({ row }: { row: DetectionRow }) {
         {orDash(row.zones?.name)}
       </p>
     </div>
+  );
+}
+
+/**
+ * Odznak výsledku, u zásahu jako odkaz.
+ *
+ * Bez zásahu odkaz nikam nevede a zůstává jen odznak: detekce mimo
+ * ostrý režim nebo z kamery bez zóny žádný řádek v dispatches nemá.
+ */
+function DispatchLink({
+  dispatch,
+}: {
+  dispatch: { id: string; outcome: DispatchOutcome } | null;
+}) {
+  if (!dispatch) return <DispatchOutcomeShortBadge outcome={null} />;
+
+  return (
+    <Link
+      href={`/zasahy/${dispatch.id}`}
+      className="inline-flex rounded-[var(--radius-pill)] transition hover:opacity-80"
+    >
+      <DispatchOutcomeShortBadge outcome={dispatch.outcome} />
+    </Link>
   );
 }

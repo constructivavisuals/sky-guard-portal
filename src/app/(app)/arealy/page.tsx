@@ -152,7 +152,7 @@ function SiteCard({
         <div className="min-w-0">
           <h2 className="truncate text-base tracking-tight">
             <Link
-              href={`/lokality/${site.id}`}
+              href={`/arealy/${site.id}`}
               className="transition hover:text-[var(--accent-bright)]"
             >
               {site.name}

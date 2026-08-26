@@ -3,21 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  CalendarClock,
-  CarFront,
-  Cctv,
+  DoorOpen,
   FileText,
   LayoutDashboard,
   LogOut,
   MapPin,
   MoreHorizontal,
   Plane,
-  Radar,
   Route,
   ScanEye,
   Send,
-  ScanLine,
-  Truck,
   Settings,
   Users,
   X,
@@ -37,19 +32,14 @@ const PRIMARY = [
 
 const SECONDARY = [
   { href: "/hlidky", label: "Hlídky", icon: Route },
-  { href: "/lokality", label: "Lokality", icon: MapPin },
-  { href: "/zony", label: "Zóny", icon: Radar },
-  { href: "/kamery", label: "Kamery", icon: Cctv },
-  { href: "/vjezdy", label: "Vjezdy", icon: CarFront },
-  { href: "/prijezdy", label: "Příjezdy", icon: CalendarClock },
+  { href: "/arealy", label: "Areály", icon: MapPin },
+  { href: "/brana", label: "Brána", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
 /** Jen pro administrátora; zámek je na stránce samotné. */
 const ADMIN_SECONDARY = [
-  { href: "/znacky", label: "Značky", icon: ScanLine },
-  { href: "/dopravci", label: "Dopravci", icon: Truck },
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 

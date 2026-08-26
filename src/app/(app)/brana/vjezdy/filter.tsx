@@ -49,7 +49,7 @@ export function PassageFilter({ active }: { active: FilterKey }) {
         return (
           <Link
             key={key}
-            href={key === "vse" ? "/vjezdy" : `/vjezdy?filtr=${key}`}
+            href={key === "vse" ? "/brana/vjezdy" : `/brana/vjezdy?filtr=${key}`}
             aria-current={aktivni ? "page" : undefined}
             className={`inline-flex h-8 items-center rounded-[var(--radius-pill)] border px-3 text-[11px] font-medium uppercase tracking-[0.08em] transition ${
               aktivni

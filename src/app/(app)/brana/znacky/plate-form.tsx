@@ -15,7 +15,7 @@ import { Button } from "@/components/ui.tsx";
 import type { SiteOption } from "@/lib/site.ts";
 import { PLATE_LIST_TYPES, PLATE_LIST_TYPE_LABELS } from "@/types/database.ts";
 
-import { deleteKnownPlate, saveKnownPlate } from "../entity-actions.ts";
+import { deleteKnownPlate, saveKnownPlate } from "@/app/(app)/entity-actions.ts";
 
 export interface PlateInitial {
   id: string;
