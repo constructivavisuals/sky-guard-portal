@@ -346,3 +346,54 @@ Zásah s výsledkem `suppressed_announced` se zapisuje jen tam, kde by
 jinak nějaký vznikl, tedy u deny značky. Vazba na ohlášení se přesto
 ukládá na vjezd vždycky — i když nekrylo — a je vidět ve sloupci
 „Ohlášeno“ na `/vjezdy`.
+
+## Měsíční report
+
+`/reporty` — výběr lokality a měsíce, náhled na stránce a tlačítko na
+PDF (`GET /api/reporty?lokalita=…&mesic=YYYY-MM`).
+
+Náhled i PDF čtou **stejná data** jedním loaderem
+(`lib/reports/data.ts`). Kdyby si každý sahal pro čísla sám, lišila by
+se — a report, ve kterém stojí jiné číslo než na stránce, ze které se
+stáhl, je horší než žádný.
+
+Přístup určuje RLS: lokalita se čte klientem přihlášeného uživatele,
+takže klient dostane svou a admin kteroukoli. Cizí i neexistující id
+končí stejně, na 404. Provozní část (dostupnost, přeskočené hlídky
+a důvody) se do reportu přidává jen adminovi.
+
+Hranice měsíce se počítají v pásmu lokality, ne v UTC — u letního času
+je to rozdíl dvou hodin na obou koncích, což posune celý den nočních
+detekcí.
+
+### Fonty a diakritika
+
+PDF staví **pdf-lib** s `@pdf-lib/fontkit` a vloženým **DM Sans** (týmž
+písmem, kterým mluví portál i web). Vzor je z `constructiva-portal`,
+kde jsou obě cesty vedle sebe a rozdíl je právě v diakritice: starší
+report na jsPDF jede na Helvetice z PDF standardu, která české znaky
+nemá, a řeší to přepisem „ě“ na „e“.
+
+Fonty leží v `src/lib/fonts/` a do serverless funkce je dostane
+`outputFileTracingIncludes` v `next.config.ts`. Bez toho by PDF
+lokálně vypadalo dobře a na Vercelu spadlo zpátky na Helveticu —
+nejhorší druh chyby. Kdyby soubory přesto chyběly, generování
+nespadne, jen se použije Helvetica.
+
+Subsetting je u DM Sans **zapnutý**. V constructiva-portal je u Interu
+vypnutý, protože tamní subsetter rozbil složené glyfy s diakritikou;
+u DM Sans to změřeno neplatí (text se vykreslí i vyextrahuje správně)
+a font zabere 4 kB místo 29. Při změně písma je potřeba to přeměřit —
+je to vlastnost fontu, ne knihovny.
+
+### Obrázky
+
+Snímky nálezů se před vložením zmenšují přes `sharp` na 320 px. Bez
+toho má jedna fotka z dronu klidně 6 MB a report by se nedal poslat
+mailem; s ním má celý report jednotky až desítky kB. `sharp` je
+nativní modul, ale Next ho používá i pro optimalizaci obrázků, takže
+na Vercelu je doma.
+
+Do reportu se vejde nejvýš 12 nálezů se snímkem. Useknutí se **vypíše
+do reportu** — tichý ořez by u bezpečnostního přehledu tvrdil „víc
+jich nebylo“.

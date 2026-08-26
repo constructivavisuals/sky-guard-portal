@@ -51,6 +51,18 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  /**
+   * Fonty pro PDF report musí doputovat do serverless funkce.
+   *
+   * Next balí jen to, co v kódu vidí jako import. Font se čte přes
+   * fs.readFile z cesty složené za běhu, takže by ho tam nedal — a PDF
+   * by na Vercelu spadlo zpátky na Helveticu bez diakritiky. Lokálně
+   * by přitom bylo v pořádku, což je nejhorší druh chyby.
+   */
+  outputFileTracingIncludes: {
+    "/api/reporty": ["./src/lib/fonts/**"],
+  },
+
   async headers() {
     return [
       {

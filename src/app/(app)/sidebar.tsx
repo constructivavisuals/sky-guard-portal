@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  FileText,
   LayoutDashboard,
   ScanEye,
   Send,
@@ -37,6 +38,7 @@ export const NAV_ITEMS = [
   { href: "/kamery", label: "Kamery", icon: Cctv },
   { href: "/vjezdy", label: "Vjezdy", icon: CarFront },
   { href: "/prijezdy", label: "Příjezdy", icon: CalendarClock },
+  { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 

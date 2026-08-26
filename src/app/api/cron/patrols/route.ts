@@ -79,6 +79,17 @@ export async function GET(request: NextRequest): Promise<Response> {
     scheduled: 0,
     skipped: 0,
     failed: 0,
+    /**
+     * Proč se přeskočilo. Do souhrnu, ne jen do logu: měsíční report
+     * se ptá „a proč hlídky nelétaly“ a z logu se to zpětně nedozví
+     * nikdo — ten se po pár dnech zahodí.
+     */
+    skipReasons: {} as Record<string, number>,
+  };
+
+  const preskocit = (reason: string, count: number) => {
+    report.skipped += count;
+    report.skipReasons[reason] = (report.skipReasons[reason] ?? 0) + count;
   };
 
   for (const patrol of patrols ?? []) {
@@ -98,7 +109,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         patrol_id: patrol.id,
         site: site.name,
       });
-      report.skipped += 1;
+      preskocit("no_dock_sn", 1);
       continue;
     }
 
@@ -125,7 +136,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         dock_sn: site.dock_sn,
         message: dock.message,
       });
-      report.skipped += runs.length;
+      preskocit("dock_unreachable", runs.length);
       continue;
     }
 
@@ -149,7 +160,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         // Nevyzvednuté soubory bývají důvod, proč se dok zaplnil.
         remain_upload: state.remainUpload,
       });
-      report.skipped += runs.length;
+      preskocit(readiness.reason, runs.length);
       continue;
     }
 
@@ -176,7 +187,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         .limit(1);
 
       if (existing && existing.length > 0) {
-        report.skipped += 1;
+        preskocit("already_scheduled", 1);
         continue;
       }
 
@@ -229,7 +240,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         // 23505 znamená, že slot mezitím založil jiný běh — není to
         // chyba, jen souběh.
         if (insertError.code === "23505") {
-          report.skipped += 1;
+          preskocit("already_scheduled", 1);
         } else {
           console.error("Zápis letu hlídky selhal", {
             patrol_id: patrol.id,

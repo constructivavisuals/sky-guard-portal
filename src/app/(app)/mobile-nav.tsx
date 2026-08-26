@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CarFront,
   Cctv,
+  FileText,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -41,6 +42,7 @@ const SECONDARY = [
   { href: "/kamery", label: "Kamery", icon: Cctv },
   { href: "/vjezdy", label: "Vjezdy", icon: CarFront },
   { href: "/prijezdy", label: "Příjezdy", icon: CalendarClock },
+  { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const;
 
