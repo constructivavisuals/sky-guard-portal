@@ -46,6 +46,16 @@ export const viewport: Viewport = {
   // Kvůli black-translucent stavovému řádku na iOS musí obsah sahat
   // pod výřez; odsazení si řeší layout přes safe-area.
   viewportFit: "cover",
+  // Portál je aplikace, ne dokument: přibližovat se v něm nemá co.
+  // Roztažené prsty jen posunou obsah mimo obrazovku a operátor pak
+  // hledá navigaci, která zůstala za okrajem.
+  //
+  // V Safari na webu iOS tohle záměrně ignoruje (kvůli přístupnosti),
+  // ale v aplikaci spuštěné z plochy — což je způsob, jak se portál
+  // používá — to platí. Zbytek dorazí přes touch-action v globals.css.
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

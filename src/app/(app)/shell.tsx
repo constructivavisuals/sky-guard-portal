@@ -44,7 +44,16 @@ export function Shell({
           guardState={guardState}
           profile={profile}
         />
-        <main className="flex flex-1 flex-col lg:overflow-y-auto">
+        {/* overflow-x: clip kvůli mřížkám s hairline-grid: ty schovávají
+            krajní linku záporným okrajem, takže jsou o pixel širší než
+            sloupec. Nad lg ten pixel spolkne odsazení stránky, na
+            mobilu jde mřížka od kraje ke kraji a stránka se o něj dá
+            posunout do strany — na dotykovém displeji to není
+            neviditelná drobnost, ale obsah, který se pod prstem hýbe.
+
+            `clip`, ne `hidden`: nezakládá posuvný kontejner, takže
+            nekoliduje se svislým posouváním ani se `sticky` uvnitř. */}
+        <main className="flex flex-1 flex-col overflow-x-clip lg:overflow-y-auto">
           {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg
               už žádná není. */}
           <div className="pb-24 lg:pb-0">{children}</div>

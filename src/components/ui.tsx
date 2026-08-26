@@ -56,7 +56,7 @@ export function Section({
   /** Poslední blok bez linky dole. */
   last?: boolean;
 }) {
-  const pad = flush ? "" : "px-5 py-5 sm:px-8 sm:py-6";
+  const pad = flush ? "" : "px-5 py-4 sm:px-8 sm:py-6";
   const rule = last ? "" : "border-b border-[var(--line)]";
   return <section className={`${pad} ${rule} ${className}`} {...props} />;
 }
@@ -147,13 +147,17 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] px-5 py-6 sm:px-8 sm:py-8">
+    <header className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] px-5 py-5 sm:gap-4 sm:px-8 sm:py-8">
       <div className="min-w-0">
-        <h1 className="text-[28px] font-normal leading-none tracking-[-0.02em] sm:text-[34px]">
+        {/* Na telefonu menší: nadpis přes půl obrazovky vytlačí pod
+            záhyb data, kvůli kterým se sem člověk dívá. */}
+        <h1 className="text-[24px] font-normal leading-none tracking-[-0.02em] sm:text-[34px]">
           {title}
         </h1>
         {description ? (
-          <p className="mt-2 text-sm text-[var(--text-muted)]">{description}</p>
+          <p className="mt-1.5 text-[13px] text-[var(--text-muted)] sm:mt-2 sm:text-sm">
+            {description}
+          </p>
         ) : null}
       </div>
       {action}
@@ -211,7 +215,7 @@ export function Metric({
   } as const;
 
   return (
-    <div className={`min-w-0 px-5 py-5 sm:px-6 ${className}`}>
+    <div className={`min-w-0 px-5 py-4 sm:px-6 sm:py-5 ${className}`}>
       <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
         {icon ? (
           <span className="text-[var(--text-muted)]" aria-hidden="true">
@@ -221,7 +225,7 @@ export function Metric({
         {label}
       </div>
       <div
-        className={`mt-2 truncate text-lg font-normal tracking-tight ${
+        className={`mt-1.5 truncate text-[17px] font-normal tracking-tight sm:mt-2 sm:text-lg ${
           tone ? tones[tone] : "text-[var(--text)]"
         }`}
       >

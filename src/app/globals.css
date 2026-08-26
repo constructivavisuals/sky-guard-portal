@@ -77,6 +77,14 @@
 /* UI je navržené tmavé; světlý režim systému ho nepřebarvuje. */
 html {
   color-scheme: dark;
+  /* Odraz na konci stránky patří dokumentu, ne aplikaci. V režimu
+     z plochy se jím celý portál odlepí od okraje a pod ním prosvítá
+     pozadí systému, což vypadá jako chyba vykreslení. */
+  overscroll-behavior: none;
+  /* iOS jinak sám zvětšuje písmo na stránkách, které považuje za
+     příliš úzké — a rozhodí tím rytmus mřížky. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -87,6 +95,11 @@ body {
      vlastního rámečku — na mobilu je vodorovný posun celé stránky
      nejrychlejší cesta ke ztracené navigaci. */
   overflow-x: hidden;
+  overscroll-behavior: none;
+  /* Vypne dvojklik na přiblížení a s ním i prodlevu 300 ms před
+     reakcí na klepnutí. Posouvání prstem zůstává; bere se jen
+     přibližování, které v aplikaci nemá co dělat. */
+  touch-action: manipulation;
 }
 
 /* Viditelný fokus na klávesnici — v tmavém UI se ztratí snadno. */

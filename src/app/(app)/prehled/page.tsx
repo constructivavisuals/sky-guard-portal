@@ -450,7 +450,7 @@ function StatusBar({
             Stav střežení
           </p>
         </div>
-        <p className="mt-3 text-xl font-normal leading-snug tracking-tight sm:text-2xl">
+        <p className="mt-2.5 text-[17px] font-normal leading-snug tracking-tight sm:mt-3 sm:text-2xl">
           {sentence}
           {switchNote ? (
             <span className="text-[var(--text-muted)]"> {switchNote}</span>

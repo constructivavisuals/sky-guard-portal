@@ -75,7 +75,14 @@ export function Topbar({
   const showSwitcher = isOperator(profile) || siteOptions.length > 1;
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--bg)] px-4 sm:px-8">
+    // Odsazení shora o výšku stavového řádku: na iOS je nastavený jako
+    // black-translucent a obsah pod ním prochází, takže bez tohohle
+    // přepínač lokality leze pod hodiny a výřez.
+    //
+    // Výřez se PŘIČÍTÁ k výšce lišty, nesnižuje ji: samotné odsazení
+    // by z lišty pod výřezem udělalo úzký proužek. Bez výřezu je
+    // env() nula a lišta má přesně tu výšku, co měla.
+    <header className="flex min-h-[calc(4rem+env(safe-area-inset-top))] shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--bg)] pt-[env(safe-area-inset-top)] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))]">
       <div className="flex min-w-0 items-center gap-3">
         {showSwitcher ? (
           <SiteSwitcher

@@ -276,7 +276,9 @@ export function FormDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
+    // Odsazení počítá s výřezem: dialog začíná nahoře a bez toho by mu
+    // hlavička zmizela pod stavovým řádkem.
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-8">
       <button
         type="button"
         aria-label="Zavřít"
