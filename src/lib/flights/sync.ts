@@ -14,6 +14,13 @@ import {
   mediaKindFromSuffix,
   mediaStoragePath,
 } from "./sync-rules.ts";
+import {
+  combineThreatReadings,
+  MAX_THREAT_IMAGE_BYTES,
+  MAX_THREAT_PHOTOS,
+  readThreatFromImage,
+  type ThreatReading,
+} from "./threat.ts";
 import type { Database, Flight, FlightStatus } from "../../types/database.ts";
 
 // Dotažení letu z FlightHubu.
@@ -66,6 +73,9 @@ export interface FlightSyncResult {
   finished: boolean;
   mediaAdded: number;
   mediaSkipped: number;
+  /** Výsledek kontroly snímků, nebo null když neproběhla. */
+  threatConfirmed: boolean | null;
+  threatChecked: boolean;
   /** Popis toho, co se nepovedlo. Prázdné = v pořádku. */
   problems: string[];
 }
@@ -87,6 +97,8 @@ export async function syncFlight(
     finished: false,
     mediaAdded: 0,
     mediaSkipped: 0,
+    threatConfirmed: null,
+    threatChecked: false,
     problems: [],
   };
 
@@ -181,7 +193,172 @@ export async function syncFlight(
     }
   }
 
+  // ── Potvrzení nebezpečí ──────────────────────────────────────
+  // Až po médiích: kontroluje se to, co se právě stáhlo.
+  const threat = await checkFlightThreat(db, flight);
+  result.threatChecked = threat.checked;
+  result.threatConfirmed = threat.confirmed;
+  result.problems.push(...threat.problems);
+
   return result;
+}
+
+export interface ThreatCheckResult {
+  /** Proběhla kontrola natolik, že se zapsala? */
+  checked: boolean;
+  confirmed: boolean | null;
+  /** Kolik snímků se opravdu přečetlo a kolik se přeskočilo. */
+  read: number;
+  skipped: number;
+  problems: string[];
+}
+
+interface PhotoRow {
+  id: string;
+  storage_path: string;
+}
+
+/**
+ * Projde fotky z letu modelem a zapíše závěr.
+ *
+ * Volá se z synchronizace hned po stažení médií a taky samostatně na
+ * dokončené lety, u kterých kontrola dřív selhala — proto je vystavená.
+ *
+ * Když se nepodaří přečíst ANI JEDEN snímek, razítko se nezapisuje.
+ * Chybějící klíč k API nebo výpadek nesmí skončit jako „zkontrolováno,
+ * výsledek nejistý“ — to by znamenalo, že se na let už nikdo nepodívá.
+ */
+export async function checkFlightThreat(
+  db: Db,
+  flight: Pick<FlightRow, "id">,
+): Promise<ThreatCheckResult> {
+  const result: ThreatCheckResult = {
+    checked: false,
+    confirmed: null,
+    read: 0,
+    skipped: 0,
+    problems: [],
+  };
+
+  const { data: photos, count, error } = await db
+    .from("media")
+    .select("id, storage_path", { count: "exact" })
+    .eq("flight_id", flight.id)
+    .eq("kind", "photo")
+    .order("captured_at", { ascending: true, nullsFirst: false })
+    .limit(MAX_THREAT_PHOTOS)
+    .returns<PhotoRow[]>();
+
+  if (error) throw new Error(`načtení fotek: ${error.message}`);
+
+  const celkem = count ?? photos?.length ?? 0;
+  if (celkem > MAX_THREAT_PHOTOS) {
+    // Tiché useknutí by vypadalo jako „prošli jsme všechno“.
+    console.info("Kontrola snímků bere jen část fotek z letu", {
+      flight_id: flight.id,
+      celkem,
+      kontrolovano: MAX_THREAT_PHOTOS,
+    });
+  }
+
+  const readings: ThreatReading[] = [];
+  let selhani = 0;
+
+  for (const photo of photos ?? []) {
+    const image = await stahnoutSnimek(db, photo);
+    if (!image) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const reading = await readThreatFromImage(image);
+    if (!reading) {
+      // Selhání volání, ne odpověď „nevím“. Obojí končí jako nejistý
+      // snímek, ale tohle rozhoduje, jestli se kontrola zapíše.
+      selhani += 1;
+      result.skipped += 1;
+      continue;
+    }
+
+    readings.push(reading);
+    result.read += 1;
+  }
+
+  if (readings.length === 0 && selhani > 0) {
+    result.problems.push(`kontrola snímků: nepřečetl se ani jeden z ${selhani}`);
+    return result;
+  }
+
+  const verdict = combineThreatReadings(readings, {
+    skipped: result.skipped + Math.max(0, celkem - MAX_THREAT_PHOTOS),
+  });
+
+  const { error: writeError } = await db
+    .from("flights")
+    .update({
+      threat_confirmed: verdict.confirmed,
+      threat_note: verdict.note,
+      threat_checked_at: new Date().toISOString(),
+    })
+    .eq("id", flight.id);
+
+  if (writeError) {
+    // Sloupce přidává migrace 20260903120000 a ta se nasazuje ručně.
+    // Dokud neproběhla, kontrola se tiše nezapíše — shodit kvůli tomu
+    // celou synchronizaci letů by bylo horší.
+    if (chybiSloupce(writeError)) {
+      console.warn("Sloupce kontroly snímků chybí — výsledek se nezapisuje", {
+        flight_id: flight.id,
+      });
+      return result;
+    }
+    throw new Error(`zápis kontroly snímků: ${writeError.message}`);
+  }
+
+  result.checked = true;
+  result.confirmed = verdict.confirmed;
+  return result;
+}
+
+/**
+ * Chybí sloupec, který přidává nenasazená migrace?
+ *
+ * 42703 je „undefined column“ z Postgresu, PGRST204 totéž z mezipaměti
+ * schématu PostgRESTu.
+ */
+export function chybiSloupce(error: { code?: string | null }): boolean {
+  return error.code === "42703" || error.code === "PGRST204";
+}
+
+/** Snímek z úložiště v podobě, kterou bere API modelu. */
+async function stahnoutSnimek(
+  db: Db,
+  photo: PhotoRow,
+): Promise<{ base64: string; mediaType: string } | null> {
+  const suffix = photo.storage_path.split(".").pop() ?? null;
+  const mediaType = mediaContentType(suffix);
+  if (!mediaType || !mediaType.startsWith("image/")) return null;
+
+  const { data, error } = await db.storage.from(FLIGHT_BUCKET).download(photo.storage_path);
+  if (error || !data) {
+    console.warn("Snímek z letu se nepodařilo stáhnout", {
+      media_id: photo.id,
+      message: error?.message,
+    });
+    return null;
+  }
+
+  const bytes = Buffer.from(await data.arrayBuffer());
+  if (bytes.byteLength > MAX_THREAT_IMAGE_BYTES) {
+    // Zmenšit ho tady nemáme čím a nacpat do API větší nejde.
+    console.info("Snímek je nad limitem API, přeskakuji", {
+      media_id: photo.id,
+      bytes: bytes.byteLength,
+    });
+    return null;
+  }
+
+  return { base64: bytes.toString("base64"), mediaType };
 }
 
 type MediaOutcome = "added" | "skipped";

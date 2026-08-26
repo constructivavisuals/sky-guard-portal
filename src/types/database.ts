@@ -385,6 +385,19 @@ export type Flight = {
   /** Kdy se let naposledy dotahoval z DJI. NULL = ještě nikdy. */
   synced_at: string | null;
   /**
+   * Našel model na fotkách z letu člověka nebo vozidlo? Migrace
+   * 20260903120000.
+   *
+   * NULL neznamená „nic tam není“ — to je false. NULL je nejistý
+   * výsledek nebo nebylo z čeho číst, a rozliší se od „ještě jsme se
+   * neptali“ podle threat_checked_at.
+   */
+  threat_confirmed: boolean | null;
+  /** Věta pro člověka: co model na snímcích viděl. */
+  threat_note: string | null;
+  /** Kdy kontrola snímků proběhla. NULL = ještě neproběhla. */
+  threat_checked_at: string | null;
+  /**
    * Odečet z doku v okamžiku plánování: wind_speed, rainfall,
    * environment_temperature. Migrace 20260827120000. Null u letů, které
    * nevznikly z hlídky, a když dok hodnoty nehlásil.

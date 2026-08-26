@@ -1,7 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
-import { syncFlight, type FlightRow } from "@/lib/flights/sync.ts";
+import {
+  checkFlightThreat,
+  chybiSloupce,
+  syncFlight,
+  type FlightRow,
+} from "@/lib/flights/sync.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
 // GET /api/sync/flights
@@ -11,6 +16,10 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 //
 // Bere lety, které mají úlohu a nemají konec. Dokončené dotáhne včetně
 // trasy a médií, běžící jen aktualizuje stav a nechá na příště.
+//
+// Druhý průchod dobírá dokončené lety, u kterých kontrola snímků
+// selhala. Bez něj by se na ně už nikdo nepodíval: jakmile má let
+// ended_at, první dotaz ho nevybere.
 //
 // Selhání jednoho letu NESMÍ shodit ostatní: každý má vlastní
 // try/catch a chyby se sbírají do souhrnu.
@@ -28,6 +37,16 @@ export const maxDuration = 300;
  * „nic dalšího nebylo“.
  */
 const MAX_FLIGHTS_PER_RUN = 10;
+
+/**
+ * Jak staré lety se ještě dobírají na kontrolu snímků.
+ *
+ * Bez okna by let, u kterého kontrola selhává trvale, ukrajoval strop
+ * v každém běhu až do konce světa. Po týdnu se na něj rezignuje
+ * a zůstane „nekontrolováno“ — což je pravda, ne tvrzení o tom, co na
+ * snímcích je.
+ */
+const THREAT_RETRY_WINDOW_DAYS = 7;
 
 function authorized(request: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
@@ -70,6 +89,8 @@ export async function GET(request: NextRequest): Promise<Response> {
     failed: 0,
     mediaAdded: 0,
     mediaSkipped: 0,
+    threatChecked: 0,
+    threatConfirmed: 0,
     truncated: (flights?.length ?? 0) === MAX_FLIGHTS_PER_RUN,
   };
 
@@ -79,6 +100,8 @@ export async function GET(request: NextRequest): Promise<Response> {
 
       report.mediaAdded += result.mediaAdded;
       report.mediaSkipped += result.mediaSkipped;
+      if (result.threatChecked) report.threatChecked += 1;
+      if (result.threatConfirmed === true) report.threatConfirmed += 1;
 
       if (result.problems.length > 0) {
         report.failed += 1;
@@ -98,6 +121,60 @@ export async function GET(request: NextRequest): Promise<Response> {
         flight_id: flight.id,
         message: caught instanceof Error ? caught.message : String(caught),
       });
+    }
+  }
+
+  // ── Dobrání kontroly snímků ────────────────────────────────────
+  // Lety, které už skončily, ale kontrola u nich neproběhla — typicky
+  // proto, že v tu chvíli selhalo volání modelu.
+  const hotove = new Set((flights ?? []).map((f) => f.id));
+  const zbyva = Math.max(0, MAX_FLIGHTS_PER_RUN - hotove.size);
+
+  if (zbyva > 0) {
+    const okno = new Date(Date.now() - THREAT_RETRY_WINDOW_DAYS * 86_400_000);
+    const { data: kontrola, error: kontrolaError } = await db
+      .from("flights")
+      .select("id")
+      .not("ended_at", "is", null)
+      .is("threat_checked_at", null)
+      .gte("ended_at", okno.toISOString())
+      .order("ended_at", { ascending: false })
+      .limit(zbyva)
+      .returns<{ id: string }[]>();
+
+    if (kontrolaError) {
+      // Sloupce přidává migrace 20260903120000. Dokud neproběhla,
+      // druhý průchod se přeskočí — synchronizace letů na něm nestojí.
+      if (chybiSloupce(kontrolaError)) {
+        console.warn("Sloupce kontroly snímků chybí — druhý průchod se přeskakuje");
+      } else {
+        console.error("Načtení letů ke kontrole snímků selhalo", {
+          message: kontrolaError.message,
+        });
+        report.failed += 1;
+      }
+    }
+
+    for (const flight of kontrola ?? []) {
+      // Let, který právě doběhl v prvním průchodu, se nekontroluje
+      // podruhé — v jednom běhu by to bylo totéž volání dvakrát.
+      if (hotove.has(flight.id)) continue;
+      try {
+        const vysledek = await checkFlightThreat(db, flight);
+        if (vysledek.checked) report.threatChecked += 1;
+        if (vysledek.problems.length > 0) {
+          console.warn("Kontrola snímků se nepovedla", {
+            flight_id: flight.id,
+            problemy: vysledek.problems,
+          });
+        }
+      } catch (caught) {
+        report.failed += 1;
+        console.error("Kontrola snímků selhala", {
+          flight_id: flight.id,
+          message: caught instanceof Error ? caught.message : String(caught),
+        });
+      }
     }
   }
 
