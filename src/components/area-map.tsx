@@ -13,6 +13,8 @@ import {
   type MapBounds,
 } from "@/lib/area-map.ts";
 
+import { plural } from "@/lib/format.ts";
+
 import { AreaMapMarkers } from "./area-map-markers.tsx";
 
 export type { AreaMapPoint };
@@ -167,7 +169,7 @@ export function AreaMap({
                 d={trackPath(segment, span)}
                 fill="none"
                 className="stroke-black/70"
-                strokeWidth={3.2}
+                strokeWidth={2.4}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -178,7 +180,7 @@ export function AreaMap({
                 d={trackPath(segment, span)}
                 fill="none"
                 className="stroke-white"
-                strokeWidth={1.6}
+                strokeWidth={1.2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -212,15 +214,21 @@ export function AreaMap({
       {skipped > 0 || trasa.skipped > 0 ? (
         <p className="mt-2 text-xs text-[var(--text-muted)]">
           {skipped > 0
-            ? skipped === 1
-              ? "Jeden bod leží mimo výřez podkladu, a proto se nekreslí."
-              : `${skipped} body leží mimo výřez podkladu, a proto se nekreslí.`
+            ? `${plural(
+                skipped,
+                "Bod leží",
+                "Body leží",
+                "Bodů leží",
+              )} mimo výřez podkladu, a proto se nekreslí.`
             : null}
           {skipped > 0 && trasa.skipped > 0 ? " " : null}
           {trasa.skipped > 0
-            ? `Trasa letu vede mimo podklad (${trasa.skipped} ${
-                trasa.skipped === 1 ? "bod" : "bodů"
-              }); tam se nekreslí a čára je proto přerušená.`
+            ? `Trasa letu vede mimo podklad (${plural(
+                trasa.skipped,
+                "bod",
+                "body",
+                "bodů",
+              )}); tam se nekreslí a čára je proto přerušená.`
             : null}
         </p>
       ) : null}

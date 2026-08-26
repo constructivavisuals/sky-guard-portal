@@ -21,6 +21,7 @@ import {
   readThreatFromImage,
   type ThreatReading,
 } from "./threat.ts";
+import { FLIGHT_BUCKET, MAX_MEDIA_BYTES } from "./storage.ts";
 import type { Database, Flight, FlightStatus } from "../../types/database.ts";
 
 // Dotažení letu z FlightHubu.
@@ -28,19 +29,6 @@ import type { Database, Flight, FlightStatus } from "../../types/database.ts";
 // Volá se z /api/sync/flights. Jeden let = jedna funkce, protože
 // selhání jednoho nesmí shodit ostatní — volající každé volání obalí
 // vlastním try/catch a jede dál.
-
-/** Bucket s médii z letů. Privátní, viz migrace 20260902120000. */
-export const FLIGHT_BUCKET = "lety";
-
-/** Jak dlouho platí podepsaná adresa média. */
-export const MEDIA_SIGNED_URL_TTL = 600;
-
-/**
- * Strop na jedno médium. Video z dronu v plné kvalitě může mít
- * stovky megabajtů; nad tímhle se soubor přeskočí a zaloguje, ať
- * synchronizace nespadne na paměti uprostřed dávky.
- */
-export const MAX_MEDIA_BYTES = 512 * 1024 * 1024;
 
 type Db = SupabaseClient<Database>;
 
