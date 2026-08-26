@@ -20,7 +20,7 @@ interface PassageDetail {
   passed_at: string;
   plate: string | null;
   confidence: number | null;
-  image_path: string | null;
+  storage_path: string | null;
   list_match: PlateListType | null;
   known_label: string | null;
   plate_read_at: string | null;
@@ -50,7 +50,7 @@ export default async function Page({ searchParams: _s, params }: PageProps<"/vje
     const { data, error } = await supabase
       .from("vehicle_passages")
       .select(
-        "id, passed_at, plate, confidence, image_path, list_match, known_label, " +
+        "id, passed_at, plate, confidence, storage_path, list_match, known_label, " +
           "plate_read_at, detection_id, sites(name, timezone), cameras(name)",
       )
       .eq("id", id)
@@ -72,10 +72,10 @@ export default async function Page({ searchParams: _s, params }: PageProps<"/vje
         // Snímek leží v privátním bucketu; adresa se podepisuje a platí
         // krátce. Podepisuje se klientem přihlášeného uživatele, takže
         // o přístupu rozhoduje politika nad storage.objects, ne kód.
-        data.image_path
+        data.storage_path
           ? supabase.storage
               .from(PASSAGE_BUCKET)
-              .createSignedUrl(data.image_path, SIGNED_URL_TTL_SECONDS)
+              .createSignedUrl(data.storage_path, SIGNED_URL_TTL_SECONDS)
           : Promise.resolve({ data: null, error: null }),
       ]);
 
@@ -221,7 +221,7 @@ export default async function Page({ searchParams: _s, params }: PageProps<"/vje
               />
             ) : (
               <p className="border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-4 py-10 text-center text-sm text-[var(--text-muted)]">
-                {passage.image_path
+                {passage.storage_path
                   ? "Snímek se nepodařilo načíst."
                   : "Kamera k téhle události snímek neposlala."}
               </p>

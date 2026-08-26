@@ -22,3 +22,4 @@
 20260830180000_logo_storage.sql
 20260831120000_ingest_hardening.sql
 20260901120000_vehicle_passages.sql
+20260902120000_flight_sync.sql

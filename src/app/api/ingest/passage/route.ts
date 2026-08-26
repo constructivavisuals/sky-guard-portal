@@ -314,7 +314,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     site_id: camera.site_id,
     camera_id: camera.id,
     detection_id: detection.id,
-    image_path: imagePath,
+    storage_path: imagePath,
     passed_at: payload.passedAt.toISOString(),
   });
 

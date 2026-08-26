@@ -240,7 +240,7 @@ async function syncMediaFile(
   const { error: insertError } = await db.from("media").insert({
     flight_id: flight.id,
     kind,
-    r2_key: path,
+    storage_path: path,
     fh_media_id: file.uuid,
     captured_at:
       captured && !Number.isNaN(captured.getTime()) ? captured.toISOString() : null,

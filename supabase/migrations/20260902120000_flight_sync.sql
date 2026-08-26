@@ -3,7 +3,7 @@
 --
 -- Většina sloupců, které synchronizace potřebuje, ve schématu už je
 -- (started_at, ended_at, duration_s, distance_m, trajectory, status
--- u letů; flight_id, kind, r2_key, captured_at, size_bytes, meta
+-- u letů; flight_id, kind, cesta v úložišti, captured_at, size_bytes, meta
 -- u médií). Tahle migrace doplňuje jen to, co chybí, a zakládá
 -- úložiště.
 --
@@ -48,10 +48,6 @@ COMMENT ON COLUMN media.fh_media_id IS
 -- videa znovu — a u médií z dronu to nejsou kilobajty.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_media_fh_media_id
   ON media(fh_media_id) WHERE fh_media_id IS NOT NULL;
-
-COMMENT ON COLUMN media.r2_key IS
-  'Klíč objektu v privátním úložišti, ne veřejná URL. Dnes je to cesta '
-  'v bucketu `lety`; jméno sloupce je z doby, kdy se počítalo s R2.';
 
 -- ── Úložiště médií ───────────────────────────────────────────────
 -- Stejný vzor jako u vjezdů: privátní bucket, první složka v cestě je

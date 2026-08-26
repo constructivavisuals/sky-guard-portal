@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS vehicle_passages (
   plate TEXT,
   confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
   -- Snímek v bucketu `vjezdy`; cesta, ne URL.
-  image_path TEXT,
+  storage_path TEXT,
 
   -- Jak vjezd dopadl proti seznamu, ROZHODNUTO V DOBĚ VJEZDU. Uloženo,
   -- ne dopočítáváno: seznam se mění a starý vjezd by po každé úpravě
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS vehicle_passages (
   -- Cesta v úložišti, ne adresa. Kdyby se uložila celá URL, po změně
   -- domény projektu by snímky zmizely.
   CONSTRAINT vehicle_passages_image_is_path CHECK (
-    image_path IS NULL OR image_path !~ '^[a-z]+://'
+    storage_path IS NULL OR storage_path !~ '^[a-z]+://'
   ),
   -- Shoda se seznamem má smysl jen u přečtené značky.
   CONSTRAINT vehicle_passages_match_needs_plate CHECK (

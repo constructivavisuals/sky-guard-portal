@@ -204,7 +204,11 @@ CREATE TABLE IF NOT EXISTS detections (
   object_class detection_object_class NOT NULL DEFAULT 'unknown',
   confidence NUMERIC(5,4) CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
   -- Klíč snímku v R2, ne veřejná URL.
-  snapshot_r2_key TEXT,
+  -- Cesta snímku v úložišti, ne URL. Přejmenováno migrací
+  -- 20260902180000 z snapshot_r2_key; tady je nová podoba proto, aby
+  -- čerstvá databáze vznikla rovnou správně a znovuspuštění tohohle
+  -- souboru neshodilo index na starém jméně.
+  storage_path TEXT,
   -- Syrová odpověď detektoru (bounding boxy, model, verze).
   raw JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -305,9 +309,9 @@ CREATE TABLE IF NOT EXISTS media (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   flight_id UUID NOT NULL REFERENCES flights(id) ON DELETE CASCADE,
   kind media_kind NOT NULL,
-  -- Klíč objektu v R2, ne veřejná URL. Smazání řádku neuklidí R2 —
-  -- to je práce aplikace (retenční job).
-  r2_key TEXT NOT NULL,
+  -- Cesta v privátním bucketu, ne veřejná URL. Smazání řádku neuklidí
+  -- úložiště — to je práce aplikace (retenční job).
+  storage_path TEXT NOT NULL,
   captured_at TIMESTAMPTZ,
   size_bytes BIGINT CHECK (size_bytes IS NULL OR size_bytes >= 0),
   meta JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -317,8 +321,8 @@ CREATE TABLE IF NOT EXISTS media (
 CREATE INDEX IF NOT EXISTS idx_media_flight ON media(flight_id);
 CREATE INDEX IF NOT EXISTS idx_media_kind ON media(kind);
 CREATE INDEX IF NOT EXISTS idx_media_captured ON media(captured_at DESC);
--- Jeden objekt v R2 = jeden řádek (idempotentní import z FlightHubu).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_media_r2_key ON media(r2_key);
+-- Jeden objekt v úložišti = jeden řádek (idempotentní import z FlightHubu).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_storage_path ON media(storage_path);
 
 -- ── updated_at auto-touch ────────────────────────────────────────
 

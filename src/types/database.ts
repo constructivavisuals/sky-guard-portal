@@ -311,7 +311,8 @@ export type Detection = {
   /** 0–1, NUMERIC(5,4). */
   confidence: number | null;
   /** Klíč snímku v R2, ne veřejná URL. */
-  snapshot_r2_key: string | null;
+  /** Cesta snímku detekce v úložišti, ne URL. */
+  storage_path: string | null;
   /** Syrová odpověď detektoru (bounding boxy, model, verze). */
   raw: Json;
   created_at: string;
@@ -398,11 +399,8 @@ export type Media = {
   id: string;
   flight_id: string;
   kind: MediaKind;
-  /**
-   * Klíč objektu v privátním úložišti, ne veřejná URL. Dnes cesta
-   * v bucketu `lety`; jméno je z doby, kdy se počítalo s R2.
-   */
-  r2_key: string;
+  /** Cesta souboru v privátním bucketu `lety`, ne URL. */
+  storage_path: string;
   /**
    * UUID souboru ve FlightHubu. Migrace 20260902120000. Na tomhle
    * stojí idempotence synchronizace — co už tu je, se nestahuje
@@ -451,7 +449,7 @@ export type DispatchInsert = Insertable<
 >;
 export type PatrolInsert = Insertable<Patrol, "site_id" | "name" | "wayline_uuid">;
 export type FlightInsert = Insertable<Flight, "kind">;
-export type MediaInsert = Insertable<Media, "flight_id" | "kind" | "r2_key">;
+export type MediaInsert = Insertable<Media, "flight_id" | "kind" | "storage_path">;
 export type SiteGrantInsert = Insertable<SiteGrant, "profile_id" | "site_id">;
 export type AuditLogInsert = Insertable<AuditLogEntry, "action">;
 
@@ -486,8 +484,8 @@ export type VehiclePassage = {
   /** null = značka nepřečtená nebo nečitelná. */
   plate: string | null;
   confidence: number | null;
-  /** Cesta v bucketu `vjezdy`, ne URL. */
-  image_path: string | null;
+  /** Cesta snímku od brány v bucketu `vjezdy`, ne URL. */
+  storage_path: string | null;
   /** Jak vjezd dopadl proti seznamu V DOBĚ VJEZDU. */
   list_match: PlateListType | null;
   known_plate_id: string | null;

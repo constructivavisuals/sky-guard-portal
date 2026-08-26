@@ -136,7 +136,7 @@ INSERT INTO flights (id, dispatch_id, fh_task_uuid, status) VALUES
   ('00000000-0000-0000-0000-000000000052', '00000000-0000-0000-0000-000000000042', 'task-2', 'completed'),
   ('00000000-0000-0000-0000-000000000053', NULL, 'task-3', 'completed');
 
-INSERT INTO media (flight_id, kind, r2_key) VALUES
+INSERT INTO media (flight_id, kind, storage_path) VALUES
   ('00000000-0000-0000-0000-000000000051', 'photo', 'r2/f1.jpg'),
   ('00000000-0000-0000-0000-000000000052', 'photo', 'r2/f2.jpg'),
   ('00000000-0000-0000-0000-000000000053', 'photo', 'r2/f3.jpg');

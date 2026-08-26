@@ -92,7 +92,7 @@ $sql$);
 
 INSERT INTO vehicle_passages (
   id, site_id, camera_id, detection_id, plate, confidence,
-  image_path, list_match, known_plate_id, known_label, plate_read_at, passed_at
+  storage_path, list_match, known_plate_id, known_label, plate_read_at, passed_at
 ) VALUES (
   '00000000-0000-0000-0000-00000000fbb1',
   '00000000-0000-0000-0000-00000000fa01',
@@ -110,8 +110,8 @@ SELECT test_expect_rejected('druhý vjezd k téže detekci neprojde', $sql$
           '00000000-0000-0000-0000-00000000fd01')
 $sql$);
 
-SELECT test_expect_rejected('do image_path nejde uložit URL', $sql$
-  UPDATE vehicle_passages SET image_path = 'https://example.com/a.jpg'
+SELECT test_expect_rejected('do storage_path nejde uložit URL', $sql$
+  UPDATE vehicle_passages SET storage_path = 'https://example.com/a.jpg'
    WHERE id = '00000000-0000-0000-0000-00000000fbb1'
 $sql$);
 
