@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
+import { recordCronRun } from "@/lib/cron/record.ts";
 import {
   checkFlightThreat,
   chybiSloupce,
@@ -79,6 +80,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   if (error) {
     console.error("Načtení letů k synchronizaci selhalo", { message: error.message });
+    await recordCronRun("flights", { error: "flights_query_failed" });
     return Response.json({ error: "flights_query_failed" }, { status: 500 });
   }
 
@@ -183,5 +185,6 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Nenulové failed musí být vidět ve stavu — cron volá někdo zvenčí
   // přes `curl -f` a ten upozorní jen na chybový stav. Stejně jako
   // u hlídek.
+  await recordCronRun("flights", report);
   return Response.json(report, { status: report.failed > 0 ? 500 : 200 });
 }

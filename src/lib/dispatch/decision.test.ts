@@ -17,7 +17,7 @@ function input(overrides: Partial<DispatchDecisionInput> = {}): DispatchDecision
   return {
     armed: true,
     cooldownSeconds: 900,
-    lastSentAt: null,
+    lastSent: { known: true, at: null },
     at: AT,
     ...overrides,
   };
@@ -33,6 +33,7 @@ describe("decideDispatch — ostrý režim", () => {
     assert.deepEqual(decideDispatch(input({ armed: false })), {
       send: false,
       outcome: "suppressed_disarmed",
+      cause: "disarmed",
     });
   });
 
@@ -44,44 +45,44 @@ describe("decideDispatch — ostrý režim", () => {
     // Obě podmínky platí naráz — důvodem musí být ten hlavní, aby
     // v dispatches nestálo 'cooldown' u lokality, která vůbec nehlídá.
     const decision = decideDispatch(
-      input({ armed: false, lastSentAt: secondsBefore(10) }),
+      input({ armed: false, lastSent: { known: true, at: secondsBefore(10) } }),
     );
-    assert.deepEqual(decision, { send: false, outcome: "suppressed_disarmed" });
+    assert.deepEqual(decision, { send: false, outcome: "suppressed_disarmed", cause: "disarmed" });
   });
 });
 
 describe("decideDispatch — cooldown", () => {
   it("zásah v cooldownu se potlačí", () => {
     const decision = decideDispatch(
-      input({ lastSentAt: secondsBefore(300), cooldownSeconds: 900 }),
+      input({ lastSent: { known: true, at: secondsBefore(300) }, cooldownSeconds: 900 }),
     );
-    assert.deepEqual(decision, { send: false, outcome: "suppressed_cooldown" });
+    assert.deepEqual(decision, { send: false, outcome: "suppressed_cooldown", cause: "cooldown" });
   });
 
   it("po uplynutí cooldownu se odesílá", () => {
     const decision = decideDispatch(
-      input({ lastSentAt: secondsBefore(901), cooldownSeconds: 900 }),
+      input({ lastSent: { known: true, at: secondsBefore(901) }, cooldownSeconds: 900 }),
     );
     assert.deepEqual(decision, { send: true });
   });
 
   it("přesně na hranici cooldownu se už odesílá", () => {
     const decision = decideDispatch(
-      input({ lastSentAt: secondsBefore(900), cooldownSeconds: 900 }),
+      input({ lastSent: { known: true, at: secondsBefore(900) }, cooldownSeconds: 900 }),
     );
     assert.deepEqual(decision, { send: true });
   });
 
   it("o sekundu dřív než hranice se ještě potlačí", () => {
     const decision = decideDispatch(
-      input({ lastSentAt: secondsBefore(899), cooldownSeconds: 900 }),
+      input({ lastSent: { known: true, at: secondsBefore(899) }, cooldownSeconds: 900 }),
     );
-    assert.deepEqual(decision, { send: false, outcome: "suppressed_cooldown" });
+    assert.deepEqual(decision, { send: false, outcome: "suppressed_cooldown", cause: "cooldown" });
   });
 
   it("cooldown 0 nikdy nepotlačí", () => {
     const decision = decideDispatch(
-      input({ lastSentAt: AT, cooldownSeconds: 0 }),
+      input({ lastSent: { known: true, at: AT }, cooldownSeconds: 0 }),
     );
     assert.deepEqual(decision, { send: true });
   });
@@ -90,9 +91,9 @@ describe("decideDispatch — cooldown", () => {
     // Rozjeté hodiny na kameře nesmí zablokovat další zásahy —
     // záporný uplynulý čas je menší než cooldown, takže by potlačil.
     const decision = decideDispatch(
-      input({ lastSentAt: new Date(AT.getTime() + 60_000) }),
+      input({ lastSent: { known: true, at: new Date(AT.getTime() + 60_000) } }),
     );
-    assert.deepEqual(decision, { send: false, outcome: "suppressed_cooldown" });
+    assert.deepEqual(decision, { send: false, outcome: "suppressed_cooldown", cause: "cooldown" });
   });
 });
 
@@ -136,5 +137,58 @@ describe("rozhodnutí a stupeň jsou nezávislé", () => {
     const decision = decideDispatch(input({ armed: false }));
     assert.equal(level, 5);
     assert.equal(decision.send, false);
+  });
+});
+
+describe("decideDispatch — nezjištěné vstupy", () => {
+  it("neznámý režim střežení není „nestřeží“", () => {
+    // Dřív se z chyby dotazu stalo suppressed_disarmed a detail zásahu
+    // pak tvrdil o areálu něco, co se nikdy nezjišťovalo.
+    const decision = decideDispatch(input({ armed: null }));
+    assert.deepEqual(decision, {
+      send: false,
+      outcome: "suppressed_unknown",
+      cause: "armed_unknown",
+    });
+  });
+
+  it("nezjištěný cooldown zásah zastaví (fail-closed)", () => {
+    // Bez něj nevíme, jestli dron nevzlétl před minutou. Duplicitní
+    // zásah znamená vyčerpanou baterii pro to, co přijde potom.
+    const decision = decideDispatch(input({ lastSent: { known: false, at: null } }));
+    assert.deepEqual(decision, {
+      send: false,
+      outcome: "suppressed_unknown",
+      cause: "cooldown_unknown",
+    });
+  });
+
+  it("neznámý režim má přednost před neznámým cooldownem", () => {
+    const decision = decideDispatch(
+      input({ armed: null, lastSent: { known: false, at: null } }),
+    );
+    assert.equal(decision.send === false && decision.cause, "armed_unknown");
+  });
+
+  it("mimo režim se cooldown neřeší, ani když je neznámý", () => {
+    const decision = decideDispatch(
+      input({ armed: false, lastSent: { known: false, at: null } }),
+    );
+    assert.equal(decision.send === false && decision.cause, "disarmed");
+  });
+
+  it("neznámá eskalace zásah NEZASTAVÍ", () => {
+    // Fail-open: nižší stupeň je pořád zásah. Eskalace do rozhodnutí
+    // o odeslání vůbec nevstupuje, jen do stupně.
+    assert.deepEqual(decideDispatch(input()), { send: true });
+    assert.equal(resolveDispatchLevel("person", null), 5);
+    assert.equal(resolveDispatchLevel("vehicle", null), 2);
+  });
+
+  it("neznámá eskalace nezvedne stupeň vozidla", () => {
+    // Kdyby null propadlo jako pravda, vozidlo by jelo na pětce.
+    assert.equal(resolveDispatchLevel("vehicle", null), 2);
+    assert.equal(resolveDispatchLevel("vehicle", true), 5);
+    assert.equal(resolveDispatchLevel("vehicle", false), 2);
   });
 });

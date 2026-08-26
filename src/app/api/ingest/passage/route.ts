@@ -16,7 +16,11 @@ import {
   type IngestCameraRow,
 } from "@/lib/ingest/camera-lookup.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
-import { verifySignature, type SignatureResult } from "@/lib/ingest/signature.ts";
+import {
+  publicFailureReason,
+  verifySignature,
+  type SignatureResult,
+} from "@/lib/ingest/signature.ts";
 import { resolvePlate } from "@/lib/plates/escalate.ts";
 import { readPlateFromImage } from "@/lib/plates/reader.ts";
 import { PASSAGE_BUCKET, passageImagePath } from "@/lib/plates/storage.ts";
@@ -178,7 +182,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       duvod: check.reason,
       znama_kamera: Boolean(camera),
     });
-    return jsonError(401, "unauthorized", check.reason);
+    // Do odpovědi jde důvod jen tehdy, když se dá prozradit; do logu
+    // výš jde vždycky celý.
+    return jsonError(401, "unauthorized", publicFailureReason(check.reason) ?? undefined);
   }
 
   if (!camera || !camera.sites) {

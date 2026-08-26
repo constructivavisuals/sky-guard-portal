@@ -15,6 +15,7 @@ import {
   PERSON_ESCALATION_WINDOW_SECONDS,
   decideDispatch,
   resolveDispatchLevel,
+  type LastDispatch,
 } from "./decision.ts";
 import { notify, type NotifyResult } from "../push/send.ts";
 import { checkDockReadiness } from "./dock-readiness.ts";
@@ -107,11 +108,13 @@ export type DispatchRunResult =
  * ověřit i chování při výjimce, aniž by běžela DB.
  */
 export interface DispatchDeps {
-  isSiteArmed(context: ResolvedDispatchContext): Promise<boolean>;
-  lastSentDispatchAt(context: ResolvedDispatchContext): Promise<Date | null>;
+  /** null = stav se nepodařilo zjistit. */
+  isSiteArmed(context: ResolvedDispatchContext): Promise<boolean | null>;
+  lastSentDispatchAt(context: ResolvedDispatchContext): Promise<LastDispatch>;
+  /** null = nepodařilo se zjistit; zásah to nezastaví, jen nezvedne. */
   hasRecentPersonInOtherZone(
     context: ResolvedDispatchContext,
-  ): Promise<boolean>;
+  ): Promise<boolean | null>;
   getDockState(dockSn: string): Promise<DockStateResult>;
   createFlightTask(input: FlightTaskInput): Promise<FlightTaskResult>;
   insertDispatch(row: DispatchRow): Promise<string | null>;
@@ -144,10 +147,17 @@ export interface FlightPlan {
   conditions: FlightConditions | null;
 }
 
-/** Byla v posledních 60 s osoba v jiné zóně téhož areálu? */
+/**
+ * Byla v posledních 60 s osoba v jiné zóně téhož areálu?
+ *
+ * Vrací null, když se to nepodařilo zjistit. Dřív se v tom případě
+ * vracelo `false` — eskalace se tím tiše vypnula a nikde po tom
+ * nezůstala stopa. Volající to bere jako fail-open: poletí se na
+ * základním stupni, protože nižší stupeň je pořád zásah.
+ */
 async function hasRecentPersonInOtherZone(
   context: ResolvedDispatchContext,
-): Promise<boolean> {
+): Promise<boolean | null> {
   const since = new Date(
     context.detectedAt.getTime() - PERSON_ESCALATION_WINDOW_SECONDS * 1_000,
   ).toISOString();
@@ -158,7 +168,18 @@ async function hasRecentPersonInOtherZone(
     .select("id")
     .eq("site_id", context.siteId);
 
-  if (camerasError || !cameras || cameras.length === 0) return false;
+  if (camerasError) {
+    console.error("Dotaz na kamery lokality selhal — eskalace se neposoudí", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+      message: camerasError.message,
+    });
+    return null;
+  }
+
+  // Lokalita bez kamer není chyba: není kde se pohybovat, tedy není co
+  // eskalovat. To je odpověď, ne neznalost.
+  if (!cameras || cameras.length === 0) return false;
 
   let query = supabaseAdmin()
     .from("detections")
@@ -180,14 +201,27 @@ async function hasRecentPersonInOtherZone(
       query.not("zone_id", "is", null);
 
   const { data, error } = await query;
-  if (error) return false;
+  if (error) {
+    console.error("Dotaz na sousední zóny selhal — eskalace se neposoudí", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+      message: error.message,
+    });
+    return null;
+  }
   return (data?.length ?? 0) > 0;
 }
 
-/** Čas posledního skutečně odeslaného zásahu na lokalitě. */
+/**
+ * Čas posledního skutečně odeslaného zásahu na lokalitě.
+ *
+ * Rozlišuje „žádný zásah zatím nebyl“ od „nepodařilo se zjistit“.
+ * Dřív z obojího vycházelo `null` a cooldown se tím tiše vypnul —
+ * po nedostupném dotazu mohl odletět druhý dron na totéž.
+ */
 async function lastSentDispatchAt(
   context: ResolvedDispatchContext,
-): Promise<Date | null> {
+): Promise<LastDispatch> {
   const { data, error } = await supabaseAdmin()
     .from("dispatches")
     .select("sent_at")
@@ -200,20 +234,47 @@ async function lastSentDispatchAt(
     .order("sent_at", { ascending: false })
     .limit(1);
 
-  if (error || !data || data.length === 0) return null;
-  return new Date(data[0].sent_at);
+  if (error) {
+    console.error("Dotaz na poslední zásah selhal — cooldown se neposoudí", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+      message: error.message,
+    });
+    return { known: false, at: null };
+  }
+
+  if (!data || data.length === 0) return { known: true, at: null };
+  return { known: true, at: new Date(data[0].sent_at) };
 }
 
-async function isSiteArmedInDb(context: ResolvedDispatchContext): Promise<boolean> {
+/**
+ * Střeží lokalita v okamžiku přijetí?
+ *
+ * Vrací null, když se to nepodařilo zjistit. Dřív se vracelo `false`
+ * a v dispatches zůstalo `suppressed_disarmed` — detail zásahu pak
+ * tvrdil „lokalita v tu chvíli nestřežila“, což je tvrzení o areálu,
+ * ne o nedostupné databázi. Zásah se neposílá v obou případech, ale
+ * záznam o tom musí říkat pravdu.
+ */
+async function isSiteArmedInDb(
+  context: ResolvedDispatchContext,
+): Promise<boolean | null> {
   const { data, error } = await supabaseAdmin().rpc("site_is_armed", {
     p_site_id: context.siteId,
     // Čas přijetí, ne hlášený čas z těla požadavku.
     p_at: context.receivedAt.toISOString(),
   });
 
-  // Když se stav nedá zjistit, zásah neposíláme — planý let stojí víc
-  // než zmeškaný, a v dispatches zůstane stopa proč.
-  if (error) return false;
+  if (error) {
+    console.error("Zjištění režimu střežení selhalo — zásah se neposílá", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+      message: error.message,
+    });
+    return null;
+  }
+
+  // Cokoli jiného než true je „nestřeží“; funkce vrací boolean.
   return data === true;
 }
 
@@ -238,18 +299,35 @@ async function prepareDispatchRow(
   context: ResolvedDispatchContext,
   deps: DispatchDeps,
 ): Promise<PreparedDispatch> {
-  const [armed, lastSentAt, recentPerson] = await Promise.all([
-    // Vypnutá zóna se chová jako mimo ostrý režim.
+  const [armed, lastSent, recentPerson] = await Promise.all([
+    // Vypnutá zóna se chová jako mimo ostrý režim. To je rozhodnutí,
+    // ne neznalost — proto false, ne null.
     context.zoneEnabled ? deps.isSiteArmed(context) : Promise.resolve(false),
     deps.lastSentDispatchAt(context),
     deps.hasRecentPersonInOtherZone(context),
   ]);
 
+  // Co se nepodařilo zjistit. Ukládá se do důvodu, ne jen do logu:
+  // za měsíc se nikdo nedozví z logu, proč zrovna tenhle zásah
+  // neodešel, ale z detailu ano.
+  const neznamé: NonNullable<DecisionReason["unknown_inputs"]> = [];
+  if (armed === null) neznamé.push("armed");
+  if (!lastSent.known) neznamé.push("cooldown");
+  if (recentPerson === null) neznamé.push("escalation");
+
+  if (neznamé.length > 0) {
+    console.warn("Zásah se rozhoduje s neúplnými vstupy", {
+      detection_id: context.detectionId,
+      site_id: context.siteId,
+      neznamé,
+    });
+  }
+
   const level = resolveDispatchLevel(context.objectClass, recentPerson);
   const decision = decideDispatch({
     armed,
     cooldownSeconds: context.siteCooldownSeconds,
-    lastSentAt,
+    lastSent,
     // Rovněž čas přijetí. S hlášeným časem by šlo cooldown obejít
     // detekcí datovanou o pět minut zpět.
     at: context.receivedAt,
@@ -258,21 +336,23 @@ async function prepareDispatchRow(
   // Důvod se ukládá spolu se zásahem. Databáze si dřív pamatovala jen
   // výsledek, takže detail zásahu musel rozhodnutí rekonstruovat — a po
   // každé změně pravidel by staré zásahy vyprávěly novou verzi.
-  const elapsedSeconds = lastSentAt
-    ? (context.receivedAt.getTime() - lastSentAt.getTime()) / 1000
-    : null;
+  const elapsedSeconds =
+    lastSent.known && lastSent.at
+      ? (context.receivedAt.getTime() - lastSent.at.getTime()) / 1000
+      : null;
 
   const reason: DecisionReason = {
     object_class: context.objectClass,
     base_level: BASE_LEVEL_BY_CLASS[context.objectClass],
     level_sent: level,
-    escalated: recentPerson,
-    escalation: recentPerson
-      ? {
-          reason: "person_in_other_zone",
-          window_seconds: PERSON_ESCALATION_WINDOW_SECONDS,
-        }
-      : null,
+    escalated: recentPerson === true,
+    escalation:
+      recentPerson === true
+        ? {
+            reason: "person_in_other_zone",
+            window_seconds: PERSON_ESCALATION_WINDOW_SECONDS,
+          }
+        : null,
     armed,
     zone_enabled: context.zoneEnabled,
     cooldown_seconds: context.siteCooldownSeconds,
@@ -283,6 +363,7 @@ async function prepareDispatchRow(
         : Math.max(0, Math.round(context.siteCooldownSeconds - elapsedSeconds)),
     zone_has_wayline: Boolean(context.zoneWaylineUuid),
     dock: null,
+    ...(neznamé.length > 0 ? { unknown_inputs: neznamé } : {}),
     decided_at: new Date().toISOString(),
   };
 
@@ -310,7 +391,9 @@ async function prepareDispatchRow(
     flight: null,
   });
 
-  if (!decision.send) return bezLetu(decision.outcome, {});
+  if (!decision.send) {
+    return bezLetu(decision.outcome, { cause: decision.cause });
+  }
 
   // ── Co musí být připravené, než se dá letět ────────────────────
   // Konfigurace první: pozná se bez volání po síti a je to chyba,
@@ -468,7 +551,7 @@ export async function runDispatch(
         triggered_by_detection: resolved.detectionId,
         // Bez dat o okolních zónách se eskalace nedá posoudit, bere se
         // základní stupeň podle toho, co kamera viděla.
-        level_sent: resolveDispatchLevel(resolved.objectClass, false),
+        level_sent: resolveDispatchLevel(resolved.objectClass, null),
         outcome: "failed",
         fh_incident_uuid: null,
         fh_task_uuid: null,

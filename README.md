@@ -84,6 +84,16 @@ Z toho plyne, co musí být nastavené, aby zásah odletěl:
   `suppressed_dock`, ne `failed` — nic se nepokazilo, jen dron nemohl
   letět.
 
+Když se některý vstup pro rozhodnutí nepodaří zjistit, zásah končí
+jako `suppressed_unknown` — ne jako `suppressed_disarmed`. Ty dva se
+nesmí slít: první znamená „portál nevěděl“, druhý „areál nestřežil“.
+Co konkrétně chybělo, je v `decision_reason.unknown_inputs`.
+
+Režim střežení a cooldown jsou **fail-closed** (bez nich se neletí:
+planý let nebo zdvojený zásah stojí víc než zmeškaná detekce),
+eskalace **fail-open** (bez ní se letí na základním stupni — nižší
+stupeň je pořád zásah).
+
 Úloha začíná **za minutu** (`begin_at` i `latest_begin_at`). Nula slacku
 je schválně: dron, který vyrazí o pět minut později, přiletí k prázdné
 zóně.
@@ -243,3 +253,33 @@ přes Web Crypto by byl řádově víc kódu bez výhody.
 Odběr, na který push služba odpoví **404 nebo 410**, se maže hned.
 Mrtvé odběry se jinak hromadí a každý stojí jedno volání po síti při
 každé další notifikaci.
+
+## Dohled nad cronem
+
+Tři endpointy volá cron zvenčí, ne Vercel. Když se crontab rozbije,
+vyprší certifikát nebo někdo přehodí `CRON_SECRET`, portál se nezmění:
+hlídky prostě přestanou létat a na obrazovce to vypadá jako klidná noc.
+
+Každý běh se proto zapíše do `cron_runs` (jméno, čas, souhrn) a přehled
+hlásí varování, když je poslední běh starší než **trojnásobek**
+intervalu dané úlohy. Trojnásobek, ne dvojnásobek: jeden vynechaný běh
+je běžná věc, tři po sobě ne.
+
+| Úloha | Endpoint | Interval |
+|---|---|---|
+| `patrols` | `/api/cron/patrols` | 5 min |
+| `flights` | `/api/sync/flights` | 15 min |
+| `warnings` | `/api/cron/varovani` | 30 min |
+
+Intervaly jsou v `lib/cron/runs.ts` a musí sedět s crontabem výš —
+jinak bude portál hlásit poplach na úlohu, která jezdí podle plánu.
+
+Zapisuje se i neúspěšný běh: „doběhlo to a selhalo“ a „vůbec to
+nedoběhlo“ jsou dvě různé diagnózy. Záznamy se drží týden a starší maže
+sám zápis — samostatná úloha na úklid by byla čtvrtý cron, který může
+taky přestat běžet.
+
+Prázdná tabulka **není** v pořádku a hlásí se jako „úloha zatím nikdy
+neproběhla“. Když ale chybí celá tabulka (migrace neběžela), přehled
+mlčí — varovat na základě něčeho, co neexistuje, by bylo totéž tiché
+selhání, jen obráceně.

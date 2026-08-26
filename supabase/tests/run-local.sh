@@ -72,6 +72,9 @@ run_test_file camera_location.sql
 echo "== práva na pomocné funkce =="
 run_test_file function_grants.sql
 
+echo "== evidence běhů cronu =="
+run_test_file cron_runs.sql
+
 echo "== odběry a předvolby notifikací =="
 run_test_file push_notifications.sql
 

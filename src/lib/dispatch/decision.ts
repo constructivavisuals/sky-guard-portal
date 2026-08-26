@@ -28,50 +28,100 @@ export const BASE_LEVEL_BY_CLASS: Record<DetectionObjectClass, DispatchLevel> = 
  * Osoba viděná v posledních 60 s v JINÉ zóně téhož areálu znamená pohyb
  * po perimetru, ne jednorázový planý poplach — takový zásah jede na
  * maximum bez ohledu na to, co spustilo tenhle konkrétní.
+ *
+ * NULL znamená, že se to nepodařilo zjistit. Tady je to fail-OPEN,
+ * na rozdíl od ostrého režimu a cooldownu: neznámá eskalace zásah
+ * nezastaví, jen se poletí na základním stupni. Nižší stupeň je pořád
+ * zásah; zastavit ho kvůli nedostupnému dotazu na sousední zóny by
+ * znamenalo neletět tam, kde se prokazatelně někdo pohybuje.
  */
 export function resolveDispatchLevel(
   objectClass: DetectionObjectClass,
-  recentPersonInOtherZone: boolean,
+  recentPersonInOtherZone: boolean | null,
 ): DispatchLevel {
-  if (recentPersonInOtherZone) return 5;
+  if (recentPersonInOtherZone === true) return 5;
   return BASE_LEVEL_BY_CLASS[objectClass];
 }
 
+/** Poslední odeslaný zásah, nebo přiznání, že se to nezjistilo. */
+export interface LastDispatch {
+  /** false = dotaz selhal. `at` je pak bezcenné. */
+  known: boolean;
+  at: Date | null;
+}
+
 export interface DispatchDecisionInput {
-  /** Výsledek SQL funkce site_is_armed() pro čas detekce. */
-  armed: boolean;
+  /**
+   * Výsledek SQL funkce site_is_armed() pro čas detekce.
+   * NULL = nepodařilo se zjistit.
+   */
+  armed: boolean | null;
   /** Nastavení lokality. */
   cooldownSeconds: number;
   /**
    * Čas posledního SKUTEČNĚ odeslaného zásahu (outcome 'sent') na téže
-   * lokalitě, nebo null. Potlačené a chybné pokusy se nepočítají —
-   * jinak by každý zamítnutý pokus cooldown prodlužoval donekonečna
-   * a zásah by už nikdy neodešel.
+   * lokalitě. Potlačené a chybné pokusy se nepočítají — jinak by každý
+   * zamítnutý pokus cooldown prodlužoval donekonečna a zásah by už
+   * nikdy neodešel.
    */
-  lastSentAt: Date | null;
+  lastSent: LastDispatch;
   /** Čas, ke kterému se rozhoduje (čas detekce). */
   at: Date;
 }
 
+/** Proč se neposlalo. Ukládá se do decision_reason, ne jen do logu. */
+export type DispatchBlockCause =
+  | "armed_unknown"
+  | "disarmed"
+  | "cooldown_unknown"
+  | "cooldown";
+
 export type DispatchDecision =
   | { send: true }
-  | { send: false; outcome: Extract<DispatchOutcome, `suppressed_${string}`> };
+  | {
+      send: false;
+      outcome: Extract<DispatchOutcome, `suppressed_${string}`>;
+      cause: DispatchBlockCause;
+    };
 
 /**
  * Pořadí kontrol je dané zadáním: nejdřív ostrý režim, pak cooldown.
  * Mimo ostrý režim se cooldown vůbec neřeší — důvod potlačení má být
  * ten hlavní, ne ten, na který se dřív narazilo.
+ *
+ * ═══ Nezjištěný vstup zásah ZASTAVÍ ══════════════════════════════
+ * U obou vstupů je to fail-closed, ale z jiných důvodů:
+ *
+ *   armed    — bez něj nevíme, jestli se vůbec má reagovat. Poslat
+ *              dron nad areál, kde zrovna pracuje směna, je horší než
+ *              zmeškaná detekce.
+ *   cooldown — bez něj nevíme, jestli dron nevzlétl před minutou.
+ *              Duplicitní zásah znamená dvakrát vyslaný dron na totéž
+ *              a vyčerpanou baterii pro to, co přijde potom.
+ *
+ * Obojí končí jako 'suppressed_unknown', ne 'suppressed_disarmed' ani
+ * 'suppressed_cooldown': ty dva znamenají „portál rozhodl“, tohle
+ * znamená „portál nevěděl“. Konkrétní příčina jde do `cause`.
+ * ═════════════════════════════════════════════════════════════════
  */
 export function decideDispatch(input: DispatchDecisionInput): DispatchDecision {
-  if (!input.armed) {
-    return { send: false, outcome: "suppressed_disarmed" };
+  if (input.armed === null) {
+    return { send: false, outcome: "suppressed_unknown", cause: "armed_unknown" };
   }
 
-  if (input.lastSentAt) {
+  if (!input.armed) {
+    return { send: false, outcome: "suppressed_disarmed", cause: "disarmed" };
+  }
+
+  if (!input.lastSent.known) {
+    return { send: false, outcome: "suppressed_unknown", cause: "cooldown_unknown" };
+  }
+
+  if (input.lastSent.at) {
     const elapsedSeconds =
-      (input.at.getTime() - input.lastSentAt.getTime()) / 1000;
+      (input.at.getTime() - input.lastSent.at.getTime()) / 1000;
     if (elapsedSeconds < input.cooldownSeconds) {
-      return { send: false, outcome: "suppressed_cooldown" };
+      return { send: false, outcome: "suppressed_cooldown", cause: "cooldown" };
     }
   }
 

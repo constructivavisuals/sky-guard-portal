@@ -318,7 +318,11 @@ export default async function Page({ params }: PageProps<"/zasahy/[id]">) {
               odeslání nezdařilo. */}
           {suppressed ? (
             <p className="text-sm text-[var(--text-muted)]">
-              Neodesláno — zásah byl potlačen.
+              {dispatch.outcome === "suppressed_unknown"
+                ? // Ne „potlačen“: portál nic nerozhodl, jen se nedostal
+                  // k údajům, podle kterých rozhoduje.
+                  "Neodesláno — rozhodnutí se nedalo vyhodnotit."
+                : "Neodesláno — zásah byl potlačen."}
             </p>
           ) : null}
 

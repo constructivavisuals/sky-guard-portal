@@ -66,7 +66,7 @@ function deps(overrides: Partial<DispatchDeps> = {}) {
   const notifikace: DispatchNotification[] = [];
   const base: DispatchDeps = {
     isSiteArmed: async () => true,
-    lastSentDispatchAt: async () => null,
+    lastSentDispatchAt: async () => ({ known: true, at: null }),
     hasRecentPersonInOtherZone: async () => false,
     getDockState: async () => ({ ok: true, state: dockState() }),
     createFlightTask: async () => ({
@@ -429,7 +429,7 @@ describe("cooldown se počítá z času přijetí", () => {
     const poslednyZasah = new Date("2026-08-24T21:55:00Z"); // před 5 min
 
     const { deps: d, inserted } = deps({
-      lastSentDispatchAt: async () => poslednyZasah,
+      lastSentDispatchAt: async () => ({ known: true, at: poslednyZasah }),
     });
 
     await runDispatch(
@@ -448,7 +448,7 @@ describe("cooldown se počítá z času přijetí", () => {
 
   it("po uplynutí cooldownu zásah odejde", async () => {
     const { deps: d, inserted } = deps({
-      lastSentDispatchAt: async () => new Date("2026-08-24T21:00:00Z"),
+      lastSentDispatchAt: async () => ({ known: true, at: new Date("2026-08-24T21:00:00Z") }),
     });
 
     await runDispatch(
@@ -515,5 +515,83 @@ describe("runDispatch — notifikace", () => {
     const { deps: d, notifikace } = deps();
     await runDispatch(context({ zoneId: null }), d);
     assert.equal(notifikace.length, 0);
+  });
+});
+
+describe("runDispatch — tichá selhání vstupů", () => {
+  it("nezjištěný režim střežení je suppressed_unknown, ne disarmed", async () => {
+    // Rozdíl je podstatný: 'disarmed' tvrdí něco o areálu, tohle
+    // přiznává, že se to nezjišťovalo.
+    const { deps: d, inserted } = deps({ isSiteArmed: async () => null });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_unknown");
+    assert.equal(inserted[0].decision_reason?.armed, null);
+    assert.deepEqual(inserted[0].decision_reason?.unknown_inputs, ["armed"]);
+    assert.equal(
+      (inserted[0].response as Record<string, unknown>).cause,
+      "armed_unknown",
+    );
+  });
+
+  it("nezjištěný cooldown zásah zastaví a zapíše se do důvodu", async () => {
+    const { deps: d, inserted, flights } = deps({
+      lastSentDispatchAt: async () => ({ known: false, at: null }),
+    });
+
+    await runDispatch(context(), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_unknown");
+    assert.deepEqual(inserted[0].decision_reason?.unknown_inputs, ["cooldown"]);
+    // Nic neodletělo — to je celý smysl fail-closed.
+    assert.equal(flights.length, 0);
+  });
+
+  it("nezjištěná eskalace zásah pustí na základním stupni", async () => {
+    // Fail-open. Osoba dá pětku i tak, protože to je její základ.
+    const { deps: d, inserted } = deps({
+      hasRecentPersonInOtherZone: async () => null,
+    });
+
+    await runDispatch(context({ objectClass: "vehicle" }), d);
+
+    assert.equal(inserted[0].outcome, "sent");
+    assert.equal(inserted[0].level_sent, 2);
+    assert.equal(inserted[0].decision_reason?.escalated, false);
+    assert.deepEqual(inserted[0].decision_reason?.unknown_inputs, ["escalation"]);
+  });
+
+  it("úplné vstupy pole unknown_inputs vůbec nezakládají", async () => {
+    // Ať se v důvodu neobjeví prázdné pole, které vypadá jako údaj.
+    const { deps: d, inserted } = deps();
+    await runDispatch(context(), d);
+    assert.equal(inserted[0].decision_reason?.unknown_inputs, undefined);
+  });
+
+  it("vypnutá zóna je rozhodnutí, ne neznalost", async () => {
+    // Zóna se nevyhodnocuje dotazem, takže tu není co nezjistit.
+    const { deps: d, inserted } = deps();
+    await runDispatch(context({ zoneEnabled: false }), d);
+
+    assert.equal(inserted[0].outcome, "suppressed_disarmed");
+    assert.equal(inserted[0].decision_reason?.armed, false);
+    assert.equal(inserted[0].decision_reason?.unknown_inputs, undefined);
+  });
+
+  it("víc nezjištěných vstupů se zapíše všechny", async () => {
+    const { deps: d, inserted } = deps({
+      isSiteArmed: async () => null,
+      lastSentDispatchAt: async () => ({ known: false, at: null }),
+      hasRecentPersonInOtherZone: async () => null,
+    });
+
+    await runDispatch(context(), d);
+
+    assert.deepEqual(inserted[0].decision_reason?.unknown_inputs, [
+      "armed",
+      "cooldown",
+      "escalation",
+    ]);
   });
 });

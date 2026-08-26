@@ -39,6 +39,14 @@ export const DISPATCH_OUTCOMES = [
    * a plné úložiště jsou provozní stavy, na které se dá reagovat.
    */
   "suppressed_dock",
+  /**
+   * Vstup pro rozhodnutí se nepodařilo zjistit. Migrace 20260905120000.
+   *
+   * Není to totéž co potlačení: u ostatních suppressed_* portál něco
+   * rozhodl, tady jen nevěděl. Splynout nesmí, protože detail zásahu
+   * by pak o areálu tvrdil něco, co se nikdy nezjišťovalo.
+   */
+  "suppressed_unknown",
   "failed",
 ] as const;
 export type DispatchOutcome = (typeof DISPATCH_OUTCOMES)[number];
@@ -117,6 +125,7 @@ export const DISPATCH_OUTCOME_LABELS: Record<DispatchOutcome, string> = {
   suppressed_disarmed: "Potlačeno — mimo režim",
   suppressed_cooldown: "Potlačeno — cooldown",
   suppressed_dock: "Potlačeno — dok",
+  suppressed_unknown: "Nevyhodnoceno",
   failed: "Chyba",
 };
 
@@ -284,8 +293,14 @@ export type DecisionReason = {
     reason: "person_in_other_zone";
     window_seconds: number;
   } | null;
-  /** Byla lokalita v ostrém režimu podle site_is_armed(). */
-  armed: boolean;
+  /**
+   * Byla lokalita v ostrém režimu podle site_is_armed()?
+   *
+   * NULL = nepodařilo se zjistit (migrace 20260905120000). Dřív se tu
+   * v tom případě ukládalo `false` a detail zásahu pak tvrdil, že
+   * areál nestřežil — což je tvrzení o areálu, ne o databázi.
+   */
+  armed: boolean | null;
   /** Vypnutá zóna se chová jako mimo režim. */
   zone_enabled: boolean;
   cooldown_seconds: number;
@@ -293,6 +308,15 @@ export type DecisionReason = {
   seconds_since_last_sent: number | null;
   /** Kolik z cooldownu zbývalo. 0, když už uplynul. */
   cooldown_remaining_seconds: number | null;
+  /**
+   * Vstupy, které se nepodařilo zjistit. Migrace 20260905120000;
+   * u starších zásahů chybí, proto volitelné.
+   *
+   * Rozhodnutí se podle nich chová různě: `armed` a `cooldown` zásah
+   * zastaví (planý let stojí míň než zdvojený), `escalation` ne —
+   * radši nižší stupeň než žádný zásah.
+   */
+  unknown_inputs?: ("armed" | "cooldown" | "escalation")[];
   /**
    * Stav doku v okamžiku rozhodnutí. Migrace 20260903180000, takže
    * u starších zásahů chybí úplně — proto volitelné, ne jen nullable.
@@ -596,6 +620,11 @@ export type Database = {
         Insertable<NotificationPrefs, "profile_id" | "site_id">,
         Updatable<NotificationPrefs>
       >;
+      cron_runs: TableShape<
+        CronRun,
+        Insertable<CronRun, "name">,
+        Updatable<CronRun>
+      >;
       notification_log: TableShape<
         NotificationLog,
         Insertable<NotificationLog, "site_id" | "kind" | "target">,
@@ -837,6 +866,16 @@ export const NOTIFICATION_KIND_COLUMNS: Record<NotificationKind, keyof Notificat
 export const NOTIFICATION_KINDS_IGNORING_QUIET: readonly NotificationKind[] = [
   "threat_confirmed",
 ];
+
+/** Jeden běh cronu. Migrace 20260905120000. */
+export type CronRun = {
+  id: string;
+  /** 'patrols', 'flights', 'warnings'. */
+  name: string;
+  ran_at: string;
+  /** Souhrn, který endpoint vrátil. */
+  result: Json;
+};
 
 /** Kdy naposledy odešlo opakující se varování. Migrace 20260904120000. */
 export type NotificationLog = {

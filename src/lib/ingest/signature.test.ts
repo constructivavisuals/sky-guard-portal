@@ -6,6 +6,7 @@ import {
   computeSignature,
   signedPayload,
   verifySignature,
+  publicFailureReason,
 } from "./signature.ts";
 
 const SECRET = "0123456789abcdef0123456789abcdef";
@@ -152,5 +153,43 @@ describe("verifySignature — neplatné podpisy", () => {
       valid: false,
       reason: "signature_mismatch",
     });
+  });
+});
+
+describe("publicFailureReason — co smí ven z 401", () => {
+  it("dokud razítko není platné, konkrétní důvod ven nejde", () => {
+    // Rozdíl mezi „staré razítko“ a „špatný podpis“ je pro
+    // nepřihlášeného volajícího návod, kde končí tolerance.
+    assert.equal(publicFailureReason("stale_timestamp"), null);
+    assert.equal(publicFailureReason("missing_timestamp"), null);
+    assert.equal(publicFailureReason("malformed_timestamp"), null);
+  });
+
+  it("za platným razítkem už důvod nic neprozradí", () => {
+    assert.equal(publicFailureReason("signature_mismatch"), "signature_mismatch");
+    assert.equal(publicFailureReason("missing_signature"), "missing_signature");
+    assert.equal(publicFailureReason("malformed_signature"), "malformed_signature");
+  });
+});
+
+describe("verifySignature — pořadí kontrol", () => {
+  it("staré razítko se pozná dřív než chybějící podpis", () => {
+    // Kdyby se dřív hlásil chybějící podpis, útočník by přehráním
+    // starého požadavku bez hlavičky zjistil, že do okna trefil.
+    const stary = String(Math.floor(NOW.getTime() / 1000) - 10_000);
+    const result = verify({ timestamp: stary, signature: null });
+    assert.equal(result.valid, false);
+    assert.equal(result.valid === false && result.reason, "stale_timestamp");
+    assert.equal(publicFailureReason("stale_timestamp"), null);
+  });
+
+  it("s čerstvým razítkem se chybějící podpis přizná", () => {
+    const result = verify({ signature: null });
+    assert.equal(result.valid === false && result.reason, "missing_signature");
+  });
+
+  it("vadné razítko přebije i vadný podpis", () => {
+    const result = verify({ timestamp: "abc", signature: "nesmysl" });
+    assert.equal(result.valid === false && result.reason, "malformed_timestamp");
   });
 });

@@ -113,6 +113,16 @@ export function explainOutcome(
             : "Od předchozího odeslaného zásahu neuplynul nastavený odstup.",
         tone: "warning",
       };
+    case "suppressed_unknown":
+      return {
+        title: "Nevyhodnoceno — chybějící údaje",
+        // Ne „potlačeno“: portál nic nerozhodl, jen se nedostal
+        // k údajům, podle kterých rozhoduje. Červená, protože to na
+        // rozdíl od potlačení znamená, že je něco rozbité.
+        text:
+          "Vstupy pro rozhodnutí se nepodařilo zjistit, takže zásah radši neodešel. Detekce zůstala zapsaná.",
+        tone: "danger",
+      };
     case "suppressed_dock":
       return {
         title: "Potlačeno — dok nebyl připravený",
@@ -173,17 +183,25 @@ export function levelFromReason(reason: DecisionReason): LevelExplanation {
 export function conditionsFromReason(reason: DecisionReason): string[] {
   const out: string[] = [];
 
+  const neznámé = reason.unknown_inputs ?? [];
+
   out.push(
-    reason.armed
-      ? "Lokalita byla v ostrém režimu."
-      : "Lokalita v tu chvíli nestřežila.",
+    reason.armed === null
+      ? "Režim střežení se nepodařilo zjistit — databáze neodpověděla. NENÍ to totéž jako „nestřežila“."
+      : reason.armed
+        ? "Lokalita byla v ostrém režimu."
+        : "Lokalita v tu chvíli nestřežila.",
   );
 
   if (!reason.zone_enabled) {
     out.push("Zóna byla vypnutá, takže se chovala jako mimo režim.");
   }
 
-  if (reason.seconds_since_last_sent === null) {
+  if (neznámé.includes("cooldown")) {
+    out.push(
+      "Poslední odeslaný zásah se nepodařilo dohledat, takže se nedalo posoudit, jestli uplynul cooldown.",
+    );
+  } else if (reason.seconds_since_last_sent === null) {
     out.push(
       `Na lokalitě do té doby žádný zásah neodešel, cooldown ${reason.cooldown_seconds} s se neuplatnil.`,
     );
@@ -194,6 +212,14 @@ export function conditionsFromReason(reason: DecisionReason): string[] {
   } else {
     out.push(
       `Od předchozího zásahu uplynulo ${reason.seconds_since_last_sent} s, cooldown ${reason.cooldown_seconds} s byl vyčerpaný.`,
+    );
+  }
+
+  if (neznámé.includes("escalation")) {
+    // Fail-open: nižší stupeň je pořád zásah. Musí to ale být vidět,
+    // jinak by stupeň vypadal jako vědomé rozhodnutí.
+    out.push(
+      "Pohyb v sousedních zónách se nepodařilo ověřit, takže se letělo na základním stupni — mohl být vyšší.",
     );
   }
 

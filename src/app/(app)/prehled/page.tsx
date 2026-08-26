@@ -37,6 +37,7 @@ import {
   type Warning,
 } from "@/lib/dashboard.ts";
 import { boundsAspectRatio } from "@/lib/area-map.ts";
+import { CRON_JOBS, cronWarnings, type CronRunSummary } from "@/lib/cron/runs.ts";
 import { loadAreaMap, siteBounds } from "@/lib/area-map-data.ts";
 import { getDockStateCached } from "@/lib/dispatch/dock-cache.ts";
 import {
@@ -133,6 +134,10 @@ export default async function Page() {
   let unknownPlates: { plate: string | null; armed: boolean }[] = [];
   let cameras = { total: 0, withoutZone: 0 };
   let zones = { total: 0, withoutWayline: 0 };
+  // null = nepodařilo se zjistit (migrace 20260905120000 neběžela).
+  // Varovat na základě neexistující tabulky by bylo totéž tiché
+  // selhání, jaké tahle evidence řeší, jen obráceně.
+  let cronRuns: CronRunSummary[] | null = null;
   let silence: { name: string; lastSeenAt: Date | null; online: boolean }[] = [];
   let events: EventRow[] = [];
   let failed = false;
@@ -148,7 +153,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, passageCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -173,6 +178,17 @@ export default async function Page() {
           supabase.from("zones").select("id, wayline_uuid")
             .eq("site_id", site.id).eq("enabled", true)
             .returns<{ id: string; wayline_uuid: string | null }[]>(),
+          // Poslední běh každého cronu zvlášť: jeden dotaz seřazený
+          // přes všechny by při různých periodách nemusel na tu
+          // nejřidší vůbec dosáhnout.
+          Promise.all(
+            CRON_JOBS.map((job) =>
+              supabase.from("cron_runs").select("name, ran_at")
+                .eq("name", job.name)
+                .order("ran_at", { ascending: false }).limit(1)
+                .returns<{ name: string; ran_at: string }[]>(),
+            ),
+          ),
           supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("passed_at", since),
           // Vjezdy s neznámou nebo nepřečtenou značkou. Ostrý režim se
@@ -230,6 +246,17 @@ export default async function Page() {
       // Chybějící sloupec (migrace 20260903180000 ještě neběžela)
       // znamená „nevíme“, ne „nemá trasu“ — strašit varováním na
       // základě neexistujícího sloupce by bylo horší než mlčet.
+      // Chybějící tabulka znamená „nevíme“, ne „neběží“.
+      if (cronRows.every((row) => !row.error)) {
+        cronRuns = CRON_JOBS.map((job, index) => {
+          const radek = cronRows[index].data?.[0];
+          return {
+            name: job.name,
+            lastRunAt: radek ? new Date(radek.ran_at) : null,
+          };
+        });
+      }
+
       if (!zoneRows.error) {
         const zoneList = zoneRows.data ?? [];
         zones = {
@@ -321,6 +348,9 @@ export default async function Page() {
   const rychlaVarovani: Warning[] = [
     // Kamery bez zóny první — je to tichý výpadek celé lokality,
     // ne provozní drobnost jako plné úložiště.
+    // Nefungující cron první: zaseknuté plánování znamená, že nelétá
+    // vůbec nic, což přebíjí každou jednotlivou zónu nebo kameru.
+    ...(cronRuns ? cronWarnings(cronRuns, now) : []),
     ...cameraWarnings(cameras),
     ...zoneWarnings(zones),
     ...unknownPlateWarnings(unknownPlates),
