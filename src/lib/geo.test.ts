@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { parsePointEwkbHex } from "./geo.ts";
+import { distanceMeters, parsePointEwkbHex } from "./geo.ts";
 
 // Fixtury odpovídají tomu, co vrací PostgREST pro geography(Point, 4326).
 // Praha, Staroměstské náměstí: 50.0755 N, 14.4378 E.
@@ -81,5 +81,40 @@ describe("parsePointEwkbHex — neplatné vstupy", () => {
       parsePointEwkbHex("0101000020E610000000000000000079400000000000000000"),
       null,
     );
+  });
+});
+
+describe("distanceMeters", () => {
+  it("stejný bod je nula", () => {
+    const a = { latitude: 50.3182, longitude: 15.4283 };
+    assert.equal(distanceMeters(a, a), 0);
+  });
+
+  it("setina stupně šířky je zhruba 1112 m", () => {
+    const a = { latitude: 50.3182, longitude: 15.4283 };
+    const b = { latitude: 50.3282, longitude: 15.4283 };
+    const d = distanceMeters(a, b);
+    assert.ok(d !== null && Math.abs(d - 1112) < 5, `vyšlo ${d}`);
+  });
+
+  it("stupeň délky je na 50° kratší než stupeň šířky", () => {
+    // Poledníky se sbíhají — bez kosinu šířky by obojí vyšlo stejně.
+    const stred = { latitude: 50.3182, longitude: 15.4283 };
+    const naSever = { latitude: 50.4182, longitude: 15.4283 };
+    const naVychod = { latitude: 50.3182, longitude: 15.5283 };
+    const sever = distanceMeters(stred, naSever)!;
+    const vychod = distanceMeters(stred, naVychod)!;
+    assert.ok(vychod < sever * 0.7, `${vychod} vs ${sever}`);
+  });
+
+  it("je symetrická", () => {
+    const a = { latitude: 50.3182, longitude: 15.4283 };
+    const b = { latitude: 50.3199, longitude: 15.4301 };
+    assert.equal(distanceMeters(a, b), distanceMeters(b, a));
+  });
+
+  it("nesmyslný vstup je null, ne NaN", () => {
+    const a = { latitude: 50.3182, longitude: 15.4283 };
+    assert.equal(distanceMeters(a, { latitude: NaN, longitude: 0 }), null);
   });
 });

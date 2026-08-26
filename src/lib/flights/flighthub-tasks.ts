@@ -83,7 +83,16 @@ export interface FhMediaFile {
   createAt: string | null;
 }
 
+/**
+ * Číslo z odpovědi, nebo null.
+ *
+ * Number(null) je nula, stejně jako Number("") a Number([]). Kdyby se
+ * převádělo přes něj, chybějící výška bodu by se do trajektorie
+ * zapsala jako nula a nešlo by ji odlišit od skutečné nuly.
+ */
 function num(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || value.trim() === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }

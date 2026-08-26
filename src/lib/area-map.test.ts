@@ -7,7 +7,9 @@ import {
   boundsSpanMeters,
   fieldOfViewDegrees,
   projectPoint,
+  projectTrack,
   sectorPath,
+  trackPath,
   type MapBounds,
 } from "./area-map.ts";
 
@@ -238,5 +240,85 @@ describe("sectorPath", () => {
     assert.equal(sectorPath(center, 0, 0, 10), null);
     assert.equal(sectorPath(center, 0, 90, 0), null);
     assert.equal(sectorPath(center, Number.NaN, 90, 10), null);
+  });
+});
+
+describe("projectTrack", () => {
+  const stred = {
+    latitude: (VESELI.nwLat + VESELI.seLat) / 2,
+    longitude: (VESELI.nwLon + VESELI.seLon) / 2,
+  };
+  const mimo = { latitude: 50.4, longitude: 15.6 };
+
+  it("souvislá trasa je jeden úsek", () => {
+    const track = projectTrack(VESELI, [
+      { latitude: VESELI.nwLat, longitude: VESELI.nwLon },
+      stred,
+      { latitude: VESELI.seLat, longitude: VESELI.seLon },
+    ]);
+
+    assert.equal(track.segments.length, 1);
+    assert.equal(track.segments[0].length, 3);
+    assert.equal(track.skipped, 0);
+    assert.deepEqual(track.start, { x: 0, y: 0 });
+    assert.ok(track.end && Math.abs(track.end.x - 1) < 1e-9);
+  });
+
+  it("bod mimo výřez trasu rozdělí, nezkrátí", () => {
+    // Kdyby se zbylé body prostě spojily, vznikla by přímka přes
+    // území, kudy dron neletěl.
+    const track = projectTrack(VESELI, [
+      { latitude: VESELI.nwLat, longitude: VESELI.nwLon },
+      stred,
+      mimo,
+      stred,
+      { latitude: VESELI.seLat, longitude: VESELI.seLon },
+    ]);
+
+    assert.equal(track.segments.length, 2);
+    assert.equal(track.skipped, 1);
+  });
+
+  it("osamocený bod úsek netvoří", () => {
+    const track = projectTrack(VESELI, [stred, mimo, stred, mimo, stred]);
+    assert.deepEqual(track.segments, []);
+    assert.equal(track.skipped, 2);
+    // Krajní body ale zůstávají — trasa výřezem prošla.
+    assert.ok(track.start);
+    assert.ok(track.end);
+  });
+
+  it("trasa úplně mimo výřez nekreslí nic", () => {
+    const track = projectTrack(VESELI, [mimo, mimo]);
+    assert.deepEqual(track.segments, []);
+    assert.equal(track.start, null);
+    assert.equal(track.end, null);
+    assert.equal(track.skipped, 2);
+  });
+
+  it("prázdná trasa projde", () => {
+    const track = projectTrack(VESELI, []);
+    assert.deepEqual(track.segments, []);
+    assert.equal(track.skipped, 0);
+  });
+});
+
+describe("trackPath", () => {
+  it("začíná M a pokračuje L v metrech", () => {
+    const span = boundsSpanMeters(VESELI);
+    const path = trackPath(
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+      ],
+      span,
+    );
+
+    const [prvni, druhy] = path.split(" L ");
+    assert.equal(prvni, "M 0 0");
+    // Druhý bod je pravý dolní roh, tedy celá šířka a výška v metrech.
+    const [x, y] = druhy.split(" ").map(Number);
+    assert.ok(Math.abs(x - span.width) < 0.01, `${x} vs ${span.width}`);
+    assert.ok(Math.abs(y - span.height) < 0.01, `${y} vs ${span.height}`);
   });
 });

@@ -59,3 +59,33 @@ export function parsePointEwkbHex(value: string | null): LatLon | null {
 
   return { latitude, longitude };
 }
+
+/**
+ * Vzdálenost dvou bodů v metrech (haversine).
+ *
+ * Na ploše areálu by stačila i rovinná aproximace, ale haversine je
+ * pár řádků navíc a nemá kde selhat — a používá se na rozhodnutí
+ * „dron už je na místě“, kde nechceme řešit, jestli chyba projekce
+ * nedělá z padesáti metrů šedesát.
+ *
+ * Poloměr je střední zemský (IUGG). Rozdíl proti přesnějšímu
+ * elipsoidu je na stovkách metrů řádově centimetry.
+ */
+const EARTH_RADIUS_M = 6_371_008.8;
+
+export function distanceMeters(a: LatLon, b: LatLon): number | null {
+  const values = [a.latitude, a.longitude, b.latitude, b.longitude];
+  if (!values.every((value) => Number.isFinite(value))) return null;
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const phi1 = toRad(a.latitude);
+  const phi2 = toRad(b.latitude);
+  const dPhi = toRad(b.latitude - a.latitude);
+  const dLambda = toRad(b.longitude - a.longitude);
+
+  const h =
+    Math.sin(dPhi / 2) ** 2 +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
+
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}

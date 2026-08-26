@@ -215,3 +215,74 @@ export function projectPoint(
   if (x < 0 || x > 1 || y < 0 || y > 1) return null;
   return { x, y };
 }
+
+/** Trasa letu promítnutá do rámečku. */
+export interface ProjectedTrack {
+  /**
+   * Souvislé úseky. Bod mimo výřez úsek uzavře a další začne až za
+   * ním — spojnice přes zahozený kus by nakreslila cestu, kterou dron
+   * neletěl.
+   */
+  segments: MapPosition[][];
+  /** První a poslední bod uvnitř výřezu; null, když v něm žádný není. */
+  start: MapPosition | null;
+  end: MapPosition | null;
+  /** Kolik bodů leželo mimo výřez. */
+  skipped: number;
+}
+
+/**
+ * Promítne trasu letu.
+ *
+ * Body mimo výřez se zahazují stejně jako u značek — přilepené
+ * k okraji by lhaly o tom, kudy dron letěl. Zahození ale trasu
+ * rozdělí, místo aby ji zkrátilo: kdyby se zbylé body prostě spojily,
+ * vznikla by přímka přes území, kde se ve skutečnosti letělo obloukem
+ * mimo podklad.
+ *
+ * Osamocený bod v úseku nezůstává: čára se z jednoho bodu nakreslit
+ * nedá a tečka by vypadala jako značka.
+ */
+export function projectTrack(
+  bounds: MapBounds,
+  points: readonly { latitude: number; longitude: number }[],
+): ProjectedTrack {
+  const segments: MapPosition[][] = [];
+  let current: MapPosition[] = [];
+  let start: MapPosition | null = null;
+  let end: MapPosition | null = null;
+  let skipped = 0;
+
+  const uzavrit = () => {
+    if (current.length >= 2) segments.push(current);
+    current = [];
+  };
+
+  for (const point of points) {
+    const position = projectPoint(bounds, point.latitude, point.longitude);
+    if (!position) {
+      skipped += 1;
+      uzavrit();
+      continue;
+    }
+    if (!start) start = position;
+    end = position;
+    current.push(position);
+  }
+  uzavrit();
+
+  return { segments, start, end, skipped };
+}
+
+/** Úsek trasy na SVG path v metrové soustavě. */
+export function trackPath(segment: readonly MapPosition[], span: MapSpan): string {
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return segment
+    .map(
+      (position, index) =>
+        `${index === 0 ? "M" : "L"} ${round(position.x * span.width)} ${round(
+          position.y * span.height,
+        )}`,
+    )
+    .join(" ");
+}
