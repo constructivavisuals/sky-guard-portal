@@ -468,6 +468,26 @@ a zaseklý cron klient stejně nespraví. Přehled proto varování o cronu
 klientovi vůbec nesestavuje — prázdná odpověď z RLS by jinak vypadala
 jako „úloha nikdy neproběhla“.
 
+### Nedokončené zpracování
+
+Zásah i čtení značky běží v `after()`, tedy až po odeslání odpovědi
+kameře. Fronta ani opakování tam nejsou: když Vercel instanci ukončí
+dřív, práce se ztratí a nikde po ní nezůstane stopa. Detekce se zapíše,
+zásah nevznikne; vjezd se zapíše, značka se nepřečte. Vypadá to úplně
+stejně jako „kamera nemá zónu“ nebo „značku nešlo přečíst“.
+
+Varovací cron proto hledá dvě stopy a hlásí je jako `processing_stuck`
+(migrace 20260912120000), přehled je ukazuje mezi ostatními varováními:
+
+* **detekce v ostrém režimu bez jediného řádku v `dispatches`**, starší
+  než 10 minut. Mimo ostrý režim se zásah nezakládá schválně, a deset
+  minut je rezerva na to, co se zrovna počítá.
+* **vjezd se snímkem a bez `plate_read_at`** starší než hodinu. Bez
+  snímku není z čeho číst, takže prázdný sloupec je tam v pořádku.
+
+Obojí se hledá den zpět. Není to náhrada za frontu — je to způsob, jak
+se o ztracené práci vůbec dozvědět.
+
 ### Hlídač zvenčí (healthchecks.io)
 
 Všechno výš žije **uvnitř** portálu. Když umře VPS, `cron_runs` zestárne

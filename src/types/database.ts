@@ -909,6 +909,8 @@ export const NOTIFICATION_KINDS = [
   "threat_confirmed",
   "camera_silent",
   "dock_problem",
+  /** Práce v after(), která nedoběhla. Migrace 20260912120000. */
+  "processing_stuck",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -918,6 +920,7 @@ export const NOTIFICATION_KIND_LABELS: Record<NotificationKind, string> = {
   threat_confirmed: "Nález potvrzen",
   camera_silent: "Kamera mlčí",
   dock_problem: "Dok v nepořádku",
+  processing_stuck: "Zpracování nedoběhlo",
 };
 
 export const NOTIFICATION_KIND_HINTS: Record<NotificationKind, string> = {
@@ -926,6 +929,8 @@ export const NOTIFICATION_KIND_HINTS: Record<NotificationKind, string> = {
   threat_confirmed: "Na snímcích z letu je člověk nebo vozidlo. Chodí i v tichých hodinách.",
   camera_silent: "Kamera se dlouho neozvala, přestože je vedená jako online.",
   dock_problem: "Dron mimo dok, vybitá baterie nebo plné úložiště.",
+  processing_stuck:
+    "Detekce bez zásahu nebo vjezd bez přečtené značky — něco se nedopočítalo do konce.",
 };
 
 /** Sloupec předvoleb pro daný druh události. */
@@ -935,6 +940,7 @@ export const NOTIFICATION_KIND_COLUMNS: Record<NotificationKind, keyof Notificat
   threat_confirmed: "on_threat_confirmed",
   camera_silent: "on_camera_silent",
   dock_problem: "on_dock_problem",
+  processing_stuck: "on_processing_stuck",
 };
 
 /**
@@ -1012,6 +1018,8 @@ export type NotificationPrefs = {
   on_threat_confirmed: boolean;
   on_camera_silent: boolean;
   on_dock_problem: boolean;
+  /** Migrace 20260912120000. */
+  on_processing_stuck: boolean;
   /** `HH:MM:SS` v pásmu lokality. quiet_from > quiet_to = přes půlnoc. */
   quiet_from: string | null;
   quiet_to: string | null;
@@ -1033,6 +1041,7 @@ export const DEFAULT_NOTIFICATION_PREFS: Pick<
   | "on_threat_confirmed"
   | "on_camera_silent"
   | "on_dock_problem"
+  | "on_processing_stuck"
   | "quiet_from"
   | "quiet_to"
 > = {
@@ -1041,6 +1050,9 @@ export const DEFAULT_NOTIFICATION_PREFS: Pick<
   on_threat_confirmed: true,
   on_camera_silent: true,
   on_dock_problem: true,
+  // Závada běhu, ne provozní stav — zapnuté, dokud si to někdo
+  // sám nevypne.
+  on_processing_stuck: true,
   quiet_from: null,
   quiet_to: null,
 };

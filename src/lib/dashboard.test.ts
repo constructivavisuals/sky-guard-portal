@@ -8,6 +8,7 @@ import {
   formatUntil,
   patrolWarnings,
   platelessGateWarnings,
+  stuckWorkWarnings,
   unknownPlateWarnings,
   zoneWarnings,
 } from "./dashboard.ts";
@@ -418,5 +419,46 @@ describe("platelessGateWarnings", () => {
 
   it("bez vjezdů mlčí", () => {
     assert.deepEqual(platelessGateWarnings([brana], []), []);
+  });
+});
+
+describe("stuckWorkWarnings", () => {
+  it("bez nálezu mlčí", () => {
+    assert.deepEqual(
+      stuckWorkWarnings({ detectionsWithoutDispatch: 0, passagesWithoutRead: 0 }),
+      [],
+    );
+  });
+
+  it("detekce bez zásahu se ohlásí", () => {
+    // Zásah běží v after(). Když ho Vercel ukončí dřív, nezůstane po
+    // něm ani potlačený řádek — a vypadá to jako kamera bez zóny.
+    const w = stuckWorkWarnings({ detectionsWithoutDispatch: 1, passagesWithoutRead: 0 });
+    assert.equal(w.length, 1);
+    assert.match(w[0].text, /Jedna detekce/);
+    assert.match(w[0].text, /ani potlačený/);
+  });
+
+  it("víc detekcí se počítá, ne vyjmenovává", () => {
+    const w = stuckWorkWarnings({ detectionsWithoutDispatch: 7, passagesWithoutRead: 0 });
+    assert.match(w[0].text, /7 detekcí/);
+  });
+
+  it("vjezd bez přečtené značky se ohlásí zvlášť", () => {
+    const w = stuckWorkWarnings({ detectionsWithoutDispatch: 0, passagesWithoutRead: 2 });
+    assert.equal(w.length, 1);
+    assert.equal(w[0].key, "passages_without_plate_read");
+    assert.match(w[0].text, /2 vjezdů/);
+  });
+
+  it("obojí naráz dá dvě varování", () => {
+    // Jsou to dvě různé diagnózy: zásah a čtení značky běží každé
+    // jinou cestou.
+    const w = stuckWorkWarnings({ detectionsWithoutDispatch: 3, passagesWithoutRead: 1 });
+    assert.equal(w.length, 2);
+    assert.deepEqual(w.map((x) => x.key), [
+      "detections_without_dispatch",
+      "passages_without_plate_read",
+    ]);
   });
 });

@@ -282,6 +282,75 @@ export function platelessGateWarnings(
 }
 
 /**
+ * Práce po odpovědi, která nedoběhla.
+ *
+ * ═══ Co se to hlídá ════════════════════════════════════════════════
+ * Zásah i čtení značky běží v `after()`, tedy až po odeslání odpovědi
+ * kameře. Když Vercel instanci ukončí dřív, než to doběhne, práce se
+ * ztratí — a nikde po ní nezůstane stopa: fronta ani opakování tam
+ * nejsou. Detekce se zapíše, zásah nevznikne, vjezd zůstane bez značky.
+ *
+ * Samo o sobě to vypadá úplně stejně jako „kamera nemá zónu“ nebo
+ * „značka se nepovedla přečíst“. Rozdíl je v tom, že tohle je závada
+ * běhu, ne stav areálu — a bez tohohle varování se nedá poznat.
+ *
+ * Detekce se počítají jen ty v OSTRÉM REŽIMU: mimo něj se zásah
+ * nezakládá schválně a řádek v dispatches je tam legitimně žádný.
+ * Vyhodnocení ostrého režimu si dělá volající, sem chodí hotové.
+ */
+export interface StuckWork {
+  /** Detekce v ostrém režimu bez jediného řádku v dispatches. */
+  detectionsWithoutDispatch: number;
+  /** Vjezdy starší než hodinu, u kterých čtení značky nikdy neproběhlo. */
+  passagesWithoutRead: number;
+}
+
+/** Po jaké době se nepřečtená značka bere jako ztracená práce. */
+export const PLATE_READ_STUCK_MINUTES = 60;
+
+/**
+ * Jak daleko zpět se nedokončené zpracování hledá.
+ *
+ * Den stačí: co je starší, stejně nikdo nedohledá.
+ */
+export const STUCK_WINDOW_HOURS = 24;
+
+/**
+ * Odklad, než se detekce bez zásahu začne počítat.
+ *
+ * Zásah se zakládá v `after()`, tedy vteřiny po odpovědi. Deset minut
+ * je s rezervou dost — kratší okno by hlásilo poplach na detekci,
+ * která se zrovna zpracovává.
+ */
+export const STUCK_GRACE_MINUTES = 10;
+
+export function stuckWorkWarnings(work: StuckWork): Warning[] {
+  const out: Warning[] = [];
+
+  if (work.detectionsWithoutDispatch > 0) {
+    const jedna = work.detectionsWithoutDispatch === 1;
+    out.push({
+      key: "detections_without_dispatch",
+      text: jedna
+        ? "Jedna detekce v ostrém režimu nemá zásah, ani potlačený. Zpracování se nejspíš nedokončilo — zkontrolujte log."
+        : `${work.detectionsWithoutDispatch} detekcí v ostrém režimu nemá zásah, ani potlačený. Zpracování se nejspíš nedokončilo — zkontrolujte log.`,
+    });
+  }
+
+  if (work.passagesWithoutRead > 0) {
+    const jeden = work.passagesWithoutRead === 1;
+    out.push({
+      key: "passages_without_plate_read",
+      text: jeden
+        ? `Jeden vjezd čeká na přečtení značky déle než ${PLATE_READ_STUCK_MINUTES} min. Čtení buď selhalo, nebo nikdy nezačalo.`
+        : `${work.passagesWithoutRead} vjezdů čeká na přečtení značky déle než ${PLATE_READ_STUCK_MINUTES} min. Čtení buď selhalo, nebo nikdy nezačalo.`,
+    });
+  }
+
+  return out;
+}
+
+/**
  * Hlídka, která nelétá.
  *
  * Práh je dvojnásobek intervalu — jedno vynechání může být plné

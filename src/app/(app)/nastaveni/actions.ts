@@ -156,9 +156,26 @@ export async function ulozitPredvolby(
   } as NotificationPrefsInsert;
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("notification_prefs")
-    .upsert(row, { onConflict: "profile_id,site_id" });
+  const ulozit = (radek: NotificationPrefsInsert) =>
+    supabase.from("notification_prefs").upsert(radek, { onConflict: "profile_id,site_id" });
+
+  let { error } = await ulozit(row);
+
+  // Sloupec on_processing_stuck přidává migrace 20260912120000, kterou
+  // pouští člověk ručně. Dokud neproběhne, PostgREST odmítne celý
+  // zápis kvůli neznámému sloupci — a uživatel by si nemohl uložit ani
+  // tiché hodiny. Druhý pokus je bez něj.
+  if (error) {
+    const { on_processing_stuck, ...bezNoveho } = row as NotificationPrefsInsert & {
+      on_processing_stuck?: boolean;
+    };
+    void on_processing_stuck;
+    const druhy = await ulozit(bezNoveho as NotificationPrefsInsert);
+    if (!druhy.error) {
+      console.warn("Předvolba on_processing_stuck se neuložila — chybí migrace 20260912120000");
+      error = null;
+    }
+  }
 
   if (error) {
     console.error("Zápis předvoleb notifikací selhal", { message: error.message });

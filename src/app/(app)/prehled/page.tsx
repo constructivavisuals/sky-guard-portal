@@ -26,9 +26,13 @@ import {
 import {
   BATTERY_WARNING_PERCENT,
   STORAGE_WARNING_PERCENT,
+  PLATE_READ_STUCK_MINUTES,
+  STUCK_GRACE_MINUTES,
+  STUCK_WINDOW_HOURS,
   cameraSilenceWarnings,
   cameraWarnings,
   platelessGateWarnings,
+  stuckWorkWarnings,
   dockWarnings,
   formatUntil,
   patrolWarnings,
@@ -157,6 +161,9 @@ export default async function Page() {
   // sloupce, který neexistuje, nejde.
   let gateCameras: { id: string; name: string; readsPlate: boolean }[] = [];
   let gatePassages: { cameraId: string | null; hasPlate: boolean }[] = [];
+  // Práce v after(), která nedoběhla. Nula znamená „hledali jsme
+  // a nic“, ne „nedívali jsme se“ — dotazy níž selžou nahlas.
+  let stuck = { detectionsWithoutDispatch: 0, passagesWithoutRead: 0 };
   let events: EventRow[] = [];
   let failed = false;
 
@@ -171,7 +178,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, announcedCount, passageRows, patrolFlights, lastDetections, lastDispatches, gateRows, gatePassageRows] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, announcedCount, passageRows, patrolFlights, lastDetections, lastDispatches, gateRows, gatePassageRows, stuckDetections, stuckPassages] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -252,6 +259,22 @@ export default async function Page() {
           supabase.from("vehicle_passages").select("camera_id, plate")
             .eq("site_id", site.id).gte("passed_at", since)
             .returns<{ camera_id: string | null; plate: string | null }[]>(),
+          // Detekce bez zásahu. Ostrý režim se vyhodnocuje až v paměti,
+          // stejně jako u neznámých značek.
+          supabase.from("detections")
+            .select("id, detected_at, dispatches!dispatches_triggered_by_detection_fkey(id)")
+            .eq("site_id", site.id)
+            .gte("detected_at", new Date(now.getTime() - STUCK_WINDOW_HOURS * 3_600_000).toISOString())
+            .lte("detected_at", new Date(now.getTime() - STUCK_GRACE_MINUTES * 60_000).toISOString())
+            .returns<{ id: string; detected_at: string; dispatches: { id: string }[] }[]>(),
+          // Vjezdy se snímkem, u kterých čtení značky nikdy neproběhlo.
+          // Bez snímku není z čeho číst a prázdný sloupec je v pořádku.
+          supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
+            .eq("site_id", site.id)
+            .gte("passed_at", new Date(now.getTime() - STUCK_WINDOW_HOURS * 3_600_000).toISOString())
+            .lte("passed_at", new Date(now.getTime() - PLATE_READ_STUCK_MINUTES * 60_000).toISOString())
+            .is("plate_read_at", null)
+            .not("storage_path", "is", null),
         ]);
 
       counts = {
@@ -317,6 +340,16 @@ export default async function Page() {
           hasPlate: Boolean(row.plate),
         }));
       }
+
+      stuck = {
+        detectionsWithoutDispatch: (stuckDetections.data ?? []).filter(
+          (row) =>
+            row.dispatches.length === 0 &&
+            // Mimo ostrý režim se zásah nezakládá schválně.
+            isSiteArmed(site, new Date(row.detected_at)),
+        ).length,
+        passagesWithoutRead: stuckPassages.count ?? 0,
+      };
 
       silence = cameraList.map((camera) => ({
         name: camera.name,
@@ -408,6 +441,7 @@ export default async function Page() {
     ...zoneWarnings(zones),
     ...unknownPlateWarnings(unknownPlates),
     ...platelessGateWarnings(gateCameras, gatePassages),
+    ...stuckWorkWarnings(stuck),
     ...cameraSilenceWarnings(silence, now),
     ...patrolWarnings(health, now),
   ];

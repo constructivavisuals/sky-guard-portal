@@ -2,12 +2,20 @@ import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { recordCronRun } from "@/lib/cron/record.ts";
-import { CAMERA_SILENT_MINUTES, silentCameras } from "@/lib/dashboard.ts";
+import {
+  CAMERA_SILENT_MINUTES,
+  PLATE_READ_STUCK_MINUTES,
+  STUCK_GRACE_MINUTES,
+  STUCK_WINDOW_HOURS,
+  silentCameras,
+  stuckWorkWarnings,
+} from "@/lib/dashboard.ts";
 import { checkDockReadiness } from "@/lib/dispatch/dock-readiness.ts";
 import { getDockState } from "@/lib/dispatch/flighthub.ts";
 import { warningCooldownElapsed } from "@/lib/push/rules.ts";
 import { notify } from "@/lib/push/send.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
+import { isSiteArmed, type IsoWeekday } from "@/types/database.ts";
 
 // GET /api/cron/varovani
 //
@@ -30,6 +38,11 @@ interface SiteRow {
   id: string;
   name: string;
   dock_sn: string | null;
+  /** Kvůli vyhodnocení ostrého režimu u detekcí bez zásahu. */
+  timezone: string;
+  armed_from: string;
+  armed_to: string;
+  armed_days: IsoWeekday[];
 }
 
 interface CameraRow {
@@ -66,7 +79,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const { data: sites, error } = await db
     .from("sites")
-    .select("id, name, dock_sn")
+    .select("id, name, dock_sn, timezone, armed_from, armed_to, armed_days")
     .returns<SiteRow[]>();
 
   if (error) {
@@ -79,6 +92,8 @@ export async function GET(request: NextRequest): Promise<Response> {
     sites: sites?.length ?? 0,
     cameraWarnings: 0,
     dockWarnings: 0,
+    /** Detekce bez zásahu a vjezdy bez přečtené značky. */
+    stuckWarnings: 0,
     /** Nalezeno, ale neposláno kvůli odstupu od minula. */
     withinCooldown: 0,
     failed: 0,
@@ -101,7 +116,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
       /** Poslat, jen když od minula uplynul odstup. */
       const poslat = async (
-        kind: "camera_silent" | "dock_problem",
+        kind: "camera_silent" | "dock_problem" | "processing_stuck",
         target: string,
         zprava: { title: string; body: string; url: string },
       ) => {
@@ -169,6 +184,56 @@ export async function GET(request: NextRequest): Promise<Response> {
           url: `/arealy/${site.id}/kamery`,
         });
         if (posláno) report.cameraWarnings += 1;
+      }
+
+      // ── Nedokončené zpracování ─────────────────────────────────
+      // Zásah i čtení značky běží v after(), tedy po odeslání
+      // odpovědi. Když Vercel instanci ukončí dřív, práce se ztratí
+      // a nikde po ní nezůstane stopa — vypadá to stejně jako
+      // „kamera nemá zónu“ nebo „značka nešla přečíst“.
+      const od = new Date(now.getTime() - STUCK_WINDOW_HOURS * 3_600_000).toISOString();
+      const doKdy = new Date(now.getTime() - STUCK_GRACE_MINUTES * 60_000).toISOString();
+
+      const [detekce, vjezdy] = await Promise.all([
+        db
+          .from("detections")
+          .select("id, detected_at, dispatches!dispatches_triggered_by_detection_fkey(id)")
+          .eq("site_id", site.id)
+          .gte("detected_at", od)
+          .lte("detected_at", doKdy)
+          .returns<{ id: string; detected_at: string; dispatches: { id: string }[] }[]>(),
+        db
+          .from("vehicle_passages")
+          .select("id")
+          .eq("site_id", site.id)
+          .gte("passed_at", od)
+          .lte(
+            "passed_at",
+            new Date(now.getTime() - PLATE_READ_STUCK_MINUTES * 60_000).toISOString(),
+          )
+          .is("plate_read_at", null)
+          // Bez snímku není z čeho číst a prázdný sloupec je v pořádku.
+          .not("storage_path", "is", null)
+          .returns<{ id: string }[]>(),
+      ]);
+
+      const bezZasahu = (detekce.data ?? []).filter(
+        (row) =>
+          row.dispatches.length === 0 &&
+          // Mimo ostrý režim se zásah nezakládá schválně.
+          isSiteArmed(site, new Date(row.detected_at)),
+      );
+
+      for (const varovani of stuckWorkWarnings({
+        detectionsWithoutDispatch: bezZasahu.length,
+        passagesWithoutRead: (vjezdy.data ?? []).length,
+      })) {
+        const posláno = await poslat("processing_stuck", varovani.key, {
+          title: `Zpracování nedoběhlo — ${site.name}`,
+          body: varovani.text,
+          url: "/prehled",
+        });
+        if (posláno) report.stuckWarnings += 1;
       }
 
       // ── Dok ────────────────────────────────────────────────────
