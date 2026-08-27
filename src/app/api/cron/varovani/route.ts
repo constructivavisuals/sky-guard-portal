@@ -71,7 +71,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   if (error) {
     console.error("Načtení lokalit selhalo", { message: error.message });
-    await recordCronRun("warnings", { error: "sites_query_failed" });
+    await recordCronRun("warnings", { error: "sites_query_failed" }, false);
     return Response.json({ error: "sites_query_failed" }, { status: 500 });
   }
 
@@ -218,6 +218,6 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   // Nenulové failed musí být vidět ve stavu — cron volá někdo zvenčí
   // přes `curl -f` a ten upozorní jen na chybový stav.
-  await recordCronRun("warnings", report);
+  await recordCronRun("warnings", report, report.failed === 0);
   return Response.json(report, { status: report.failed > 0 ? 500 : 200 });
 }

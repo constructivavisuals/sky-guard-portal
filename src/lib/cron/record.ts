@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "../supabase-admin.ts";
 import type { Json } from "../../types/database.ts";
 
+import { pingHealthcheck } from "./healthcheck.ts";
 import { CRON_RETENTION_DAYS } from "./runs.ts";
 
 // Zápis běhu cronu. Odděleno od čistých pravidel v runs.ts, aby se ta
@@ -19,7 +20,18 @@ import { CRON_RETENTION_DAYS } from "./runs.ts";
 export async function recordCronRun(
   name: string,
   result: Record<string, unknown>,
+  /**
+   * Doběhla úloha bez chyby? Musí odpovídat HTTP stavu, který endpoint
+   * vrátí — z toho se řídí i hlídač zvenčí, a dvě různá tvrzení o témž
+   * běhu jsou horší než žádné.
+   */
+  ok = true,
 ): Promise<void> {
+  // Ping ven jde jako první a nezávisle na zápisu: kdyby byla nedostupná
+  // databáze, hlídač se to musí dozvědět právě proto, že evidence
+  // uvnitř portálu v tu chvíli nefunguje.
+  await pingHealthcheck(name, ok);
+
   try {
     const db = supabaseAdmin();
 

@@ -70,7 +70,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   if (error) {
     console.error("Načtení hlídek selhalo", { message: error.message });
-    await recordCronRun("patrols", { error: "patrols_query_failed" });
+    await recordCronRun("patrols", { error: "patrols_query_failed" }, false);
     return Response.json({ error: "patrols_query_failed" }, { status: 500 });
   }
 
@@ -261,6 +261,6 @@ export async function GET(request: NextRequest): Promise<Response> {
   // stav — se stem by běh, ve kterém selhalo plánování všech hlídek,
   // prošel tiše. Přeskočené hlídky chybou nejsou: dron mimo dok nebo
   // vybitá baterie jsou normální provozní stavy.
-  await recordCronRun("patrols", report);
+  await recordCronRun("patrols", report, report.failed === 0);
   return Response.json(report, { status: report.failed > 0 ? 500 : 200 });
 }

@@ -86,7 +86,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     // Chybějící sloupec (migrace 20260909120000 ještě neběžela) není
     // důvod hlásit chybu cronu — jen se zatím nemaže.
     console.error("Načtení lokalit pro retenci selhalo", { message: error.message });
-    await recordCronRun("retention", { error: "sites_query_failed" });
+    await recordCronRun("retention", { error: "sites_query_failed" }, false);
     return Response.json({ error: "sites_query_failed" }, { status: 500 });
   }
 
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     }
   }
 
-  await recordCronRun("retention", report);
+  await recordCronRun("retention", report, report.failed === 0);
 
   // Nenulové failed musí být vidět ve stavu — cron volá někdo zvenčí
   // přes `curl -f` a ten upozorní jen na chybový stav.

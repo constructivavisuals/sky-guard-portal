@@ -414,6 +414,67 @@ neproběhla“. Když ale chybí celá tabulka (migrace neběžela), přehled
 mlčí — varovat na základě něčeho, co neexistuje, by bylo totéž tiché
 selhání, jen obráceně.
 
+### Hlídač zvenčí (healthchecks.io)
+
+Všechno výš žije **uvnitř** portálu. Když umře VPS, `cron_runs` zestárne
+a přehled to ukáže — jenže notifikaci o tom posílá `varovani`, tedy
+právě ten mrtvý cron. Nikdo se nic nedozví, dokud si sám neotevře
+portál.
+
+Proto dead man's switch: healthchecks.io čeká na signál a když nepřijde
+do nastaveného okna, ozve se samo. Hlídá **ticho**, ne chybu, takže
+funguje i tehdy, když celý stroj zhasne.
+
+Čtyři checky, jeden na úlohu. Period a grace se nastavují v jejich
+rozhraní; hodnoty odpovídají intervalům z `lib/cron/runs.ts` a toleranci
+trojnásobku, kterou používá přehled:
+
+| Check | Period | Grace | Slug |
+|---|---|---|---|
+| Sky Guard — hlídky | 5 min | 10 min | `skyguard-patrols` |
+| Sky Guard — lety z DJI | 15 min | 30 min | `skyguard-flights` |
+| Sky Guard — varování | 30 min | 60 min | `skyguard-warnings` |
+| Sky Guard — úklid úložiště | 1 den | 2 dny | `skyguard-retention` |
+
+Pingat se dá ze dvou míst a stačí jedno z nich; opakovaný ping bere
+healthchecks.io jako jeden.
+
+**1) Z crontabu na VPS.** Doloží, že stroj žije a endpoint odpověděl
+2xx. `curl -f` skončí nenulově při 4xx i 5xx, takže se `&&` neprovede
+a hlídači nic nepřijde — což je přesně to, co má vyvolat poplach:
+
+```cron
+*/5  * * * * . /etc/sky-guard.env && curl -fsS -m 30  -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/patrols  && curl -fsS -m 10 -o /dev/null "$HC_PATROLS"
+*/15 * * * * . /etc/sky-guard.env && curl -fsS -m 300 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/sync/flights  && curl -fsS -m 10 -o /dev/null "$HC_FLIGHTS"
+*/30 * * * * . /etc/sky-guard.env && curl -fsS -m 60  -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/varovani && curl -fsS -m 10 -o /dev/null "$HC_WARNINGS"
+17 3 * * *   . /etc/sky-guard.env && curl -fsS -m 300 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/retence  && curl -fsS -m 10 -o /dev/null "$HC_RETENTION"
+```
+
+Adresy patří do `/etc/sky-guard.env` vedle tajemství, ne do crontabu —
+kdo zná ping URL, umí hlídače umlčet:
+
+```bash
+printf 'CRON_SECRET=…\nHC_PATROLS=https://hc-ping.com/UUID-1\nHC_FLIGHTS=https://hc-ping.com/UUID-2\nHC_WARNINGS=https://hc-ping.com/UUID-3\nHC_RETENTION=https://hc-ping.com/UUID-4\n' > /etc/sky-guard.env
+chmod 600 /etc/sky-guard.env
+```
+
+**2) Z endpointu samotného.** Volitelné, zapíná se proměnnými ve
+Vercelu — `HEALTHCHECK_URL_PATROLS`, `HEALTHCHECK_URL_FLIGHTS`,
+`HEALTHCHECK_URL_WARNINGS`, `HEALTHCHECK_URL_RETENTION` (tytéž adresy).
+Přidává jedinou věc, kterou z crontabu poznat nejde: **jak běh dopadl**.
+Úspěch pingne prostou adresu, běh s nenulovým `failed` pošle
+`<adresa>/fail`, takže se v healthchecks.io rozliší „neproběhlo“ od
+„proběhlo a selhalo“.
+
+Ping jde ven **dřív** než zápis do `cron_runs`: kdyby byla nedostupná
+databáze, hlídač se to musí dozvědět právě proto, že evidence uvnitř
+portálu v tu chvíli nefunguje. Nikdy nevyhazuje a nikdy nemění výsledek
+běhu — nenastavená proměnná znamená „tuhle úlohu zvenčí nehlídáme“
+a mlčí.
+
+Adresa musí být **https**; `http://` se odmítne, protože nešifrovaný
+ping prozradí komukoli po cestě, kdy co běží.
+
 ## Avizované příjezdy
 
 Dopravce dostane odkaz `/prijezd/<token>` a na samostatné stránce mimo
