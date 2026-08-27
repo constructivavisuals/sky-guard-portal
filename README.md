@@ -276,6 +276,65 @@ příjmem a její README ho popisuje jako past: dvojice main + sub stream
 má stejný čas začátku a druhý stream se zahodí. Tady ten index záměrně
 není.
 
+### Příjem záznamů: `/api/ingest/recording`
+
+Dva požadavky na jeden soubor. Obojí podepsané **RELAY_SECRET**, ne
+klíčem kamery: relay je prostředník za víc kamer naráz a kameru
+pojmenuje sériovým číslem v těle. Rotace funguje stejně jako
+u `INGEST_SECRET` — po dobu přepojení se ověřuje i proti
+`RELAY_SECRET_PREVIOUS` a relay na starém tajemství se zaloguje.
+
+```
+POST /api/ingest/recording          → ohlášení, vrací nahrávací adresu
+PUT  <upload_url>                   → soubor jde přímo do úložiště
+POST /api/ingest/recording/confirm  → potvrzení, vyplní uploaded_at
+```
+
+Ohlášení dohledá kameru podle `serial_number`, ověří idempotenci na
+`sd_file_path`, založí řádek se `storage_path` a vrátí jednorázovou
+adresu (platí 2 h). Kamera musí být vedená jako `ingest_mode = 'ftp'`
+— kamera, která se umí podepsat sama, si relay mluvit za sebe nenechá,
+jinak by se relayovým tajemstvím dal podvrhnout záznam kterékoli
+kamery v portálu.
+
+Tři věci, které stojí za pozornost:
+
+* **Čas není omezený tolerancí podpisu.** U detekce ano, protože se
+  hlásí, když se stane. Záznam se nahrává až po dotočení a po výpadku
+  sítě leží ve frontě klidně den — meze jsou proto měsíc dozadu
+  a pár minut dopředu.
+* **Na hotový záznam se adresa nevystaví.** Ohlášení se dá zopakovat
+  (relay to dělá po neúspěšném nahrání), ale jen dokud soubor
+  nedorazil. Jinak by z odchyceného požadavku šlo přepsat existující
+  soubor.
+* **Velikost se měří, netvrdí.** Potvrzení se nezeptá relaye, jak je
+  soubor velký — zeptá se úložiště. Když soubor nenajde, potvrzení
+  odmítne a záznam zůstane nedokončený. `uploaded_at` má znamenat
+  „soubor tam je“, ne „někdo to tvrdil“.
+
+#### Vyzkoušení curlem
+
+Podpis počítá `npm run relay-podpis`; vypíše hotový příkaz. Ruční HMAC
+je otrava a překlep v něm vypadá jako zamítnutý podpis.
+
+```bash
+export RELAY_SECRET=…              # totéž, co má portál
+export PORTAL_HOST=https://portal.sky-guard.cz
+export CAMERA_SERIAL=BK024AAPAGB5592
+
+# 1. ohlášení — vrátí recording_id a upload_url
+eval "$(npm run --silent relay-podpis)"
+
+# 2. nahrání souboru na vrácenou adresu
+curl -X PUT "<upload_url>" -H 'Content-Type: video/mp4' --data-binary @klip.mp4
+
+# 3. potvrzení
+eval "$(npm run --silent relay-podpis potvrzeni <recording_id>)"
+```
+
+Bez souboru v úložišti vrátí krok 3 **409 `file_not_found`** — a to je
+správně, ne chyba testu.
+
 ### Relay nemá přístup k úložišti ani k databázi
 
 Nabízelo by se dát relayi klíč a nechat ho zapisovat samotného.

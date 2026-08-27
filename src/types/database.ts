@@ -619,6 +619,31 @@ export type KnownPlateRow = {
   updated_at: string;
 };
 
+/**
+ * Záznam ze stavební kamery. Migrace 20260915120000.
+ *
+ * Řádek přežije video: po lhůtě (`sites.clip_retention_days`) se maže
+ * soubor a vyplní `video_expired_at`. `uploaded_at` je něco jiného —
+ * „soubor ještě nedorazil“ vs. „bylo a už není“.
+ */
+export type CameraRecording = {
+  id: string;
+  camera_id: string;
+  started_at: string;
+  ended_at: string | null;
+  event_type: string | null;
+  /** Cesta v FTP inboxu relaye. Klíč idempotence příjmu. */
+  sd_file_path: string | null;
+  /** Cesta v bucketu `zaznamy`, ne adresa. */
+  storage_path: string | null;
+  size_bytes: number | null;
+  uploaded_at: string | null;
+  video_expired_at: string | null;
+  created_at: string;
+};
+
+export type CameraRecordingInsert = Insertable<CameraRecording, "camera_id" | "started_at">;
+
 export const PLATE_SOURCES = ["camera", "model"] as const;
 export type PlateSource = (typeof PLATE_SOURCES)[number];
 
@@ -746,6 +771,11 @@ export type Database = {
         VehiclePassage,
         VehiclePassageInsert,
         Updatable<VehiclePassage>
+      >;
+      camera_recordings: TableShape<
+        CameraRecording,
+        CameraRecordingInsert,
+        Updatable<CameraRecording>
       >;
       // audit_log je append-only (hlídá DB trigger), proto prázdný Update.
       audit_log: TableShape<AuditLogEntry, AuditLogInsert, Record<string, never>>;

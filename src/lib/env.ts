@@ -66,6 +66,27 @@ export function ingestSecrets(): string[] {
   return out;
 }
 
+/**
+ * Tajemství, kterými se ověřuje RELAY, ne kamera.
+ *
+ * ═══ Proč vlastní, a ne záznam v cameras ═══════════════════════════
+ * Kamera je zařízení; relay je prostředník, který mluví za víc kamer
+ * naráz. Dát mu řádek v `cameras` by znamenalo vyrobit zařízení, které
+ * neexistuje, a připsat mu sériové číslo, které nikde není. Kameru
+ * relay pojmenuje sériovým číslem v těle požadavku.
+ *
+ * Pořadí i rotace jsou stejné jako u INGEST_SECRET: nové první,
+ * předchozí po dobu přepojení. Viz ingestSecrets().
+ */
+export function relaySecrets(): string[] {
+  const out = [required("RELAY_SECRET")];
+
+  const previous = process.env.RELAY_SECRET_PREVIOUS?.trim();
+  if (previous && previous !== out[0]) out.push(previous);
+
+  return out;
+}
+
 export interface FlightHubConfig {
   host: string;
   projectUuid: string;
