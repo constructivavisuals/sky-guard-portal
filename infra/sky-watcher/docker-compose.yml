@@ -1,0 +1,21 @@
+# Sky Guard watcher — běží VEDLE cam-relay Constructivy, ne místo něj.
+#
+# Vlastní adresář a vlastní compose projekt schválně: dvě repozitáře,
+# které by si nasazovaly do jednoho /opt/cam-relay, by si navzájem
+# přepisovaly soubory. Sdílí se jen inbox, a to jako svazek.
+
+services:
+  sky-watcher:
+    build: .
+    container_name: sky-watcher
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Inbox patří relayi Constructivy — tenhle watcher z něj bere
+      # výhradně .dav a maže jen ty. Prázdné adresáře uklízí ten druhý.
+      - /opt/cam-relay/ftp-inbox:/inbox
+      # Vlastní karanténa: soubor, který neprošel, nemá skončit v cizí.
+      - ./failed:/failed
+    environment:
+      INBOX_DIR: /inbox
+      FAILED_DIR: /failed

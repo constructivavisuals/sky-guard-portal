@@ -335,6 +335,21 @@ eval "$(npm run --silent relay-podpis potvrzeni <recording_id>)"
 Bez souboru v úložišti vrátí krok 3 **409 `file_not_found`** — a to je
 správně, ne chyba testu.
 
+### Relay: dva watchery nad jedním inboxem
+
+Kamera posílá obě větve **jedním FTP účtem**; rozdělují se až na relayi
+podle přípony. `.dav` bere `infra/sky-watcher` a posílá do Sky Guardu,
+`.jpg` zůstává watcheru Constructivy a jde do časosběru. Každý ignoruje
+přípony toho druhého; prázdné adresáře uklízí ten druhý, protože inbox
+je jeho.
+
+Sky Guard watcher běží ve **vlastním adresáři a vlastním compose
+projektu** (`/opt/sky-watcher`), ne uvnitř cam-relay. Dvě repozitáře,
+které by si nasazovaly do jednoho místa, by si přepisovaly soubory;
+takhle se sdílí jen inbox, a to jako svazek.
+
+Podrobnosti, nasazení a provozní tabulka jsou v `infra/sky-watcher/README.md`.
+
 ### Relay nemá přístup k úložišti ani k databázi
 
 Nabízelo by se dát relayi klíč a nechat ho zapisovat samotného.
