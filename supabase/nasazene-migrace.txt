@@ -35,3 +35,10 @@
 20260909120000_retention.sql
 20260909180000_dispatch_outcome_constraint.sql
 20260910120000_camera_capabilities.sql
+# 20260911120000_anon_revoke_and_cron_read.sql tu schválně CHYBÍ:
+# napoprvé spadla na ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin
+# a opravená verze zatím nasazená není. Přijde na řadu jako první.
+20260911180000_logo_no_svg.sql
+20260912120000_processing_stuck.sql
+20260913120000_retention_anonymization.sql
+20260911120000_anon_revoke_and_cron_read.sql
