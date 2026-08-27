@@ -14,25 +14,55 @@ import {
   Settings,
   Users,
   LogOut,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Logo } from "@/components/logo.tsx";
 import { logoUrl } from "@/lib/logo.ts";
 import type { CurrentProfile } from "@/lib/profile.ts";
+import type { SiteCapabilities } from "@/lib/site.ts";
 import { profileInitial } from "@/lib/profile.ts";
 import { USER_ROLE_LABELS } from "@/types/database.ts";
 
+/**
+ * Položky navigace. `needs` říká, co k nim lokalita musí mít.
+ *
+ * Stavba bez dronu nemá zásahy, lety ani hlídky; areál bez kamer nemá
+ * detekce ani bránu. Je to úklid obrazovky, ne bezpečnost — stránky
+ * samotné zůstávají dostupné, protože klient se stavbou i areálem se
+ * na ně z „všech lokalit“ dostane právem.
+ */
 export const NAV_ITEMS = [
-  { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
-  { href: "/detekce", label: "Detekce", icon: ScanEye },
-  { href: "/zasahy", label: "Zásahy", icon: Send },
-  { href: "/lety", label: "Lety", icon: Plane },
-  { href: "/hlidky", label: "Hlídky", icon: Route },
-  { href: "/arealy", label: "Areály", icon: MapPin },
-  { href: "/brana", label: "Brána", icon: DoorOpen },
-  { href: "/reporty", label: "Reporty", icon: FileText },
-  { href: "/nastaveni", label: "Nastavení", icon: Settings },
-] as const;
+  { href: "/prehled", label: "Přehled", icon: LayoutDashboard, needs: null },
+  { href: "/detekce", label: "Detekce", icon: ScanEye, needs: "cameras" },
+  { href: "/zasahy", label: "Zásahy", icon: Send, needs: "drone" },
+  { href: "/lety", label: "Lety", icon: Plane, needs: "drone" },
+  { href: "/hlidky", label: "Hlídky", icon: Route, needs: "drone" },
+  { href: "/arealy", label: "Areály", icon: MapPin, needs: null },
+  { href: "/brana", label: "Brána", icon: DoorOpen, needs: "cameras" },
+  { href: "/reporty", label: "Reporty", icon: FileText, needs: null },
+  { href: "/nastaveni", label: "Nastavení", icon: Settings, needs: null },
+] as const satisfies readonly NavItem[];
+
+export interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** null = ukazuje se vždycky. */
+  needs: "drone" | "cameras" | null;
+}
+
+/** Které položky dávají pro tenhle výběr lokalit smysl. */
+export function visibleNavItems<T extends { needs: "drone" | "cameras" | null }>(
+  items: readonly T[],
+  capabilities: { drone: boolean; cameras: boolean },
+): T[] {
+  return items.filter((item) => {
+    if (item.needs === "drone") return capabilities.drone;
+    if (item.needs === "cameras") return capabilities.cameras;
+    return true;
+  });
+}
 
 /**
  * Položky jen pro administrátora.
@@ -46,8 +76,15 @@ const ADMIN_ITEMS = [
   { href: "/klienti", label: "Klienti", icon: Users },
 ] as const;
 
-export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
+export function Sidebar({
+  profile,
+  capabilities,
+}: {
+  profile: CurrentProfile | null;
+  capabilities: SiteCapabilities;
+}) {
   const pathname = usePathname();
+  const items = visibleNavItems(NAV_ITEMS, capabilities);
 
   return (
     <nav
@@ -85,7 +122,7 @@ export function Sidebar({ profile }: { profile: CurrentProfile | null }) {
           drží svislý pruh v akcentu; záře patří primární akci
           a poplachu, ne navigaci. */}
       <ul className="flex-1 overflow-y-auto">
-        {[...NAV_ITEMS, ...(profile?.role === "admin" ? ADMIN_ITEMS : [])].map(({ href, label, icon: Icon }) => {
+        {[...items, ...(profile?.role === "admin" ? ADMIN_ITEMS : [])].map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <li key={href} className="border-b border-[var(--line)]">

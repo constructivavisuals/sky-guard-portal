@@ -19,24 +19,30 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import type { SiteCapabilities } from "@/lib/site.ts";
+
+import { visibleNavItems, type NavItem } from "./sidebar.tsx";
+
 // Spodní navigace pro mobil, vzor převzatý z constructiva-portal.
 // Pět položek je strop, na který se na 375 px vejdou popisky — zbytek
 // jde pod „Více“.
 
+// `needs` má týž význam jako v sidebaru — filtruje se sdílenou funkcí,
+// aby se obě navigace nemohly rozejít.
 const PRIMARY = [
-  { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
-  { href: "/detekce", label: "Detekce", icon: ScanEye },
-  { href: "/zasahy", label: "Zásahy", icon: Send },
-  { href: "/lety", label: "Lety", icon: Plane },
-] as const;
+  { href: "/prehled", label: "Přehled", icon: LayoutDashboard, needs: null },
+  { href: "/detekce", label: "Detekce", icon: ScanEye, needs: "cameras" },
+  { href: "/zasahy", label: "Zásahy", icon: Send, needs: "drone" },
+  { href: "/lety", label: "Lety", icon: Plane, needs: "drone" },
+] as const satisfies readonly NavItem[];
 
 const SECONDARY = [
-  { href: "/hlidky", label: "Hlídky", icon: Route },
-  { href: "/arealy", label: "Areály", icon: MapPin },
-  { href: "/brana", label: "Brána", icon: DoorOpen },
-  { href: "/reporty", label: "Reporty", icon: FileText },
-  { href: "/nastaveni", label: "Nastavení", icon: Settings },
-] as const;
+  { href: "/hlidky", label: "Hlídky", icon: Route, needs: "drone" },
+  { href: "/arealy", label: "Areály", icon: MapPin, needs: null },
+  { href: "/brana", label: "Brána", icon: DoorOpen, needs: "cameras" },
+  { href: "/reporty", label: "Reporty", icon: FileText, needs: null },
+  { href: "/nastaveni", label: "Nastavení", icon: Settings, needs: null },
+] as const satisfies readonly NavItem[];
 
 /** Jen pro administrátora; zámek je na stránce samotné. */
 const ADMIN_SECONDARY = [
@@ -47,12 +53,22 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
+export function MobileNav({
+  isAdmin = false,
+  capabilities,
+}: {
+  isAdmin?: boolean;
+  capabilities: SiteCapabilities;
+}) {
   const pathname = usePathname();
   const [session, setSession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const secondary = isAdmin ? [...SECONDARY, ...ADMIN_SECONDARY] : SECONDARY;
+  const primary = visibleNavItems(PRIMARY, capabilities);
+  const viditelneSecondary = visibleNavItems(SECONDARY, capabilities);
+  const secondary = isAdmin
+    ? [...viditelneSecondary, ...ADMIN_SECONDARY]
+    : viditelneSecondary;
   const moreActive = secondary.some((item) => isActive(pathname, item.href));
 
   return (
@@ -73,7 +89,7 @@ export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
         // inset tenhle problém neřeší, je svislý.
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur-lg pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]"
       >
-        {PRIMARY.map(({ href, label, icon: Icon }) => (
+        {primary.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}

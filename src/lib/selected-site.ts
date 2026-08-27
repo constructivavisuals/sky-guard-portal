@@ -22,6 +22,12 @@ export interface SiteRow {
   id: string;
   name: string;
   timezone: string;
+  /**
+   * Co lokalita má. Migrace 20260914120000; dokud neproběhne, čtou se
+   * jako dron ano / kamery ne, tedy tak, jak portál vypadal dosud.
+   */
+  has_drone: boolean;
+  has_cameras: boolean;
   dock_sn: string | null;
   armed_from: string;
   armed_to: string;
@@ -32,6 +38,8 @@ export interface SiteRow {
   map_se_lat: number | null;
   map_se_lon: number | null;
 }
+
+export { siteCapabilities, type SiteCapabilities } from "./site.ts";
 
 export interface SiteSelection {
   /** Lokality viditelné přihlášenému uživateli (přes RLS). */
@@ -48,6 +56,18 @@ export interface SiteSelection {
 const SITE_COLUMNS =
   "id, name, timezone, dock_sn, armed_from, armed_to, armed_days, " +
   "map_image_url, map_nw_lat, map_nw_lon, map_se_lat, map_se_lon";
+
+/** Sloupce schopností. Přidává je migrace 20260914120000. */
+const CAPABILITY_COLUMNS = "has_drone, has_cameras";
+
+/**
+ * Jak se lokalita chová, dokud schopnosti v databázi nejsou.
+ *
+ * Dron ano, kamery ne — tedy přesně tak, jak portál vypadal předtím,
+ * než modul stavebních kamer vznikl. Nasazení kódu dřív než migrace
+ * tak nikomu nic neschová.
+ */
+const VYCHOZI_SCHOPNOSTI = { has_drone: true, has_cameras: false } as const;
 
 /**
  * Načte lokality a vyhodnotí, která je vybraná.
@@ -67,11 +87,19 @@ export const getSiteSelection = cache(async function getSiteSelection(): Promise
 
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("sites")
-      .select(SITE_COLUMNS)
-      .order("name")
-      .returns<SiteRow[]>();
+    const dotaz = (sloupce: string) =>
+      supabase.from("sites").select(sloupce).order("name").returns<SiteRow[]>();
+
+    // Dvoustupňový výběr: schopnosti přidává ručně nasazovaná migrace
+    // a PostgREST odmítne celý dotaz, když jediný sloupec chybí. Bez
+    // záchytné větve by portál po nasazení kódu neuměl načíst ani
+    // seznam lokalit — tedy vůbec nic.
+    let { data, error } = await dotaz(`${SITE_COLUMNS}, ${CAPABILITY_COLUMNS}`);
+
+    if (error) {
+      ({ data, error } = await dotaz(SITE_COLUMNS));
+      if (data) data = data.map((row) => ({ ...row, ...VYCHOZI_SCHOPNOSTI }));
+    }
 
     if (error || !data) return prazdno;
 

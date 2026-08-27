@@ -49,18 +49,18 @@ VALUES
    'Brána', 'SG-CAM-01', 'http', NULL);
 
 INSERT INTO camera_recordings (camera_id, started_at, ended_at, event_type,
-                               sd_file_path, r2_key, size_bytes)
+                               sd_file_path, storage_path, uploaded_at, size_bytes)
 VALUES
   ('dddddddd-0000-0000-0000-00000000f005', now() - interval '2 hours',
    now() - interval '2 hours' + interval '43 seconds', 'motion',
    'cam-stavba-01/2026-08-27/001/dav/10/10.00.00-10.00.43[M][0@0][0].dav',
-   'cameras/dddddddd-0000-0000-0000-00000000f005/2026/08/27/100000-motion.mp4',
-   4194304),
+   'dddddddd-0000-0000-0000-00000000f003/dddddddd-0000-0000-0000-00000000f005/2026/08/27/100000-motion.mp4',
+   now(), 4194304),
   ('dddddddd-0000-0000-0000-00000000f006', now() - interval '3 hours',
    now() - interval '3 hours' + interval '20 seconds', 'motion',
    'cam-areal/2026-08-27/001/dav/09/09.00.00-09.00.20[M][0@0][0].dav',
-   'cameras/dddddddd-0000-0000-0000-00000000f006/2026/08/27/090000-motion.mp4',
-   1048576);
+   'dddddddd-0000-0000-0000-00000000f004/dddddddd-0000-0000-0000-00000000f006/2026/08/27/090000-motion.mp4',
+   now(), 1048576);
 
 DO $$
 DECLARE v_ok BOOLEAN;
@@ -145,6 +145,20 @@ BEGIN
    WHERE camera_id = 'dddddddd-0000-0000-0000-00000000f005'
    LIMIT 1;
   RAISE NOTICE 'ok    main i sub stream se stejným časem projdou';
+
+  -- ── Cesta v úložišti ───────────────────────────────────────────
+  -- První složka MUSÍ být UUID lokality: na tom stojí čtecí politika
+  -- nad storage.objects. Kdyby se rozešla s tím, co čeká databáze,
+  -- buď nikdo neuvidí nic, nebo uvidí cizí.
+  IF EXISTS (
+    SELECT 1 FROM camera_recordings r
+      JOIN cameras c ON c.id = r.camera_id
+     WHERE r.storage_path IS NOT NULL
+       AND split_part(r.storage_path, '/', 1) <> c.site_id::text
+  ) THEN
+    RAISE EXCEPTION 'FAIL cesta v úložišti nezačíná lokalitou kamery';
+  END IF;
+  RAISE NOTICE 'ok    cesta začíná UUID lokality';
 END $$;
 
 -- ── RLS ──────────────────────────────────────────────────────────

@@ -1,17 +1,28 @@
 -- ═══════════════════════════════════════════════════════════════════
 -- Záznamy ze stavebních kamer.
 --
--- Kamera nahrává na FTP relay, ten soubor remuxne do MP4, uloží do R2
--- a založí tady řádek. Snímky pro časosběr sem NEPATŘÍ — ty zůstávají
+-- Kamera nahrává na FTP relay, ten soubor remuxne do MP4 a pošle ho do
+-- portálu. Snímky pro časosběr sem NEPATŘÍ — ty zůstávají
 -- v constructiva-portal, protože časosběr je marketingová funkce, ne
 -- ostraha. Relay má proto dva cíle a rozděluje je podle přípony.
 --
+-- ═══ Relay nemá přístup k úložišti ani k databázi ══════════════════
+-- Ani jedno není z lenosti: Supabase S3 klíč se nedá omezit na jeden
+-- bucket a obchází RLS, takže by kompromitace VPS znamenala přístup
+-- k záznamům z dronu, ke snímkům vjezdů i k logům všech klientů.
+--
+-- Relay proto řekne portálu „mám soubor“ (podepsané týmž HMAC jako
+-- ingest z kamer), dostane jednorázovou nahrávací adresu, pošle na ni
+-- soubor a potvrdí. Řádek zakládá portál, ne relay — tady tedy není
+-- žádná politika pro zápis, ani pro servisní roli.
+--
 -- ═══ Řádek přežije video ═══════════════════════════════════════════
--- Po uplynutí lhůty (sites.clip_retention_days) se maže objekt v R2,
--- ale řádek zůstává a vyplní se video_expired_at. V portálu je pak
--- pořád vidět, že se v ten čas něco dělo — jen to nejde přehrát.
--- r2_key zůstává jako stopa, kde objekt byl, takže sám o sobě není
--- podmínkou přehratelnosti; tou je prázdné video_expired_at.
+-- Po uplynutí lhůty (sites.clip_retention_days) se maže soubor, ale
+-- řádek zůstává a vyplní se video_expired_at. V portálu je pak pořád
+-- vidět, že se v ten čas něco dělo — jen to nejde přehrát.
+-- storage_path zůstává jako stopa, kde soubor byl, takže sám o sobě
+-- není podmínkou přehratelnosti; tou je prázdné video_expired_at
+-- a vyplněné uploaded_at.
 --
 -- ═══ Idempotence stojí JEN na sd_file_path ═════════════════════════
 -- Constructiva má vedle toho ještě unique (camera_id, started_at)
@@ -41,11 +52,16 @@ CREATE TABLE IF NOT EXISTS camera_recordings (
 
   -- Cesta v FTP inboxu relaye. Zároveň klíč idempotence příjmu.
   sd_file_path TEXT,
-  -- Klíč remuxnutého MP4 v R2, ne veřejná adresa.
-  r2_key TEXT,
+  -- Cesta v privátním bucketu `zaznamy`, ne adresa. První složka je
+  -- UUID lokality, takže čtení pouští táž funkce jako u řádků — shodně
+  -- s bucketem lety, vjezdy i detekce.
+  storage_path TEXT,
   size_bytes BIGINT CHECK (size_bytes IS NULL OR size_bytes >= 0),
 
-  -- Kdy se video smazalo z R2 po uplynutí lhůty. NULL = video je tam.
+  -- Kdy soubor doopravdy dorazil. NULL = řádek vznikl, ale relay
+  -- nahrávání nepotvrdil; v UI se to nesmí tvářit jako přehratelné.
+  uploaded_at TIMESTAMPTZ,
+  -- Kdy se video smazalo po uplynutí lhůty. NULL = video je tam.
   video_expired_at TIMESTAMPTZ,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -72,20 +88,26 @@ CREATE INDEX IF NOT EXISTS idx_camera_recordings_to_expire
 
 COMMENT ON TABLE camera_recordings IS
   'Záznamy ze stavebních kamer přijaté přes FTP relay. Řádek přežije '
-  'video: po lhůtě se maže objekt v R2 a vyplní video_expired_at.';
+  'video: po lhůtě se maže soubor a vyplní video_expired_at.';
 
-COMMENT ON COLUMN camera_recordings.r2_key IS
-  'Klíč v R2, ne adresa. Zůstává i po smazání objektu jako stopa, kde '
-  'byl — přehratelnost se pozná podle video_expired_at.';
+COMMENT ON COLUMN camera_recordings.storage_path IS
+  'Cesta v bucketu `zaznamy`, ne adresa. Zůstává i po smazání souboru '
+  'jako stopa, kde byl — přehratelnost se pozná podle video_expired_at '
+  'a uploaded_at.';
+
+COMMENT ON COLUMN camera_recordings.uploaded_at IS
+  'Kdy relay potvrdil nahrání souboru. NULL = řádek je, soubor ještě '
+  'ne. Nesmí splynout s video_expired_at: to je „bylo a už není“, '
+  'tohle je „ještě nedorazilo“.';
 
 -- ── RLS ──────────────────────────────────────────────────────────
 --
 -- Čte, kdo vidí lokalitu kamery. camera_site_id() je SECURITY DEFINER
 -- ze základní migrace, takže se politika nezacyklí přes cameras.
 --
--- Zápis nikomu z přihlášených: záznamy zakládá výhradně relay pod
--- servisní rolí (migrace 20260915180000). Je to důkazní tabulka, ne
--- něco, do čeho by měl kdokoli z portálu psát.
+-- Zápis nikomu z přihlášených: záznamy zakládá výhradně portál pod
+-- service_role, když mu relay ohlásí soubor. Je to důkazní tabulka,
+-- ne něco, do čeho by měl kdokoli z portálu psát.
 
 ALTER TABLE camera_recordings ENABLE ROW LEVEL SECURITY;
 

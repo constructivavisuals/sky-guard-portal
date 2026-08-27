@@ -56,9 +56,16 @@ import {
 import { zonedTimeToUtc } from "@/lib/patrols/schedule.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
 import { isOperator } from "@/lib/profile.ts";
-import { getSiteSelection, type SiteRow } from "@/lib/selected-site.ts";
+import {
+  getSiteSelection,
+  siteCapabilities,
+  type SiteCapabilities,
+  type SiteRow,
+} from "@/lib/selected-site.ts";
 import { nextArmedTransition } from "@/lib/site-status.ts";
 import { createClient } from "@/lib/supabase/server.ts";
+
+import { visibleNavItems } from "../sidebar.tsx";
 import { isPlateReliable } from "@/lib/plates.ts";
 import {
   isSiteArmed,
@@ -81,6 +88,8 @@ interface CameraRow {
   zone_id: string | null;
   status: string;
   last_seen_at: string | null;
+  /** Migrace 20260914180000; bez ní se čte jako "http". */
+  ingest_mode: "http" | "ftp";
 }
 
 interface PatrolRow {
@@ -112,11 +121,12 @@ function startOfLocalDay(timeZone: string, now: Date): Date {
 }
 
 export default async function Page() {
-  const [{ selectedRow: site }, profile] = await Promise.all([
+  const [{ selectedRow: site, rows }, profile] = await Promise.all([
     getSiteSelection(),
     getCurrentProfile(),
   ]);
   const now = new Date();
+  const capabilities = siteCapabilities(rows, site);
   // Stav cronu čte od migrace 20260911120000 jen operátor a admin.
   // Klientovi by prázdná odpověď (RLS nevrací chybu, vrací nic)
   // vypadala jako „úloha nikdy neproběhla“ — a to je varování o něčem,
@@ -195,7 +205,10 @@ export default async function Page() {
           // Kamer je na lokalitě řád jednotek, takže je levnější přivézt
           // si zone_id a spočítat obojí tady, než posílat dva dotazy
           // s count=exact.
-          supabase.from("cameras").select("id, name, zone_id, status, last_seen_at")
+          // ingest_mode přidává migrace 20260914180000; dokud neběžela,
+          // dotaz spadne a níž se použije záchytná větev bez něj.
+          supabase.from("cameras")
+            .select("id, name, zone_id, status, last_seen_at, ingest_mode")
             .eq("site_id", site.id).neq("status", "decommissioned")
             .returns<CameraRow[]>(),
           // Zóna bez trasy je tichý výpadek stejného druhu jako kamera
@@ -299,10 +312,24 @@ export default async function Page() {
         }));
       counts.unknownPlates = unknownPlates.length;
       patrols = patrolRows.data ?? [];
-      const cameraList = cameraRows.data ?? [];
+      let cameraList = cameraRows.data ?? [];
+
+      if (cameraRows.error) {
+        const bez = await supabase.from("cameras")
+          .select("id, name, zone_id, status, last_seen_at")
+          .eq("site_id", site.id).neq("status", "decommissioned")
+          .returns<CameraRow[]>();
+        // Neznámý způsob příjmu se bere jako http, tedy jako dosud.
+        cameraList = (bez.data ?? []).map((row) => ({ ...row, ingest_mode: "http" }));
+      }
+
+      // Stavební kamera přes FTP zónu nikdy mít nebude — z ní zásah
+      // nevzniká. Kdyby se počítala, hlásil by přehled každé stavby
+      // „5 kamer nemá přiřazenou zónu“ hned po zapnutí modulu.
+      const zonoveKamery = cameraList.filter((camera) => camera.ingest_mode !== "ftp");
       cameras = {
-        total: cameraList.length,
-        withoutZone: cameraList.filter((camera) => camera.zone_id === null).length,
+        total: zonoveKamery.length,
+        withoutZone: zonoveKamery.filter((camera) => camera.zone_id === null).length,
       };
       // Chybějící sloupec (migrace 20260903180000 ještě neběžela)
       // znamená „nevíme“, ne „nemá trasu“ — strašit varováním na
@@ -431,19 +458,24 @@ export default async function Page() {
 
   // Varování z databáze se vypíšou hned; ta ze stavu doku dorazí
   // streamovaně, protože na ně se čeká na FlightHub.
+  // Varování se skládají podle toho, co lokalita má. Stavba bez dronu
+  // nemá zóny s trasou ani hlídky; upozorňovat na jejich chybějící
+  // nastavení by znamenalo posílat člověka opravovat něco, co tam
+  // schválně není.
   const rychlaVarovani: Warning[] = [
-    // Kamery bez zóny první — je to tichý výpadek celé lokality,
-    // ne provozní drobnost jako plné úložiště.
-    // Nefungující cron první: zaseknuté plánování znamená, že nelétá
+    // Nefungující cron první: zaseklé plánování znamená, že nelétá
     // vůbec nic, což přebíjí každou jednotlivou zónu nebo kameru.
     ...(cronRuns ? cronWarnings(cronRuns, now) : []),
-    ...cameraWarnings(cameras),
-    ...zoneWarnings(zones),
-    ...unknownPlateWarnings(unknownPlates),
-    ...platelessGateWarnings(gateCameras, gatePassages),
-    ...stuckWorkWarnings(stuck),
+    // Kamera bez zóny je varování o ZÁSAHU, ne o kameře: bez zóny
+    // z detekce zásah nevznikne. Na stavbě bez dronu tedy nedává smysl,
+    // i když kamery má.
+    ...(capabilities.drone ? cameraWarnings(cameras) : []),
+    ...(capabilities.drone ? zoneWarnings(zones) : []),
+    ...(capabilities.cameras ? unknownPlateWarnings(unknownPlates) : []),
+    ...(capabilities.cameras ? platelessGateWarnings(gateCameras, gatePassages) : []),
     ...cameraSilenceWarnings(silence, now),
-    ...patrolWarnings(health, now),
+    ...stuckWorkWarnings(stuck),
+    ...(capabilities.drone ? patrolWarnings(health, now) : []),
   ];
 
   return (
@@ -463,9 +495,13 @@ export default async function Page() {
             becomes={transition?.becomes ?? null}
             lastPatrolFlightAt={lastPatrolFlightAt}
             dockFacts={
-              <Suspense fallback={<DockFactsSkeleton hasDock={Boolean(site.dock_sn)} />}>
-                <DockFacts dockSn={site.dock_sn} />
-              </Suspense>
+              // Stavba bez dronu dok nemá a nikdy mít nebude —
+              // prázdné dlaždice by tvrdily, že se něco nenačetlo.
+              capabilities.drone ? (
+                <Suspense fallback={<DockFactsSkeleton hasDock={Boolean(site.dock_sn)} />}>
+                  <DockFacts dockSn={site.dock_sn} />
+                </Suspense>
+              ) : null
             }
           />
 
@@ -478,10 +514,15 @@ export default async function Page() {
               rychlaVarovani.length > 0 ? <Warnings items={rychlaVarovani} /> : null
             }
           >
-            <WarningsWithDock base={rychlaVarovani} dockSn={site.dock_sn} />
+            <WarningsWithDock
+              base={rychlaVarovani}
+              // Bez dronu se na FlightHub vůbec nesahá: stav doku, který
+              // neexistuje, není varování, ale zbytečné volání po síti.
+              dockSn={capabilities.drone ? site.dock_sn : null}
+            />
           </Suspense>
 
-          <Numbers counts={counts} />
+          <Numbers counts={counts} capabilities={capabilities} />
 
           <Timeline events={events} timeZone={site.timezone} />
         </div>
@@ -781,6 +822,7 @@ function Warnings({ items }: { items: Warning[] }) {
 /** Čísla za dnešek jako mřížka buněk, ne dlaždice s mezerami. */
 function Numbers({
   counts,
+  capabilities,
 }: {
   counts: {
     detections: number;
@@ -791,21 +833,26 @@ function Numbers({
     unknownPlates: number;
     announced: number;
   };
+  capabilities: SiteCapabilities;
 }) {
-  const cells = [
-    { label: "Detekcí", value: counts.detections, muted: false },
-    { label: "Vjezdů", value: counts.passages, muted: false },
-    { label: "Zásahů", value: counts.dispatches, muted: false },
-    { label: "Potlačených", value: counts.suppressed, muted: true },
-    { label: "Letů", value: counts.flights, muted: false },
-    // Šestý údaj tu není na dorovnání mřížky, ale proto, že po
-    // přidání vjezdů je to první číslo, na které se člověk podívá:
-    // kolik aut projelo, aniž by je někdo znal.
-    { label: "Neznámých značek", value: counts.unknownPlates, muted: false },
-    // Kolik aut je na dnešek ohlášených. Vedle „vjezdů“ to dává smysl
-    // jako druhá strana téže mince: co se čekalo a co doopravdy přijelo.
-    { label: "Ohlášeno na dnešek", value: counts.announced, muted: true },
-  ];
+  // `needs` má týž význam jako v navigaci: nula u čísla, které pro
+  // lokalitu nedává smysl, není informace — je to matoucí. Stavba bez
+  // dronu nemá zásahy ani lety, areál bez kamer nemá vjezdy.
+  const cells = visibleNavItems(
+    [
+      { label: "Detekcí", value: counts.detections, muted: false, needs: "cameras" },
+      { label: "Vjezdů", value: counts.passages, muted: false, needs: "cameras" },
+      { label: "Zásahů", value: counts.dispatches, muted: false, needs: "drone" },
+      { label: "Potlačených", value: counts.suppressed, muted: true, needs: "drone" },
+      { label: "Letů", value: counts.flights, muted: false, needs: "drone" },
+      // Po přidání vjezdů je to první číslo, na které se člověk podívá:
+      // kolik aut projelo, aniž by je někdo znal.
+      { label: "Neznámých značek", value: counts.unknownPlates, muted: false, needs: "cameras" },
+      // Druhá strana téže mince: co se čekalo a co doopravdy přijelo.
+      { label: "Ohlášeno na dnešek", value: counts.announced, muted: true, needs: "cameras" },
+    ] as const,
+    capabilities,
+  );
 
   return (
     <>

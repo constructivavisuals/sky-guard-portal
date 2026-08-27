@@ -1,5 +1,5 @@
 import { getCurrentProfile } from "@/lib/current-profile.ts";
-import { getSiteSelection } from "@/lib/selected-site.ts";
+import { getSiteSelection, siteCapabilities } from "@/lib/selected-site.ts";
 import { isSiteArmed } from "@/types/database.ts";
 
 import { Shell } from "./shell.tsx";
@@ -9,10 +9,16 @@ import type { GuardState } from "./topbar.tsx";
 // jen zjistí vybranou lokalitu a její stav střežení pro horní lištu.
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const [{ sites, selected, selectedRow }, profile] = await Promise.all([
+  const [{ sites, selected, selectedRow, rows }, profile] = await Promise.all([
     getSiteSelection(),
     getCurrentProfile(),
   ]);
+
+  // Co portál pro tenhle výběr ukazuje. U jedné lokality její schopnosti,
+  // u „všech“ sjednocení — kdo má stavbu i areál, musí v menu vidět
+  // obojí. Přepnutí v liště volá selectSite(), která překreslí celý
+  // layout, takže se menu přizpůsobí samo.
+  const capabilities = siteCapabilities(rows, selectedRow);
 
   // Ostrý režim se dopočítá z údajů, které lokalita už poslala s sebou,
   // místo dalšího volání site_is_armed() přes síť. Shodu obou
@@ -37,6 +43,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       selectedSiteId={selected?.id ?? null}
       guardState={guardState}
       profile={profile}
+      capabilities={capabilities}
     >
       {children}
     </Shell>

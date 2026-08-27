@@ -180,11 +180,36 @@ vědomé nastavení, ne odvozenina z toho, jestli je vyplněné `dock_sn`
 (lokalita může na dron teprve čekat).
 
 Stavební kamery jsou Dahua, které umí jen FTP. Přijímá je relay: soubor
-remuxne do MP4, uloží do R2 a založí řádek v `camera_recordings`.
+remuxne do MP4 a pošle ho do portálu, který ho uloží do bucketu
+`zaznamy` a založí řádek v `camera_recordings`.
 Časosběr **do Sky Guardu nepatří** — je to marketingová funkce
 Constructivy a snímky (`.jpg`) míří dál tam. Relay má proto dva cíle
 a rozděluje je podle přípony; spojkou mezi systémy je sériové číslo
 kamery, nic jiného.
+
+### Navigace podle toho, co lokalita má
+
+Menu, dlaždice na přehledu i varování se řídí `has_drone` a
+`has_cameras`. Stavba bez dronu nemá Zásahy, Lety, Hlídky ani stav
+doku; areál bez kamer nemá Detekce a Bránu. U filtru „všechny lokality“
+se bere **sjednocení** — kdo má stavbu i areál, musí v menu vidět
+obojí, jinak by se k půlce portálu nedostal jinak než přepnutím.
+
+Skrytí je úklid obrazovky, ne bezpečnost: stránky samotné zůstávají
+dostupné, protože klient s obojím se na `/lety` z „všech lokalit“
+dostane právem. Zámkem je RLS, jako všude jinde.
+
+Přepnutí lokality v liště volá `selectSite()`, která dělá
+`revalidatePath("/", "layout")` — layout se překreslí celý, takže se
+menu přizpůsobí samo.
+
+Dvě pravidla, která si při tom zaslouží pozor:
+
+* **Kamera bez zóny** je varování o *zásahu*, ne o kameře — bez zóny
+  z detekce zásah nevznikne. Na stavbě bez dronu tedy nedává smysl.
+* **FTP kamery se do něj nepočítají vůbec.** Zónu nikdy mít nebudou,
+  takže bez téhle výjimky by přehled každé stavby hlásil „5 kamer nemá
+  přiřazenou zónu“ hned po zapnutí modulu.
 
 ### Dva způsoby příjmu pod jednou tabulkou
 
@@ -211,7 +236,7 @@ watcher třídy objektů nezná a typ události bere z cesty k souboru.
 | Sloupec | Co znamená | Výchozí |
 |---|---|---|
 | `sites.retention_days` | naše lhůta pro Supabase Storage — snímky detekcí, vjezdů, média letů | 90 dní |
-| `sites.clip_retention_days` | naše lhůta pro video ze stavebních kamer v R2 | 14 dní |
+| `sites.clip_retention_days` | naše lhůta pro video ze stavebních kamer | 14 dní |
 | `cameras.sd_retention_days` | jak dlouho vydrží záznam na SD kartě **v kameře** | — |
 
 Poslední z nich je údaj o zařízení, ne rozhodnutí. Constructiva má týž
@@ -232,30 +257,32 @@ příjmem a její README ho popisuje jako past: dvojice main + sub stream
 má stejný čas začátku a druhý stream se zahodí. Tady ten index záměrně
 není.
 
-### Servisní role relaye
+### Relay nemá přístup k úložišti ani k databázi
 
-Relay běží na cizím serveru, takže na něm leží přihlašovací údaje.
-Nemá service_role klíč — má dvě role s právy na jednotlivé **sloupce**:
+Nabízelo by se dát relayi klíč a nechat ho zapisovat samotného.
+Supabase S3 klíč se ale **nedá omezit na jeden bucket a obchází RLS**,
+takže by kompromitace VPS znamenala přístup k záznamům z dronu,
+ke snímkům vjezdů i k logům všech klientů. Bucketově omezený token,
+jaký má constructiva u R2, tu prostě neexistuje.
 
-| Role | Umí |
-|---|---|
-| `cam_ingest` | dohledat kameru, založit záznam, orazítkovat `cameras.last_seen_at` |
-| `cam_retention` | přečíst lhůtu lokality a označit `video_expired_at` |
+Relay proto drží jediné tajemství — klíč, kterým podepisuje ingest:
 
-`cam_ingest` je proti constructivě rozšířený o `UPDATE (last_seen_at)`.
-Je to vědomé: platí se tím za to, že odpadá celý hlídač výpadků
-(tabulka, dvě funkce, kontejner a webhook) — Sky Guard už umí varovat
-podle `last_seen_at` sám. Grant je sloupcový a hlídá ho whitelist
-v `supabase/tests/rls_audit.sql`, který **spadne na jakékoli právo
-navíc** i na právo, které v seznamu chybí. Kontrola se dá pustit i proti
-produkci.
+1. remuxne soubor a řekne portálu „mám záznam“ (podepsané týmž HMAC
+   jako detekce z kamer),
+2. portál ověří podpis, dohledá kameru podle sériového čísla, ověří
+   idempotenci na `sd_file_path`, založí řádek a vrátí **jednorázovou
+   nahrávací adresu**,
+3. relay pošle soubor přímo na ni (platí 2 h, nahrát se dá jednou),
+4. potvrdí, portál vyplní `uploaded_at` a `size_bytes`.
 
-Hesla se nastavují ručně a do gitu nepatří:
+Řádek tedy vzniká dřív než soubor. `uploaded_at IS NULL` znamená
+„záznam je, soubor ještě ne“ a v UI se to nesmí tvářit jako
+přehratelné — od `video_expired_at` („bylo a už není“) se to musí
+rozlišit, jinak z toho nikdo nepozná, jestli čekat, nebo ne.
 
-```sql
-ALTER ROLE cam_ingest    PASSWORD '…';
-ALTER ROLE cam_retention PASSWORD '…';
-```
+Úklid po lhůtě dělá `/api/cron/retence`, který už dnes maže ze Supabase
+Storage. Kamerové záznamy jsou pro něj jen čtvrtý druh souboru — žádný
+další kontejner na VPS, žádná další servisní role.
 
 ## Co kamera umí
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { CurrentProfile } from "@/lib/profile.ts";
+import type { SiteCapabilities } from "@/lib/site.ts";
 import type { SiteOption } from "@/lib/site.ts";
 
 import { MobileNav } from "./mobile-nav.tsx";
@@ -24,6 +25,7 @@ export function Shell({
   selectedSiteId,
   guardState,
   profile,
+  capabilities,
 }: {
   children: ReactNode;
   siteName: string;
@@ -31,10 +33,11 @@ export function Shell({
   selectedSiteId: string | null;
   guardState: GuardState;
   profile: CurrentProfile | null;
+  capabilities: SiteCapabilities;
 }) {
   return (
     <div className="flex min-h-dvh bg-[var(--bg)] lg:h-dvh lg:overflow-hidden">
-      <Sidebar profile={profile} />
+      <Sidebar profile={profile} capabilities={capabilities} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -65,7 +68,7 @@ export function Shell({
         </main>
       </div>
 
-      <MobileNav isAdmin={profile?.role === "admin"} />
+      <MobileNav isAdmin={profile?.role === "admin"} capabilities={capabilities} />
     </div>
   );
 }
