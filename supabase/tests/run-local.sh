@@ -69,6 +69,9 @@ run_test_file dispatch_outcomes.sql
 echo "== testy hlídek =="
 run_test_file patrols.sql
 
+echo "== schopnosti kamer =="
+run_test_file camera_capabilities.sql
+
 echo "== testy místa a směru kamer =="
 run_test_file camera_location.sql
 

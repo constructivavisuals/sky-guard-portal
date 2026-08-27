@@ -248,6 +248,10 @@ export interface CameraFormValue {
   serial_number: string | null;
   /** Adresa v LAN lokality. Sloupec INET, formát hlídá i databáze. */
   lan_ip: string | null;
+  /** Co kamera umí detekovat. Migrace 20260910120000. */
+  detects_person: boolean;
+  detects_vehicle: boolean;
+  reads_plate: boolean;
   /** Kde a jak je kamera pověšená — pro toho, kdo k ní jde. */
   mount_description: string | null;
   focal_mm: number | null;
@@ -334,6 +338,24 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
     errors.status = "Vyberte stav kamery.";
   }
 
+  // Nezaškrtnutý checkbox se v FormData vůbec neobjeví.
+  const detectsPerson = data.get("detects_person") !== null;
+  const detectsVehicle = data.get("detects_vehicle") !== null;
+  const readsPlate = data.get("reads_plate") !== null;
+
+  // Čtení značky bez detekce vozidla je nesmysl: vjezd JE detekce
+  // vozidla a taková kamera by si sama hlásila neočekávané události.
+  // Hlídá to i CHECK v databázi, ale její hláška u kolonky nesedí.
+  if (readsPlate && !detectsVehicle) {
+    errors.reads_plate = "Kamera, která čte značky, musí umět i vozidla.";
+  }
+
+  // Kamera, která neumí nic, by jen zabírala místo v evidenci a každá
+  // její detekce by se hlásila jako neočekávaná.
+  if (!detectsPerson && !detectsVehicle) {
+    errors.detects_person = "Vyberte aspoň jednu schopnost.";
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -345,6 +367,9 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
       model: optionalText(data, "model"),
       serial_number: optionalText(data, "serial_number"),
       lan_ip: optionalText(data, "lan_ip"),
+      detects_person: detectsPerson,
+      detects_vehicle: detectsVehicle,
+      reads_plate: readsPlate,
       mount_description: optionalText(data, "mount_description"),
       focal_mm: focal,
       latitude,

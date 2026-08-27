@@ -29,3 +29,8 @@
 20260904120000_push_notifications.sql
 20260905120000_silent_failures.sql
 20260906120000_announced_arrivals.sql
+20260907120000_arrivals_admin_write.sql
+20260908120000_detection_snapshots.sql
+20260908180000_audit_coverage.sql
+20260909120000_retention.sql
+20260909180000_dispatch_outcome_constraint.sql

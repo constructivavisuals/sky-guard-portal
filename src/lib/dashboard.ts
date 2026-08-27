@@ -231,6 +231,57 @@ export function zoneWarnings(zones: {
 }
 
 /**
+ * Kolik vjezdů musí kamera na bráně poslat, aby mělo smysl si stěžovat.
+ *
+ * Jeden nepřečtený vjezd je bláto na značce nebo protisvětlo. Tři po
+ * sobě bez jediné přečtené znamenají, že čtení nefunguje.
+ */
+export const PLATELESS_GATE_MIN_PASSAGES = 3;
+
+export interface GateCamera {
+  id: string;
+  name: string;
+  readsPlate: boolean;
+}
+
+/**
+ * Kamera, která má číst značky, ale žádnou neposlala.
+ *
+ * Kamera s reads_plate slibuje, že značku zná sama — ingest na ni
+ * spoléhá a model volá jen jako záchranu. Když od ní chodí vjezdy bez
+ * značky, je to buď rozbité čtení v kameře, nebo špatně nastavená
+ * schopnost. Obojí vypadá v evidenci stejně jako brána, kterou nikdo
+ * neprojel, a proto se to musí říct nahlas.
+ *
+ * Počítají se jen vjezdy BEZ značky, ne ty nejisté: nejistá značka
+ * znamená, že čtení funguje a jen si není jisté — na to je varování
+ * o neznámých značkách.
+ */
+export function platelessGateWarnings(
+  cameras: readonly GateCamera[],
+  passages: readonly { cameraId: string | null; hasPlate: boolean }[],
+): Warning[] {
+  const out: Warning[] = [];
+
+  for (const camera of cameras) {
+    if (!camera.readsPlate) continue;
+
+    // Podle id, ne podle jména: dvě kamery se stejným názvem jsou na
+    // různých lokalitách možné a tohle se počítá napříč jednou z nich.
+    const jejich = passages.filter((p) => p.cameraId === camera.id);
+    if (jejich.length < PLATELESS_GATE_MIN_PASSAGES) continue;
+    if (jejich.some((p) => p.hasPlate)) continue;
+
+    out.push({
+      key: `gate_without_plates_${camera.id}`,
+      text: `Kamera „${camera.name}“ má číst značky, ale posledních ${jejich.length} vjezdů poslala bez značky.`,
+    });
+  }
+
+  return out;
+}
+
+/**
  * Hlídka, která nelétá.
  *
  * Práh je dvojnásobek intervalu — jedno vynechání může být plné

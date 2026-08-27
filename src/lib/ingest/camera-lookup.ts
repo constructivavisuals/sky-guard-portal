@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { CameraCapabilities } from "./capabilities.ts";
+
 // Dohledání kamery podle sériového čísla pro ingest.
 //
 // ═══ Proč žebřík variant ═══════════════════════════════════════════
@@ -23,6 +25,14 @@ export interface IngestCameraRow {
   /** NULL = kamera se ještě podepisuje společným INGEST_SECRET. */
   ingest_secret_hash: string | null;
   ingest_key_version: number;
+  /**
+   * Schopnosti kamery (migrace 20260910120000). NULL = sloupce ještě
+   * nejsou; capabilities.ts to bere jako „nevíme“ a chová se, jako by
+   * se nic nezměnilo.
+   */
+  detects_person: boolean | null;
+  detects_vehicle: boolean | null;
+  reads_plate: boolean | null;
   sites: {
     id: string;
     cooldown_seconds: number;
@@ -46,43 +56,61 @@ interface Variant {
   columns: string;
   hasKey: boolean;
   hasWayline: boolean;
+  hasCapabilities: boolean;
 }
 
-function columns(hasKey: boolean, hasWayline: boolean): string {
+function columns(
+  hasKey: boolean,
+  hasWayline: boolean,
+  hasCapabilities: boolean,
+): string {
   const klic = hasKey ? ", ingest_secret_hash, ingest_key_version" : "";
   const trasa = hasWayline ? ", wayline_uuid" : "";
+  const umi = hasCapabilities
+    ? ", detects_person, detects_vehicle, reads_plate"
+    : "";
   return (
-    `id, site_id, zone_id, serial_number${klic}, ` +
+    `id, site_id, zone_id, serial_number${klic}${umi}, ` +
     "sites(id, cooldown_seconds, timezone, dock_sn), " +
     `zones(id, name, enabled, location, default_level${trasa})`
   );
 }
 
+/** Co v téhle variantě chybí, česky a s číslem migrace. */
+function label(hasKey: boolean, hasWayline: boolean, hasCapabilities: boolean): string {
+  const chybi: string[] = [];
+  if (!hasKey) chybi.push("ingest klíč (migrace 20260829120000)");
+  if (!hasWayline) chybi.push("zones.wayline_uuid (migrace 20260903180000)");
+  if (!hasCapabilities) chybi.push("schopnosti kamery (migrace 20260910120000)");
+  return chybi.length === 0 ? "plné" : `bez ${chybi.join(", ")}`;
+}
+
 /**
- * Od nejúplnější k nejchudší. Pořadí není libovolné: klíč kamery je
- * bezpečnostní věc a trasa provozní, takže se dřív obětuje trasa.
+ * Od nejúplnější k nejchudší. Pořadí není libovolné a je dané pořadím
+ * cyklů: obětuje se nejdřív to nejméně důležité.
+ *
+ *   schopnosti  provozní údaj — bez nich se ingest chová jako dřív
+ *   trasa       provozní údaj — bez ní zásah neodejde, ale detekce se
+ *               zapíše a přehled na chybějící trasu upozorňuje
+ *   klíč        bezpečnostní věc, obětuje se poslední
  */
-const VARIANTS: Variant[] = [
-  { label: "plné", columns: columns(true, true), hasKey: true, hasWayline: true },
-  {
-    label: "bez zones.wayline_uuid (migrace 20260903180000)",
-    columns: columns(true, false),
-    hasKey: true,
-    hasWayline: false,
-  },
-  {
-    label: "bez ingest klíče (migrace 20260829120000)",
-    columns: columns(false, true),
-    hasKey: false,
-    hasWayline: true,
-  },
-  {
-    label: "bez ingest klíče i trasy zóny",
-    columns: columns(false, false),
-    hasKey: false,
-    hasWayline: false,
-  },
-];
+const VARIANTS: Variant[] = (() => {
+  const out: Variant[] = [];
+  for (const hasKey of [true, false]) {
+    for (const hasWayline of [true, false]) {
+      for (const hasCapabilities of [true, false]) {
+        out.push({
+          label: label(hasKey, hasWayline, hasCapabilities),
+          columns: columns(hasKey, hasWayline, hasCapabilities),
+          hasKey,
+          hasWayline,
+          hasCapabilities,
+        });
+      }
+    }
+  }
+  return out;
+})();
 
 export interface CameraLookupResult {
   camera: IngestCameraRow | null;
@@ -123,6 +151,12 @@ export async function findIngestCamera(
         // celý ingest, než klíče na kameru přibyly.
         ingest_secret_hash: variant.hasKey ? data.ingest_secret_hash : null,
         ingest_key_version: variant.hasKey ? data.ingest_key_version : 1,
+        // Neznámá schopnost je null, ne false: „nevíme“ se nesmí
+        // zaměnit za „neumí“, jinak by po nasazení kódu před migrací
+        // každá detekce vozidla vypadala jako závada.
+        detects_person: variant.hasCapabilities ? data.detects_person : null,
+        detects_vehicle: variant.hasCapabilities ? data.detects_vehicle : null,
+        reads_plate: variant.hasCapabilities ? data.reads_plate : null,
         zones: data.zones
           ? {
               ...data.zones,
@@ -137,4 +171,15 @@ export async function findIngestCamera(
   }
 
   return { camera: null, error: posledni || "kameru se nepodařilo dohledat" };
+}
+
+/** Schopnosti kamery pro capabilities.ts. NULL = sloupce ještě nejsou. */
+export function cameraCapabilities(
+  camera: Pick<IngestCameraRow, "detects_person" | "detects_vehicle" | "reads_plate">,
+): CameraCapabilities {
+  return {
+    detectsPerson: camera.detects_person,
+    detectsVehicle: camera.detects_vehicle,
+    readsPlate: camera.reads_plate,
+  };
 }

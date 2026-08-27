@@ -153,9 +153,32 @@ export async function saveCamera(
   const id = String(data.get("id") ?? "");
   const supabase = await createClient();
 
-  const { error } = id
-    ? await supabase.from("cameras").update(row).eq("id", id)
-    : await supabase.from("cameras").insert(row);
+  const zapis = (radek: typeof row) =>
+    id
+      ? supabase.from("cameras").update(radek).eq("id", id)
+      : supabase.from("cameras").insert(radek);
+
+  let { error } = await zapis(row);
+
+  // Schopnosti přidává migrace 20260910120000, kterou pouští člověk
+  // ručně. Dokud neproběhne, PostgREST celý zápis odmítne kvůli
+  // neznámému sloupci — a admin by nemohl uložit ani přejmenování
+  // kamery. Druhý pokus je bez nich, se zápisem do logu.
+  if (error) {
+    const { detects_person, detects_vehicle, reads_plate, ...bezSchopnosti } = row;
+    void detects_person;
+    void detects_vehicle;
+    void reads_plate;
+    // Přetypování je tu schválně: tvar bez schopností je pro starší
+    // schéma správný, ale typy popisují to nové.
+    const druhy = await zapis(bezSchopnosti as typeof row);
+    if (!druhy.error) {
+      console.warn("Schopnosti kamery se neuložily — chybí migrace 20260910120000", {
+        camera_id: id || "nová",
+      });
+      error = null;
+    }
+  }
 
   if (error)
     return { ...failed(error.message, error.code), values: snapshot(data), attempt };

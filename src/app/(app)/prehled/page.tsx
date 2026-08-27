@@ -28,6 +28,7 @@ import {
   STORAGE_WARNING_PERCENT,
   cameraSilenceWarnings,
   cameraWarnings,
+  platelessGateWarnings,
   dockWarnings,
   formatUntil,
   patrolWarnings,
@@ -141,6 +142,11 @@ export default async function Page() {
   // selhání, jaké tahle evidence řeší, jen obráceně.
   let cronRuns: CronRunSummary[] | null = null;
   let silence: { name: string; lastSeenAt: Date | null; online: boolean }[] = [];
+  // Kamery, které mají číst značky, a vjezdy, co od nich přišly.
+  // Prázdné, dokud neproběhne migrace 20260910120000 — varovat podle
+  // sloupce, který neexistuje, nejde.
+  let gateCameras: { id: string; name: string; readsPlate: boolean }[] = [];
+  let gatePassages: { cameraId: string | null; hasPlate: boolean }[] = [];
   let events: EventRow[] = [];
   let failed = false;
 
@@ -155,7 +161,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, announcedCount, passageRows, patrolFlights, lastDetections, lastDispatches] =
+      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, announcedCount, passageRows, patrolFlights, lastDetections, lastDispatches, gateRows, gatePassageRows] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -224,6 +230,18 @@ export default async function Page() {
             .eq("site_id", site.id)
             .order("sent_at", { ascending: false }).limit(5)
             .returns<{ id: string; sent_at: string; outcome: DispatchOutcome; zones: { name: string } | null }[]>(),
+          // Kamery, které mají číst značky. Zvlášť od hlavního dotazu
+          // na kamery schválně: sloupec přidává ručně nasazovaná
+          // migrace 20260910120000 a kdyby chyběl, spadl by s ním
+          // i seznam kamer pro ostatní varování.
+          supabase.from("cameras").select("id, name, reads_plate")
+            .eq("site_id", site.id).eq("reads_plate", true)
+            .returns<{ id: string; name: string; reads_plate: boolean }[]>(),
+          // Vjezdy dneška i se značkou — z nich se pozná brána, která
+          // značky vůbec neposílá.
+          supabase.from("vehicle_passages").select("camera_id, plate")
+            .eq("site_id", site.id).gte("passed_at", since)
+            .returns<{ camera_id: string | null; plate: string | null }[]>(),
         ]);
 
       counts = {
@@ -273,6 +291,21 @@ export default async function Page() {
           total: zoneList.length,
           withoutWayline: zoneList.filter((zone) => !zone.wayline_uuid).length,
         };
+      }
+
+      // Chybějící sloupec = nevíme, která kamera má značky číst.
+      // Mlčet je pak správně: varovat podle domněnky by znamenalo
+      // strašit u kamer, kterých se to netýká.
+      if (!gateRows.error) {
+        gateCameras = (gateRows.data ?? []).map((row) => ({
+          id: row.id,
+          name: row.name,
+          readsPlate: row.reads_plate,
+        }));
+        gatePassages = (gatePassageRows.data ?? []).map((row) => ({
+          cameraId: row.camera_id,
+          hasPlate: Boolean(row.plate),
+        }));
       }
 
       silence = cameraList.map((camera) => ({
@@ -364,6 +397,7 @@ export default async function Page() {
     ...cameraWarnings(cameras),
     ...zoneWarnings(zones),
     ...unknownPlateWarnings(unknownPlates),
+    ...platelessGateWarnings(gateCameras, gatePassages),
     ...cameraSilenceWarnings(silence, now),
     ...patrolWarnings(health, now),
   ];

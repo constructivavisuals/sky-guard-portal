@@ -99,3 +99,45 @@ describe("parsePassagePayload", () => {
     if (!r.ok) assert.equal(r.errors.length, 3);
   });
 });
+
+describe("parsePassagePayload — značka od kamery", () => {
+  it("bez značky je reported null", () => {
+    const r = parsePassagePayload(valid(), NOW);
+    assert.ok(r.ok);
+    assert.equal(r.payload.reported, null);
+  });
+
+  it("značka se normalizuje na porovnávací tvar", () => {
+    const r = parsePassagePayload(valid({ plate: "1ab 2345", plate_confidence: 0.92 }), NOW);
+    assert.ok(r.ok);
+    assert.deepEqual(r.payload.reported, { plate: "1AB2345", confidence: 0.92 });
+  });
+
+  it("značka bez jistoty projde, jistota zůstane prázdná", () => {
+    // Kamera ji hlásit nemusí; ingest si takovou značku přebere jako
+    // nespolehlivou a sáhne po modelu.
+    const r = parsePassagePayload(valid({ plate: "1AB2345" }), NOW);
+    assert.ok(r.ok);
+    assert.deepEqual(r.payload.reported, { plate: "1AB2345", confidence: null });
+  });
+
+  const spatne: [string, Record<string, unknown>, RegExp][] = [
+    ["značka není řetězec", { plate: 12345 }, /plate/],
+    ["prázdná značka", { plate: "   " }, /plate/],
+    ["značka bez písmen a číslic", { plate: "-- --" }, /plate/],
+    ["jistota mimo rozsah", { plate: "1AB2345", plate_confidence: 1.5 }, /plate_confidence/],
+    ["jistota není číslo", { plate: "1AB2345", plate_confidence: "vysoká" }, /plate_confidence/],
+    ["jistota bez značky", { plate_confidence: 0.9 }, /plate_confidence/],
+  ];
+
+  for (const [nazev, prepis, vzor] of spatne) {
+    it(`odmítne: ${nazev}`, () => {
+      // Vadný tvar se odmítá, ne mlčky ignoruje: kamera, která posílá
+      // značku ve špatném poli, by jinak vypadala jako kamera, co
+      // značky nečte.
+      const r = parsePassagePayload(valid(prepis), NOW);
+      assert.equal(r.ok, false, nazev);
+      assert.ok(r.ok === false && r.errors.some((e) => vzor.test(e)), r.ok === false ? r.errors.join(" | ") : "");
+    });
+  }
+});

@@ -182,6 +182,9 @@ describe("parseCameraForm", () => {
     site_id: SITE_ID,
     name: "Brána sever",
     status: "online",
+    // Zaškrtnutý checkbox posílá prohlížeč jako "on"; výchozí kamera
+    // umí osobu a nic víc.
+    detects_person: "on",
   };
 
   it("minimální vstup projde", () => {
@@ -192,6 +195,40 @@ describe("parseCameraForm", () => {
     assert.equal(r.value.model, null);
     assert.equal(r.value.lan_ip, null);
     assert.equal(r.value.mount_description, null);
+    assert.equal(r.value.detects_person, true);
+    assert.equal(r.value.detects_vehicle, false);
+    assert.equal(r.value.reads_plate, false);
+  });
+
+  it("kamera na bránu umí osobu, vozidlo i značku", () => {
+    const r = parseCameraForm(
+      form({ ...validCamera, detects_vehicle: "on", reads_plate: "on" }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.detects_vehicle, true);
+    assert.equal(r.value.reads_plate, true);
+  });
+
+  it("čtení značky bez vozidel neprojde", () => {
+    // Vjezd JE detekce vozidla, takže taková kamera by si sama hlásila
+    // neočekávané události. Hlídá to i CHECK v databázi.
+    const r = parseCameraForm(form({ ...validCamera, reads_plate: "on" }));
+    assert.equal(r.ok, false);
+    assert.ok(r.ok === false && r.errors.reads_plate);
+  });
+
+  it("kamera bez jediné schopnosti neprojde", () => {
+    const bez = { site_id: SITE_ID, name: "Slepá", status: "online" };
+    assert.equal(parseCameraForm(form(bez)).ok, false);
+  });
+
+  it("samotné vozidlo bez osoby je v pořádku", () => {
+    // Kamera nad závorou, která lidi nerozlišuje.
+    const r = parseCameraForm(
+      form({ site_id: SITE_ID, name: "Závora", status: "online", detects_vehicle: "on" }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.detects_person, false);
   });
 
   it("adresa v LAN projde a uloží se", () => {

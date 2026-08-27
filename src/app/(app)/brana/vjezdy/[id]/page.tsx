@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CarFront, Cctv, Clock, Gauge, Send } from "lucide-react";
+import { ArrowLeft, CarFront, Cctv, Clock, Gauge, ScanText, Send } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { DispatchOutcomeBadge, PlateBadge } from "@/components/badges.tsx";
@@ -11,7 +11,12 @@ import { PLATE_CONFIDENCE_MIN } from "@/lib/plates.ts";
 import { PASSAGE_BUCKET, SIGNED_URL_TTL_SECONDS } from "@/lib/plates/storage.ts";
 import { isPlatePending, isPlateUncertain, passageVerdict } from "@/lib/plates/verdict.ts";
 import { createClient } from "@/lib/supabase/server.ts";
-import type { DispatchOutcome, PlateListType } from "@/types/database.ts";
+import {
+  PLATE_SOURCE_LABELS,
+  type DispatchOutcome,
+  type PlateListType,
+  type PlateSource,
+} from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Detail vjezdu" };
 
@@ -24,6 +29,8 @@ interface PassageDetail {
   list_match: PlateListType | null;
   known_label: string | null;
   plate_read_at: string | null;
+  /** Migrace 20260910120000; u starších vjezdů chybí sloupec i hodnota. */
+  plate_source?: PlateSource | null;
   detection_id: string;
   sites: { name: string; timezone: string } | null;
   cameras: { name: string } | null;
@@ -47,14 +54,26 @@ export default async function Page({ searchParams: _s, params }: PageProps<"/bra
 
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
+    const SLOUPCE =
+      "id, passed_at, plate, confidence, storage_path, list_match, known_label, " +
+      "plate_read_at, detection_id, sites(name, timezone), cameras(name)";
+
+    // Dvoustupňový výběr: plate_source přidává migrace 20260910120000
+    // a PostgREST odmítne celý dotaz, když sloupec chybí. Bez záchytné
+    // větve by kvůli údaji „odkud je značka“ zmizel celý detail.
+    let { data, error } = await supabase
       .from("vehicle_passages")
-      .select(
-        "id, passed_at, plate, confidence, storage_path, list_match, known_label, " +
-          "plate_read_at, detection_id, sites(name, timezone), cameras(name)",
-      )
+      .select(`${SLOUPCE}, plate_source`)
       .eq("id", id)
       .maybeSingle<PassageDetail>();
+
+    if (error) {
+      ({ data, error } = await supabase
+        .from("vehicle_passages")
+        .select(SLOUPCE)
+        .eq("id", id)
+        .maybeSingle<PassageDetail>());
+    }
 
     // RLS nerozlišuje „neexistuje“ a „nevidíš na něj“ — obojí je 404.
     if (error) failed = true;
@@ -163,6 +182,16 @@ export default async function Page({ searchParams: _s, params }: PageProps<"/bra
                   ? formatDateTime(passage.plate_read_at, timeZone)
                   : "Zatím ne"}
               </Row>
+              {/* Odkud značka je. U sporného vjezdu se musí dát poznat,
+                  jestli se spletla kamera, nebo model. */}
+              {passage.plate_source ? (
+                <Row
+                  icon={<ScanText className="h-3.5 w-3.5" aria-hidden="true" />}
+                  label="Zdroj"
+                >
+                  {PLATE_SOURCE_LABELS[passage.plate_source]}
+                </Row>
+              ) : null}
             </dl>
           </Section>
 

@@ -281,6 +281,18 @@ export type Camera = {
   azimuth: number | null;
   /** Dosah záběru v metrech. Jen pro vykreslení, detekci neomezuje. */
   range_m: number;
+  /**
+   * Co kamera umí. Migrace 20260910120000; NOT NULL DEFAULT, takže
+   * v databázi žádné „nevíme“ není — to zná jen ingest, když čte
+   * kameru ještě před nasazením migrace.
+   *
+   * `reads_plate` znamená, že kamera hlásí značku sama a ingest ji
+   * z těla požadavku bere; CHECK v databázi k ní vyžaduje
+   * `detects_vehicle`, protože vjezd je detekce vozidla.
+   */
+  detects_person: boolean;
+  detects_vehicle: boolean;
+  reads_plate: boolean;
   status: CameraStatus;
   last_seen_at: string | null;
   created_at: string;
@@ -589,6 +601,14 @@ export type KnownPlateRow = {
   updated_at: string;
 };
 
+export const PLATE_SOURCES = ["camera", "model"] as const;
+export type PlateSource = (typeof PLATE_SOURCES)[number];
+
+export const PLATE_SOURCE_LABELS: Record<PlateSource, string> = {
+  camera: "Přečetla kamera",
+  model: "Přečteno ze snímku",
+};
+
 export type VehiclePassage = {
   id: string;
   site_id: string;
@@ -598,6 +618,14 @@ export type VehiclePassage = {
   /** null = značka nepřečtená nebo nečitelná. */
   plate: string | null;
   confidence: number | null;
+  /**
+   * Odkud značka je. Migrace 20260910120000, proto volitelné.
+   *
+   * `camera` = z těla požadavku od kamery s reads_plate, `model` =
+   * přečtená ze snímku. U sporného vjezdu se musí dát poznat, kdo se
+   * spletl.
+   */
+  plate_source?: PlateSource | null;
   /** Cesta snímku od brány v bucketu `vjezdy`, ne URL. */
   storage_path: string | null;
   /**

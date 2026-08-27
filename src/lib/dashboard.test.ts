@@ -7,6 +7,7 @@ import {
   dockWarnings,
   formatUntil,
   patrolWarnings,
+  platelessGateWarnings,
   unknownPlateWarnings,
   zoneWarnings,
 } from "./dashboard.ts";
@@ -373,5 +374,49 @@ describe("skloňování ve varováních", () => {
   it("totéž u kamer bez zóny", () => {
     assert.match(cameraWarnings({ total: 5, withoutZone: 2 })[0].text, /z nich zásah/);
     assert.match(cameraWarnings({ total: 5, withoutZone: 1 })[0].text, /z ní zásah/);
+  });
+});
+
+describe("platelessGateWarnings", () => {
+  const brana = { id: "c1", name: "Brána", readsPlate: true };
+  const perimetr = { id: "c2", name: "Perimetr", readsPlate: false };
+
+  const vjezdy = (cameraId: string, plates: boolean[]) =>
+    plates.map((hasPlate) => ({ cameraId, hasPlate }));
+
+  it("brána bez jediné značky se ohlásí", () => {
+    const w = platelessGateWarnings([brana], vjezdy("c1", [false, false, false]));
+    assert.equal(w.length, 1);
+    assert.match(w[0].text, /Brána/);
+    assert.match(w[0].text, /bez značky/);
+  });
+
+  it("jedna přečtená značka varování zruší", () => {
+    // Čtení funguje, jen se jednou nepovedlo — na to je varování
+    // o neznámých značkách.
+    const w = platelessGateWarnings([brana], vjezdy("c1", [false, true, false, false]));
+    assert.deepEqual(w, []);
+  });
+
+  it("dva nepřečtené vjezdy jsou málo na závěr", () => {
+    // Bláto na značce nebo protisvětlo. Práh je tři.
+    assert.deepEqual(platelessGateWarnings([brana], vjezdy("c1", [false, false])), []);
+  });
+
+  it("kamera, která značky číst nemá, se neřeší", () => {
+    const w = platelessGateWarnings([perimetr], vjezdy("c2", [false, false, false, false]));
+    assert.deepEqual(w, []);
+  });
+
+  it("vjezdy jiné kamery se nepočítají", () => {
+    const w = platelessGateWarnings(
+      [brana],
+      [...vjezdy("c1", [false, true]), ...vjezdy("c2", [false, false, false])],
+    );
+    assert.deepEqual(w, []);
+  });
+
+  it("bez vjezdů mlčí", () => {
+    assert.deepEqual(platelessGateWarnings([brana], []), []);
   });
 });

@@ -4,6 +4,7 @@ import { Pencil, Plus } from "lucide-react";
 import { useActionState, useState } from "react";
 
 import {
+  CheckboxField,
   EMPTY_FORM_STATE,
   FormDialog,
   FormError,
@@ -32,6 +33,9 @@ export interface CameraInitial {
   serial_number: string | null;
   lan_ip: string | null;
   mount_description: string | null;
+  detects_person: boolean;
+  detects_vehicle: boolean;
+  reads_plate: boolean;
   focal_mm: number | null;
   latitude: number | null;
   longitude: number | null;
@@ -111,6 +115,13 @@ function CameraDialog({
     const sent = state.values?.[name];
     return typeof sent === "string" ? sent : fallback;
   };
+
+  // Nezaškrtnutý checkbox se v odeslaných datech vůbec neobjeví, takže
+  // se nedá rozlišit „nezaškrtnuto“ od „formulář se ještě neodesílal“
+  // podle jediného pole. Rozhoduje proto přítomnost celého snímku:
+  // bez něj platí hodnota z databáze, s ním to, co uživatel zaškrtl.
+  const keepChecked = (name: string, fallback: boolean) =>
+    state.values ? state.values[name] !== undefined : fallback;
 
   const e = state.errors;
   const zonesForSite = zones.filter((zone) => zone.site_id === siteId);
@@ -216,6 +227,42 @@ function CameraDialog({
           Bez souřadnic se kamera na podkladu areálu nevykreslí, bez azimutu
           jen jako bod bez výseče záběru. Šířka záběru se počítá z ohniska.
         </p>
+
+        <fieldset className="border border-[var(--line)] p-4">
+          <legend className="px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
+            Co kamera umí
+          </legend>
+          <div className="space-y-2.5">
+            <CheckboxField
+              label="Detekuje osobu"
+              name="detects_person"
+              defaultChecked={keepChecked("detects_person", camera?.detects_person ?? true)}
+            />
+            <CheckboxField
+              label="Detekuje vozidlo"
+              name="detects_vehicle"
+              defaultChecked={keepChecked("detects_vehicle", camera?.detects_vehicle ?? false)}
+            />
+            <CheckboxField
+              label="Čte značku sama"
+              name="reads_plate"
+              defaultChecked={keepChecked("reads_plate", camera?.reads_plate ?? false)}
+              hint="Kamera na bráně, která značku pošle v požadavku. Portál ji pak nečte modelem — sáhne po něm, jen když značka chybí nebo je nejistá."
+            />
+          </div>
+          {/* Chyby celé skupiny: CheckboxField je nezná, protože se
+              netýkají jednoho políčka, ale jejich kombinace. */}
+          {e.detects_person ? (
+            <p className="mt-2 text-xs text-[var(--danger)]">{e.detects_person}</p>
+          ) : null}
+          {e.reads_plate ? (
+            <p className="mt-2 text-xs text-[var(--danger)]">{e.reads_plate}</p>
+          ) : null}
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
+            Detekce třídy, kterou kamera nemá zaškrtnutou, se zapíše — důkaz se
+            nezahazuje — ale označí se jako neočekávaná a je vidět v detailu.
+          </p>
+        </fieldset>
 
         <SelectField
           label="Stav"

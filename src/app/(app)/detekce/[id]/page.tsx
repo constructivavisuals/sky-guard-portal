@@ -13,13 +13,16 @@ import {
 } from "@/lib/detections/storage.ts";
 import { formatConfidence, formatDateTime, orDash } from "@/lib/format.ts";
 import { parsePointEwkbHex } from "@/lib/geo.ts";
+import { unexpectedNote } from "@/lib/ingest/unexpected.ts";
 import { isOperator } from "@/lib/profile.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 import {
+  DETECTION_OBJECT_CLASS_LABELS,
   DETECTION_SOURCE_LABELS,
   type DetectionObjectClass,
   type DetectionSource,
   type DispatchOutcome,
+  type Json,
 } from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Detail detekce" };
@@ -40,6 +43,8 @@ interface DetectionDetail {
   storage_path: string | null;
   source_ip: string | null;
   ingest_key_id: string | null;
+  /** Syrová data od kamery; portál si do nich píše vlastní poznámky. */
+  raw: Json | null;
   sites: { name: string; timezone: string } | null;
   cameras: { name: string } | null;
   zones: { name: string } | null;
@@ -47,13 +52,13 @@ interface DetectionDetail {
 }
 
 const SELECT =
-  "id, source, detected_at, object_class, confidence, location, storage_path, " +
+  "id, source, detected_at, object_class, confidence, location, storage_path, raw, " +
   "source_ip, ingest_key_id, sites(name, timezone), cameras(name), zones(name), " +
   "dispatches!dispatches_triggered_by_detection_fkey(id, sent_at, outcome)";
 
 /** Bez sloupců z pozdějších migrací, ať se detail dá otevřít i před nimi. */
 const SELECT_ZAKLAD =
-  "id, source, detected_at, object_class, confidence, location, " +
+  "id, source, detected_at, object_class, confidence, location, raw, " +
   "sites(name, timezone), cameras(name), zones(name), " +
   "dispatches!dispatches_triggered_by_detection_fkey(id, sent_at, outcome)";
 
@@ -122,6 +127,9 @@ export default async function Page({ params }: PageProps<"/detekce/[id]">) {
 
   const timeZone = detection.sites?.timezone;
   const point = parsePointEwkbHex(detection.location);
+  // Kamera poslala třídu, kterou podle nastavení neumí. Zapsalo se to
+  // při příjmu; tady se to jen ukáže, protože log za měsíc není.
+  const neocekavana = unexpectedNote(detection.raw);
 
   return (
     <>
@@ -164,6 +172,21 @@ export default async function Page({ params }: PageProps<"/detekce/[id]">) {
               ) : null}
             </dl>
           </Section>
+
+          {neocekavana ? (
+            <Section>
+              <BlockTitle>Neočekávaná detekce</BlockTitle>
+              <p className="border border-[var(--warning)]/40 bg-[var(--warning)]/[0.08] px-3.5 py-2.5 text-sm leading-relaxed text-[var(--warning)]">
+                Kamera hlásí {DETECTION_OBJECT_CLASS_LABELS[
+                  neocekavana.unexpected_class
+                ].toLowerCase()}
+                , přestože tuhle třídu podle nastavení neumí. Detekce je platná
+                a zásah se rozhodoval jako obvykle — ale někdo nejspíš vyměnil
+                model v kameře a nedoplnil to v portálu, nebo kamera hlásí něco
+                jiného, než si myslíme.
+              </p>
+            </Section>
+          ) : null}
 
           <Section>
             <BlockTitle>Zásahy</BlockTitle>

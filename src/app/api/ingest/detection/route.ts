@@ -11,7 +11,9 @@ import {
   findIngestCamera,
   type IngestCameraRow,
 } from "@/lib/ingest/camera-lookup.ts";
+import { cameraCapabilities } from "@/lib/ingest/camera-lookup.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
+import { markUnexpectedClass } from "@/lib/ingest/unexpected.ts";
 import { DETECTION_BUCKET } from "@/lib/detections/storage.ts";
 import { ingestImagePath, MAX_IMAGE_BYTES } from "@/lib/ingest/image.ts";
 import {
@@ -232,6 +234,27 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Detekce se zapisuje vždy, ještě před jakýmkoli rozhodováním
+  // ── Hlásí kamera to, co umí? ───────────────────────────────────
+  // Detekce se zapíše tak jako tak a rozhodnutí o zásahu se nemění;
+  // jen po ní zůstane stopa, že přišla od kamery, která tuhle třídu
+  // podle nastavení nezvládá. Bývá to výměna modelu, na kterou nikdo
+  // neupravil portál — a to se má poznat dřív než z toho, že se něco
+  // chová divně.
+  const { raw: rawSPoznamkou, note: neocekavana } = markUnexpectedClass({
+    raw: payload.raw,
+    capabilities: cameraCapabilities(camera),
+    objectClass: payload.objectClass,
+  });
+
+  if (neocekavana) {
+    console.warn("Kamera hlásí třídu, kterou podle nastavení neumí", {
+      camera_id: camera.id,
+      serial: payload.cameraSerial,
+      object_class: payload.objectClass,
+      umi: neocekavana.camera_can,
+    });
+  }
+
   // o zásahu — je to důkaz, ne vedlejší produkt zásahu.
   const { data: detection, error: detectionError } = await db
     .from("detections")
@@ -254,7 +277,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       detected_at: payload.detectedAt.toISOString(),
       object_class: payload.objectClass,
       confidence: payload.confidence,
-      raw: payload.raw,
+      raw: rawSPoznamkou,
     })
     .select("id")
     .single();

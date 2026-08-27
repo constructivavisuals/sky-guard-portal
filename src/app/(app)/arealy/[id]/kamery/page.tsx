@@ -29,6 +29,9 @@ interface CameraRow {
   serial_number: string | null;
   lan_ip: string | null;
   mount_description: string | null;
+  detects_person: boolean;
+  detects_vehicle: boolean;
+  reads_plate: boolean;
   /** EWKB hex; formulář ho rozebírá na šířku a délku. */
   location: string | null;
   azimuth: number | null;
@@ -50,23 +53,46 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
   const admin = showSerial;
 
   let rows: CameraRow[] = [];
+  /** false = migrace 20260910120000 ještě neběžela, hodnoty jsou domyšlené. */
+  let capabilitiesKnown = true;
   let zoneChoices: ZoneChoice[] = [];
   let failed = false;
 
   try {
     const supabase = await createClient();
-    let query = supabase
-      .from("cameras")
-      .select(
-        "id, site_id, zone_id, name, model, focal_mm, serial_number, lan_ip, mount_description, " +
-          "location, azimuth, status, " +
-          "sites(name), zones(name)",
-      )
-      .order("name");
+    const dotaz = (sloupce: string) =>
+      supabase
+        .from("cameras")
+        .select(sloupce)
+        .eq("site_id", id)
+        .order("name")
+        .returns<CameraRow[]>();
 
-    query = query.eq("site_id", id);
+    // Dvoustupňový výběr: schopnosti přidává migrace 20260910120000,
+    // která se nasazuje ručně, a PostgREST odmítne celý dotaz, když
+    // jediný sloupec chybí. Bez záchytné větve by seznam kamer zůstal
+    // prázdný.
+    const SLOUPCE =
+      "id, site_id, zone_id, name, model, focal_mm, serial_number, lan_ip, " +
+      "mount_description, location, azimuth, status, sites(name), zones(name)";
+    let { data, error } = await dotaz(
+      `${SLOUPCE}, detects_person, detects_vehicle, reads_plate`,
+    );
 
-    const { data, error } = await query.returns<CameraRow[]>();
+    if (error) {
+      ({ data, error } = await dotaz(SLOUPCE));
+      // Výchozí stav podle migrace: perimetr umí osobu a nic víc.
+      if (data) {
+        data = data.map((row) => ({
+          ...row,
+          detects_person: true,
+          detects_vehicle: false,
+          reads_plate: false,
+        }));
+      }
+      capabilitiesKnown = false;
+    }
+
     if (error) failed = true;
     else rows = data ?? [];
 
@@ -116,6 +142,7 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
               <Th>Název</Th>
               <Th>Zóna</Th>
               <Th>Model</Th>
+              <Th>Umí</Th>
               <Th className="text-right">Ohnisko</Th>
               {/* IP se přidává k sériovému číslu do jednoho sloupce:
                   obojí je údaj pro správu hardwaru a samostatný sloupec
@@ -140,6 +167,13 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
               </Td>
               <Td label="Zóna">{orDash(row.zones?.name)}</Td>
               <Td label="Model">{orDash(row.model)}</Td>
+              <Td label="Umí">
+                {capabilitiesKnown ? (
+                  <CameraSkills camera={row} />
+                ) : (
+                  <span className="text-[var(--text-muted)]">—</span>
+                )}
+              </Td>
               <TdTight label="Ohnisko" className="text-right tabular-nums">
                 {formatFocalLength(row.focal_mm)}
               </TdTight>
@@ -169,6 +203,9 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
                       serial_number: row.serial_number,
                       lan_ip: row.lan_ip,
                       mount_description: row.mount_description,
+                      detects_person: row.detects_person,
+                      detects_vehicle: row.detects_vehicle,
+                      reads_plate: row.reads_plate,
                       focal_mm: row.focal_mm,
                       latitude: parsePointEwkbHex(row.location)?.latitude ?? null,
                       longitude: parsePointEwkbHex(row.location)?.longitude ?? null,
@@ -184,4 +221,23 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
       )}
     </>
   );
+}
+
+/**
+ * Co kamera umí, jednou řádkou.
+ *
+ * Kamera bez jediné schopnosti je závada v nastavení: každá její
+ * detekce se zapíše jako neočekávaná. Proto oranžově, ne pomlčkou.
+ */
+function CameraSkills({ camera }: { camera: CameraRow }) {
+  const umi: string[] = [];
+  if (camera.detects_person) umi.push("osoba");
+  if (camera.detects_vehicle) umi.push("vozidlo");
+  if (camera.reads_plate) umi.push("čte SPZ");
+
+  if (umi.length === 0) {
+    return <span className="text-[var(--warning)]">Nic nastaveného</span>;
+  }
+
+  return <span className="text-xs">{umi.join(" · ")}</span>;
 }

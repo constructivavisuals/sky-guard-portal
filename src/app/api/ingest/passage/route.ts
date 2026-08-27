@@ -12,9 +12,12 @@ import {
   parsePassagePayload,
 } from "@/lib/ingest/passage-payload.ts";
 import {
+  cameraCapabilities,
   findIngestCamera,
   type IngestCameraRow,
 } from "@/lib/ingest/camera-lookup.ts";
+import { planPlateRead } from "@/lib/ingest/capabilities.ts";
+import { markUnexpectedClass } from "@/lib/ingest/unexpected.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
 import {
   publicFailureReason,
@@ -22,7 +25,7 @@ import {
   type SignatureResult,
 } from "@/lib/ingest/signature.ts";
 import { resolvePlate } from "@/lib/plates/escalate.ts";
-import { readPlateFromImage } from "@/lib/plates/reader.ts";
+import { readPlateFromImage, type PlateReading } from "@/lib/plates/reader.ts";
 import { PASSAGE_BUCKET, passageImagePath } from "@/lib/plates/storage.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
@@ -221,6 +224,25 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(404, "unknown_camera");
   }
 
+  // ── Umí tahle kamera vůbec vozidla? ────────────────────────────
+  // Vjezd JE detekce vozidla, takže kamera bez detects_vehicle sem
+  // posílat nemá co. Vjezd se přesto zapíše — přijít o záznam, že do
+  // areálu vjelo auto, je horší než mít v evidenci řádek navíc.
+  const capabilities = cameraCapabilities(camera);
+  const { raw: rawSPoznamkou, note: neocekavana } = markUnexpectedClass({
+    raw: payload.raw,
+    capabilities,
+    objectClass: "vehicle",
+  });
+
+  if (neocekavana) {
+    console.warn("Vjezd od kamery, která podle nastavení vozidla neumí", {
+      camera_id: camera.id,
+      serial: payload.cameraSerial,
+      umi: neocekavana.camera_can,
+    });
+  }
+
   // ── Detekce vozidla ────────────────────────────────────────────
   // Tímhle řádkem se rozjede zásah stávající cestou. Značka o něm
   // nerozhoduje a nečeká se na ni.
@@ -234,7 +256,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       detected_at: payload.passedAt.toISOString(),
       object_class: "vehicle",
       confidence: null,
-      raw: payload.raw,
+      raw: rawSPoznamkou,
       source_ip: ip,
       ingest_key_id: camera.ingest_secret_hash
         ? (camera.serial_number ?? "camera")
@@ -342,10 +364,41 @@ export async function POST(request: NextRequest): Promise<Response> {
       .eq("id", camera.id);
 
     // 3) Teprve teď značka.
-    if (!payload.image) return;
+    //
+    // Kamera na bráně ji často zná sama — čtení modelem je pak práce
+    // navíc, která stojí vteřiny i peníze a může dopadnout hůř než
+    // čidlo v závoře. Model se proto volá, jen když značka od kamery
+    // chybí nebo je pod prahem jistoty. Značka z těla se přitom bere
+    // JEN od kamery s reads_plate: jinak by šlo z libovolné ovládnuté
+    // kamery poslat vjezd s vymyšlenou allow značkou.
+    const plan = planPlateRead({
+      capabilities,
+      reported: payload.reported,
+      hasImage: Boolean(payload.image),
+    });
+
+    if (plan.use === "none") return;
 
     try {
-      const reading = await readPlateFromImage(payload.image);
+      let reading: PlateReading | null = null;
+      let zdroj: "camera" | "model" = "camera";
+
+      if (plan.use === "camera") {
+        reading = { plate: plan.plate, confidence: plan.confidence };
+      } else {
+        reading = payload.image ? await readPlateFromImage(payload.image) : null;
+        zdroj = "model";
+
+        // Model nic nepřečetl, ale kamera něco poslala — nejistá
+        // značka je pořád víc než žádná. Uloží se s tou nízkou
+        // jistotou, takže se se seznamem nespáruje a do varování
+        // spadne jako nepřečtená.
+        if (!reading?.plate && plan.fallback?.plate) {
+          reading = plan.fallback;
+          zdroj = "camera";
+        }
+      }
+
       if (!reading) return;
 
       const outcome = await resolvePlate({
@@ -360,29 +413,42 @@ export async function POST(request: NextRequest): Promise<Response> {
         dispatchContext: context,
       });
 
-      await db
+      // plate_source přidává migrace 20260910120000. Když ještě
+      // neproběhla, PostgREST celý update odmítne — a přišlo by se
+      // o značku, ne jen o údaj, odkud je. Proto druhý pokus bez něj.
+      const zmena = {
+        plate: reading.plate,
+        confidence: reading.confidence,
+        // Vazba na ohlášení se ukládá i tehdy, když nekrylo (denní
+        // ohlášení v noci) — do seznamu vjezdů patří obojí.
+        announced_arrival_id: outcome.arrival.arrival?.id ?? null,
+        // Shoda se ukládá jen tehdy, když značka opravdu padla na
+        // seznam. `unknown` i `unread` nechávají sloupec prázdný —
+        // CHECK v databázi navíc brání shodě bez značky.
+        list_match:
+          outcome.match.verdict === "allow" || outcome.match.verdict === "deny"
+            ? outcome.match.verdict
+            : null,
+        known_plate_id: outcome.match.knownPlateId,
+        known_label: outcome.match.knownLabel,
+        plate_read_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await db
         .from("vehicle_passages")
-        .update({
-          plate: reading.plate,
-          confidence: reading.confidence,
-          // Vazba na ohlášení se ukládá i tehdy, když nekrylo (denní
-          // ohlášení v noci) — do seznamu vjezdů patří obojí.
-          announced_arrival_id: outcome.arrival.arrival?.id ?? null,
-          // Shoda se ukládá jen tehdy, když značka opravdu padla na
-          // seznam. `unknown` i `unread` nechávají sloupec prázdný —
-          // CHECK v databázi navíc brání shodě bez značky.
-          list_match:
-            outcome.match.verdict === "allow" || outcome.match.verdict === "deny"
-              ? outcome.match.verdict
-              : null,
-          known_plate_id: outcome.match.knownPlateId,
-          known_label: outcome.match.knownLabel,
-          plate_read_at: new Date().toISOString(),
-        })
+        .update({ ...zmena, plate_source: reading.plate ? zdroj : null })
         .eq("id", passageId);
+
+      if (updateError) {
+        await db.from("vehicle_passages").update(zmena).eq("id", passageId);
+        console.warn("Zdroj značky se neuložil — chybí migrace 20260910120000", {
+          passage_id: passageId,
+        });
+      }
 
       console.info("Značka přečtena", {
         passage_id: passageId,
+        zdroj,
         vysledek: outcome.match.verdict,
         eskalovano: outcome.escalated,
         ohlaseni: outcome.arrival.arrival?.id ?? null,

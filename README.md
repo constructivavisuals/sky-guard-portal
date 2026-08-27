@@ -60,6 +60,50 @@ kamera otisk nemá, podepisuje se společným `INGEST_SECRET` a server to
 při každé detekci zaloguje — podle toho se pozná, na které kamery se
 zapomnělo.
 
+## Co kamera umí
+
+`cameras.detects_person`, `detects_vehicle` a `reads_plate` (migrace
+20260910120000). Tři booleany, ne `text[]`: dotazy míří vždycky na jednu
+schopnost („kdo čte značky“), ne na množinu, a boolean má NOT NULL
+DEFAULT, takže v datech nevzniká „nevíme“.
+
+Výchozí stav odpovídá většině: **perimetr umí osobu a nic víc**, kamera
+na bránu se zaškrtne ručně. CHECK v databázi navíc drží, že
+`reads_plate` bez `detects_vehicle` nejde — vjezd JE detekce vozidla
+a taková kamera by si každým průjezdem sama hlásila neočekávanou
+událost.
+
+Portál z toho vyvozuje tři věci:
+
+* **Neočekávaná detekce.** Kamera, která hlásí třídu, co podle nastavení
+  neumí, se nezamítá — detekce se zapíše a zásah se rozhoduje jako
+  vždycky. Přijít o záznam, že někdo byl v areálu, je horší než mít
+  v evidenci řádek navíc, a potlačený zásah by byl tiché selhání toho
+  druhu, který tenhle portál opravuje dokola. Událost se jen označí:
+  v logu a v `detections.raw` pod vyhrazeným klíčem `portal`, aby po ní
+  stopa zbyla i za měsíc. Detail detekce to ukáže oranžovým blokem.
+* **Značka od kamery.** Kamera s `reads_plate` posílá `plate`
+  (a nepovinně `plate_confidence`) přímo v těle požadavku na
+  `/api/ingest/passage`. Model se pak volá jen tehdy, když značka chybí
+  nebo je pod prahem `PLATE_CONFIDENCE_MIN` — týmž prahem, pod kterým se
+  značka nepáruje se seznamem; dvě různé hranice by znamenaly značku
+  dost dobrou na uložení a málo dobrou na rozhodnutí. Od kamery **bez**
+  `reads_plate` se `plate` z těla ignoruje: jinak by šlo z libovolné
+  ovládnuté kamery poslat vjezd s vymyšlenou allow značkou a nechat se
+  odbavit. Odkud značka je, drží `vehicle_passages.plate_source`
+  (`camera`/`model`) — u sporného vjezdu se musí dát poznat, kdo se
+  spletl.
+* **Varování na přehledu.** Kamera s `reads_plate`, od které přišly
+  aspoň tři dnešní vjezdy a ani jeden se značkou. Jeden nepřečtený vjezd
+  je bláto na značce, tři po sobě znamenají rozbité čtení nebo špatně
+  nastavenou schopnost — a obojí vypadá v evidenci stejně jako brána,
+  kterou nikdo neprojel.
+
+Dokud migrace neproběhne, schopnosti se čtou jako `null` a **nic se
+netvrdí**: neočekávaná třída se nehlásí a značka z těla se nebere, tedy
+přesně jako předtím. Ingest, seznam kamer, formulář i detail vjezdu mají
+záchytnou větev bez těch sloupců.
+
 ## Zásah
 
 Zásah se ve FlightHubu zakládá jako **plánovaná úloha**
