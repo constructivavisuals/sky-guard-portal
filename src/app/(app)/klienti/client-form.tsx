@@ -245,7 +245,7 @@ function LogoField({ error }: { error?: string }) {
         id="logo"
         name="logo"
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        accept="image/png,image/jpeg,image/webp"
         onChange={(event) => setNazev(event.target.files?.[0]?.name ?? null)}
         aria-invalid={Boolean(error)}
         className="w-full border border-[var(--line-strong)] bg-[var(--surface-2)] px-3.5 py-2.5 text-sm file:mr-3 file:border-0 file:bg-[var(--surface-3)] file:px-3 file:py-1.5 file:text-sm file:text-[var(--text)] aria-[invalid=true]:border-[var(--danger)]"

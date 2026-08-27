@@ -42,7 +42,6 @@ describe("logoPathFor", () => {
     assert.equal(logoPathFor("u1", "image/png", 42), "u1/42.png");
     assert.equal(logoPathFor("u1", "image/jpeg", 42), "u1/42.jpg");
     assert.equal(logoPathFor("u1", "image/webp", 42), "u1/42.webp");
-    assert.equal(logoPathFor("u1", "image/svg+xml", 42), "u1/42.svg");
   });
 
   it("nová verze dostane jinou cestu — kvůli cache prohlížeče", () => {
@@ -56,14 +55,20 @@ describe("logoPathFor", () => {
     assert.equal(logoPathFor("u1", "image/gif", 42), null);
     assert.equal(logoPathFor("u1", "application/pdf", 42), null);
   });
+
+  it("SVG neprojde — bucket je veřejný", () => {
+    // Migrace 20260911180000. SVG je spustitelný dokument, ne obrázek,
+    // a soubor v tomhle bucketu se dá otevřít přímo, mimo portál.
+    assert.equal(logoPathFor("u1", "image/svg+xml", 42), null);
+  });
 });
 
 describe("isSupportedLogoType", () => {
   it("povolené typy odpovídají tomu, co přijme bucket", () => {
-    for (const t of ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]) {
+    for (const t of ["image/png", "image/jpeg", "image/webp"]) {
       assert.equal(isSupportedLogoType(t), true, t);
     }
-    for (const t of ["image/gif", "text/html", ""]) {
+    for (const t of ["image/svg+xml", "image/gif", "text/html", ""]) {
       assert.equal(isSupportedLogoType(t), false, t);
     }
   });

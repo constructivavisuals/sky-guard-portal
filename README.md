@@ -43,6 +43,19 @@ Schéma a RLS jde ověřit lokálně proti jednorázovému PostgreSQL
 supabase/tests/run-local.sh
 ```
 
+## Loga klientů
+
+Bucket `loga` je jediný veřejný — logo se ukazuje v hlavičce portálu
+a vkládá se do PDF reportu. Vědomé rozhodnutí a zůstává.
+
+**SVG se ale nepřijímá** (migrace 20260911180000). Je to spustitelný
+dokument, ne obrázek: nese `<script>`, umí sáhnout na cizí zdroje
+a otevřít se dá přímo, mimo portál, na doméně Supabase — kde adresa
+platí navždy a bez ověření. Logo v PNG nebo WebP vypadá stejně.
+
+Případná už nahraná SVG migrace nemaže (klientovi by se rozbila
+hlavička), jen je vypíše, aby šla vyměnit ručně.
+
 ## IP odesílatele
 
 `x-forwarded-for` si smí připsat kdokoli po cestě, včetně toho, kdo

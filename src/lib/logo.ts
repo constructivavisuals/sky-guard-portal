@@ -24,12 +24,18 @@ export function logoUrl(logoPath: string | null | undefined): string | null {
   return `${base.replace(/\/+$/, "")}/storage/v1/object/public/${LOGO_BUCKET}/${cesta}`;
 }
 
-/** Přípona podle typu souboru. Bucket jiné typy nepřijme. */
+/**
+ * Přípona podle typu souboru. Bucket jiné typy nepřijme.
+ *
+ * SVG tu schválně NENÍ (migrace 20260911180000). Bucket `loga` je
+ * veřejný, takže se soubor dá otevřít přímo, mimo portál — a SVG je
+ * spustitelný dokument, ne obrázek: nese <script> a umí sáhnout na
+ * cizí zdroje. Logo v PNG nebo WebP vypadá stejně.
+ */
 const PRIPONY: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/webp": "webp",
-  "image/svg+xml": "svg",
 };
 
 export function isSupportedLogoType(mimeType: string): boolean {
