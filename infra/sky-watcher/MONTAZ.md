@@ -41,9 +41,14 @@ nedávají smysl.
 | **Sériové číslo** | z výrobního štítku | **podle tohohle watcher kameru pozná** |
 | **Způsob příjmu** | FTP přes relay | jinak portál ohlášení odmítne (409) |
 | Účet na relayi | viz níž | evidence, kdo se kam přihlašuje |
+| **Adresa v síti (`lan_ip`)** | např. `192.168.11.51` | **bez ní kameře nepřijdou detekce** — služba událostí na ni nemá kudy |
 | Zóna | **žádná** | ze stavební kamery zásah nevzniká |
 | Schopnosti | nechat prázdné | u FTP kamery se nepoužívají |
 | Stav | Offline | přepne se sám, až kamera pošle první soubor |
+
+> **Adresu vyplň hned**, i když ji zjistíš až na místě. Bez ní kamera
+> posílá záznamy, ale nehlásí, že někdo vlezl na stavbu — a to je
+> nenápadné selhání: v portálu se tváří živá, protože záznamy chodí.
 
 > **Sériové číslo musí sedět PŘESNĚ**, včetně velkých písmen. Opsat ze
 > štítku, ne z paměti. Kamera ho posílá v cestě k souboru a portál
@@ -141,6 +146,23 @@ Pak *Nastavení → Úložiště → Plán* nebo *Rozvrh nahrávání*:
 **Vedlejší stream, ne hlavní.** Nativní rozlišení Dahuy (4480×2512
 v HEVC) je nad hardwarovým dekodérem iPhonů — video se uloží, ale na
 telefonu se nepřehraje. Nastav pro FTP záznam `sub stream`.
+
+### Detekce člověka (SMD)
+
+*Nastavení → Událost → Chytrá detekce pohybu* (Smart Motion Detection):
+
+| Položka | Hodnota | Proč |
+|---|---|---|
+| Povolit | zapnuto | bez toho kamera žádnou událost nehlásí |
+| Cíl | **Člověk** | vozidlo na stavbě je bagr, ne poplach |
+| Citlivost | střední | vyšší chytá i déšť a světla aut |
+
+Do FTP ani na SD kartu se kvůli tomu nic nastavovat nemusí — události
+si bere služba `sky-events` po vlastním spojení, ne přes záznam.
+
+**Vyzkoušej to hned na místě**: projdi se před kamerou a nech běžet
+log (viz Ověření níž). Kód události se u každého modelu jmenuje jinak
+a tohle je jediný spolehlivý způsob, jak zjistit ten správný.
 
 Nakonec v kameře *Test* / *Ověřit připojení* — kamera řekne, jestli se
 přihlásila. To **neznamená**, že projde přenos dat; viz `ADDRESS` výš.
@@ -244,6 +266,74 @@ Co číst z výsledku:
 
 Samotný soubor si stáhneš v *Storage → zaznamy* v Supabase; cesta je
 `storage_path`.
+
+---
+
+## Ověření, že dorazila detekce
+
+### 1. Vidí služba kameru?
+
+```bash
+ssh root@49.13.69.91 'cd /opt/sky-watcher && docker compose logs --tail 50 sky-events'
+```
+
+Hledáš dva řádky:
+
+```
+Kamera Klanečná — jeřáb (Klanečná) na 192.168.11.51
+Poslouchám Klanečná — jeřáb (192.168.11.51)
+```
+
+Když tam nejsou:
+
+| Co v logu je | Co s tím |
+|---|---|
+| `Žádná stavební kamera k obsluze` | kameře chybí `lan_ip` v portálu — doplň a počkej pět minut, nebo restartuj službu |
+| `Spojení s … spadlo: HTTP Error 401` | špatné `CAMERA_PASSWORD` v `/opt/sky-watcher/.env` |
+| `Spojení s … spadlo: … timed out` | na kameru se z VPS nedovoláš — subnet router nebo `tailscale up --accept-routes` |
+| `Portál hlásí N kamer bez adresy` | přesně tolik kamer se neobsluhuje, doplň jim adresu |
+
+### 2. Jak se ta událost doopravdy jmenuje
+
+Nech běžet log a projdi se před kamerou:
+
+```bash
+ssh root@49.13.69.91 'cd /opt/sky-watcher && docker compose logs -f sky-events'
+```
+
+Každý kód se zaloguje **jednou**, i ten, který se nehlásí dál:
+
+```
+Kamera Klanečná — jeřáb hlásí kód SmartMotionHuman (hlásí se dál: ne)
+```
+
+Když je tam `hlásí se dál: ne`, doplň kód do `/opt/sky-watcher/.env`:
+
+```bash
+EVENT_CODES=SmartMotionHuman
+```
+
+a `docker compose up -d sky-events`. Restartovat celý obraz netřeba.
+
+### 3. Je detekce v portálu?
+
+*Detekce* — do minuty od průchodu tam má být řádek s tvojí kamerou,
+třídou **člověk** a snímkem. Zásah z ní nevzniká: stavba nemá dron ani
+zónu, a portál ho proto ani nezkouší.
+
+Když detekce nedorazila, ale log říká `Detekce z … odeslána`, je potíž
+v portálu, ne na relayi — mrkni na odpověď v logu.
+
+| Co v logu je | Co to znamená |
+|---|---|
+| `(401)` | rozešel se `RELAY_SECRET` mezi VPS a Vercelem |
+| `(404)` | sériové číslo v portálu nesedí se štítkem |
+| `(409)` | kamera není vedená jako **FTP přes relay** |
+| `(429)` | moc událostí — zvyš `EVENT_COOLDOWN_SEC` |
+
+> Snímek může chybět a detekce přesto dorazí. Je to schválně: přijít
+> o obrázek je nepříjemné, přijít o záznam, že někdo byl na stavbě, je
+> něco jiného. V logu je pak `snímek ne`.
 
 ---
 

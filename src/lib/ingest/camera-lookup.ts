@@ -20,6 +20,15 @@ import type { CameraCapabilities } from "./capabilities.ts";
 export interface IngestCameraRow {
   id: string;
   site_id: string;
+  /**
+   * Jak kamera hlásí (migrace 20260914180000). Chybí-li sloupec, je
+   * to 'http': FTP kamery zavedla tatáž migrace, takže na schématu
+   * bez ní žádná neexistuje a dosazení nic netvrdí navíc.
+   *
+   * Rozhoduje o tom, KDO se za kameru smí podepsat — viz
+   * verify-camera.ts.
+   */
+  ingest_mode: "http" | "ftp";
   zone_id: string | null;
   serial_number: string | null;
   /** NULL = kamera se ještě podepisuje společným INGEST_SECRET. */
@@ -63,6 +72,7 @@ interface Variant {
   hasWayline: boolean;
   hasCapabilities: boolean;
   hasRth: boolean;
+  hasMode: boolean;
 }
 
 function columns(
@@ -70,6 +80,7 @@ function columns(
   hasWayline: boolean,
   hasCapabilities: boolean,
   hasRth: boolean,
+  hasMode: boolean,
 ): string {
   const klic = hasKey ? ", ingest_secret_hash, ingest_key_version" : "";
   const trasa = hasWayline ? ", wayline_uuid" : "";
@@ -77,8 +88,9 @@ function columns(
     ? ", detects_person, detects_vehicle, reads_plate"
     : "";
   const vyska = hasRth ? ", rth_altitude" : "";
+  const rezim = hasMode ? ", ingest_mode" : "";
   return (
-    `id, site_id, zone_id, serial_number${klic}${umi}, ` +
+    `id, site_id, zone_id, serial_number${rezim}${klic}${umi}, ` +
     `sites(id, cooldown_seconds, timezone, dock_sn${vyska}), ` +
     `zones(id, name, enabled, location, default_level${trasa})`
   );
@@ -90,12 +102,14 @@ function label(
   hasWayline: boolean,
   hasCapabilities: boolean,
   hasRth: boolean,
+  hasMode: boolean,
 ): string {
   const chybi: string[] = [];
   if (!hasKey) chybi.push("ingest klíč (migrace 20260829120000)");
   if (!hasWayline) chybi.push("zones.wayline_uuid (migrace 20260903180000)");
   if (!hasCapabilities) chybi.push("schopnosti kamery (migrace 20260910120000)");
   if (!hasRth) chybi.push("sites.rth_altitude (migrace 20260916120000)");
+  if (!hasMode) chybi.push("cameras.ingest_mode (migrace 20260914180000)");
   return chybi.length === 0 ? "plné" : `bez ${chybi.join(", ")}`;
 }
 
@@ -114,14 +128,17 @@ const VARIANTS: Variant[] = (() => {
     for (const hasWayline of [true, false]) {
       for (const hasCapabilities of [true, false]) {
         for (const hasRth of [true, false]) {
-          out.push({
-            label: label(hasKey, hasWayline, hasCapabilities, hasRth),
-            columns: columns(hasKey, hasWayline, hasCapabilities, hasRth),
-            hasKey,
-            hasWayline,
-            hasCapabilities,
-            hasRth,
-          });
+          for (const hasMode of [true, false]) {
+            out.push({
+              label: label(hasKey, hasWayline, hasCapabilities, hasRth, hasMode),
+              columns: columns(hasKey, hasWayline, hasCapabilities, hasRth, hasMode),
+              hasKey,
+              hasWayline,
+              hasCapabilities,
+              hasRth,
+              hasMode,
+            });
+          }
         }
       }
     }
@@ -164,6 +181,11 @@ export async function findIngestCamera(
     return {
       camera: {
         ...data,
+        // Bez sloupce je to 'http' — a to není dosazená domněnka:
+        // kamera v režimu FTP bez té migrace existovat nemůže. Kdyby
+        // se dosadilo 'ftp', pustilo by to relay k podepisování za
+        // kamery, které se umí podepsat samy.
+        ingest_mode: variant.hasMode ? (data.ingest_mode ?? "http") : "http",
         // Bez otisku se ověřuje společným tajemstvím — tak to dělal
         // celý ingest, než klíče na kameru přibyly.
         ingest_secret_hash: variant.hasKey ? data.ingest_secret_hash : null,

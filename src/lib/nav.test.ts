@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { visibleNavItems } from "./nav.ts";
+import { NAV_NEEDS, routeNeeds, visibleNavItems, visibleRoutes } from "./nav.ts";
 import { siteCapabilities } from "./site.ts";
 
 // Filtr navigace a schopnosti lokality. Obojí je čisté schválně:
@@ -15,7 +15,7 @@ const oboji = { has_drone: true, has_cameras: true };
 
 const POLOZKY = [
   { href: "/prehled", needs: null },
-  { href: "/detekce", needs: "cameras" },
+  { href: "/zaznamy", needs: "cameras" },
   { href: "/zasahy", needs: "drone" },
   { href: "/lety", needs: "drone" },
   { href: "/arealy", needs: null },
@@ -28,12 +28,12 @@ describe("visibleNavItems", () => {
   it("stavba bez dronu nemá zásahy ani lety", () => {
     assert.deepEqual(hrefy({ drone: false, cameras: true }), [
       "/prehled",
-      "/detekce",
+      "/zaznamy",
       "/arealy",
     ]);
   });
 
-  it("areál bez kamer nemá detekce", () => {
+  it("areál bez kamer nemá záznamy", () => {
     assert.deepEqual(hrefy({ drone: true, cameras: false }), [
       "/prehled",
       "/zasahy",
@@ -117,5 +117,79 @@ describe("Záznamy v navigaci", () => {
   it("areál bez kamer je nevidí", () => {
     const out = visibleNavItems(POLOZKY_ZAZNAMU, { drone: true, cameras: false });
     assert.deepEqual(out.map((p) => p.href), ["/zasahy"]);
+  });
+});
+
+// ═══ Skutečná tabulka ══════════════════════════════════════════════
+// Testy výš jedou na fixture, takže ověřují FILTR, ne pravidla. Přesně
+// v té mezeře se rozešly tři kopie tabulky: detekce zmizely areálu bez
+// kamer, fixture o tom nic nevěděla a 800 testů zůstalo zelených.
+
+const cesty = (caps: { drone: boolean; cameras: boolean }) =>
+  visibleRoutes(
+    Object.keys(NAV_NEEDS).map((href) => ({ href })),
+    caps,
+  ).map((p) => p.href);
+
+describe("NAV_NEEDS", () => {
+  it("stavba bez dronu nemá zásahy, lety ani hlídky", () => {
+    const out = cesty(siteCapabilities([stavba], stavba));
+    for (const href of ["/zasahy", "/lety", "/hlidky"]) {
+      assert.equal(out.includes(href), false, `${href} má být skrytá`);
+    }
+  });
+
+  it("stavba bez dronu detekce má — kamera detekuje člověka sama", () => {
+    assert.equal(cesty(siteCapabilities([stavba], stavba)).includes("/detekce"), true);
+  });
+
+  it("areál bez kamer detekce má taky — dron je při hlídce pořizuje", () => {
+    // Tohle byla ta chyba: detekce visely na kamerách, takže areál
+    // s dronem neměl v menu položku, na které jsou jeho vlastní
+    // dronové detekce.
+    assert.equal(cesty(siteCapabilities([areal], areal)).includes("/detekce"), true);
+  });
+
+  it("areál bez kamer nemá záznamy ani bránu", () => {
+    const out = cesty(siteCapabilities([areal], areal));
+    assert.equal(out.includes("/zaznamy"), false);
+    assert.equal(out.includes("/brana"), false);
+  });
+
+  it("napříč lokalitami se sjednocuje, nic se neztratí", () => {
+    // Klient se stavbou i areálem musí v „všech lokalitách“ vidět
+    // obojí — jinak se k půlce portálu nedostane jinak než přepnutím.
+    assert.deepEqual(
+      cesty(siteCapabilities([stavba, areal], null)),
+      Object.keys(NAV_NEEDS),
+    );
+  });
+
+  it("nastavení a přehled nezmizí ani při nesmyslných schopnostech", () => {
+    const out = cesty({ drone: false, cameras: false });
+    assert.equal(out.includes("/prehled"), true);
+    assert.equal(out.includes("/nastaveni"), true);
+  });
+
+  it("neznámá cesta se ukazuje — chybějící položka je horší než přebytečná", () => {
+    // Zapomenutý zápis v tabulce nesmí položku schovat: skrytá stránka
+    // vypadá jako rozbitý portál a nikdo ji nemá jak najít, kdežto
+    // přebytečná je nanejvýš prázdná.
+    assert.equal(routeNeeds("/neco-noveho"), null);
+    assert.deepEqual(cesty({ drone: false, cameras: false }).length > 0, true);
+  });
+});
+
+describe("visibleNavItems na dlaždicích", () => {
+  it("dlaždice si pravidlo nesou samy — nejsou to cesty", () => {
+    const dlazdice = [
+      { label: "Detekcí", needs: null },
+      { label: "Letů", needs: "drone" as const },
+      { label: "Neznámých značek", needs: "cameras" as const },
+    ];
+    assert.deepEqual(
+      visibleNavItems(dlazdice, { drone: false, cameras: true }).map((d) => d.label),
+      ["Detekcí", "Neznámých značek"],
+    );
   });
 });

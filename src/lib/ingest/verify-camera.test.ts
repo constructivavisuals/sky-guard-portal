@@ -26,6 +26,7 @@ function camera(secret: string): IngestCameraRow {
     serial_number: SERIAL,
     ingest_secret_hash: cameraKeyFingerprint(deriveCameraKey(secret, SERIAL, 1)),
     ingest_key_version: 1,
+    ingest_mode: "http",
     detects_person: true,
     detects_vehicle: true,
     reads_plate: false,
@@ -143,5 +144,79 @@ describe("ingestSecrets", () => {
     } finally {
       process.env = puvodni;
     }
+  });
+});
+
+// ═══ Relay za stavební kameru ══════════════════════════════════════
+// Stavební kamera se podepsat neumí. Události přeposílá relay, který
+// drží vlastní tajemství. Rozhoduje o tom ingest_mode v databázi —
+// kdyby si to volající směl vybrat hlavičkou, stačila by kompromitace
+// VPS k podvržení detekce od kamery u brány.
+
+const RELAY = "relay-tajemstvi";
+const RELAY_STARE = "relay-predchozi";
+
+/** Stavební kamera: režim ftp, žádný vlastní klíč. */
+function ftpKamera(): IngestCameraRow {
+  return { ...camera(NOVE), ingest_mode: "ftp", ingest_secret_hash: null };
+}
+
+function overitSRelayem(
+  cam: IngestCameraRow | null,
+  signature: string,
+  relaySecrets: string[],
+) {
+  return verifyForCamera({
+    rawBody: BODY,
+    signature,
+    timestamp: TS,
+    now: NOW,
+    secrets: [NOVE, STARE],
+    relaySecrets,
+    camera: cam,
+  });
+}
+
+/** Podpis relaye: přímo tajemstvím, bez odvozování na kameru. */
+const relayPodpis = (secret: string) => computeSignature(secret, TS, BODY);
+
+describe("verifyForCamera — relay", () => {
+  it("relay se za FTP kameru podepíše", () => {
+    const r = overitSRelayem(ftpKamera(), relayPodpis(RELAY), [RELAY]);
+    assert.equal(r.valid, true);
+    assert.equal(r.valid && r.actor, "relay");
+  });
+
+  it("rotace RELAY_SECRET nezastaví hlášení a je vidět v logu", () => {
+    const r = overitSRelayem(ftpKamera(), relayPodpis(RELAY_STARE), [RELAY, RELAY_STARE]);
+    assert.equal(r.valid, true);
+    assert.equal(r.valid && r.usedPrevious, true);
+  });
+
+  it("bez RELAY_SECRET FTP kamera neprojde", () => {
+    // Přijmout to bez ověření by z endpointu udělalo otevřený zápis
+    // do evidence. Radši ticho, které je vidět na přehledu.
+    const r = overitSRelayem(ftpKamera(), relayPodpis(RELAY), []);
+    assert.equal(r.valid, false);
+  });
+
+  it("INGEST_SECRET za FTP kameru nemluví", () => {
+    // Jinak by kdokoli s hlavním tajemstvím obešel hranici relaye.
+    const r = overitSRelayem(ftpKamera(), podpis(NOVE), [RELAY]);
+    assert.equal(r.valid, false);
+  });
+
+  it("relay se NEsmí podepsat za kameru, která se umí podepsat sama", () => {
+    // Tohle je ta věta, kvůli které je rozhodnutí v databázi: kamera
+    // u brány otevírá závoru, a relay na VPS k ní nesmí mít cestu.
+    const brana = camera(NOVE); // ingest_mode: "http"
+    const r = overitSRelayem(brana, relayPodpis(RELAY), [RELAY]);
+    assert.equal(r.valid, false);
+  });
+
+  it("HTTP kamera se pořád podepisuje sama", () => {
+    const r = overitSRelayem(camera(NOVE), podpis(NOVE), [RELAY]);
+    assert.equal(r.valid, true);
+    assert.equal(r.valid && r.actor, "camera");
   });
 });

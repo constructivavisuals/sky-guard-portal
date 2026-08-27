@@ -206,7 +206,7 @@ function CameraDialog({
           inputMode="decimal"
           defaultValue={keep("lan_ip", camera?.lan_ip)}
           placeholder="192.168.1.50"
-          hint="Adresa, na které je kamera dostupná v síti areálu. Portál se na ni nepřipojuje, je to údaj pro toho, kdo jede na místo."
+          hint="Adresa, na které je kamera dostupná v síti. U kamery přes relay je povinná — služba událostí se na ni připojuje pro detekce. Bez ní chodí záznamy dál, ale detekce žádná."
         />
 
         <TextField

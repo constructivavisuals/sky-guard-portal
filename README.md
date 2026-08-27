@@ -361,6 +361,30 @@ lokalit“ by se míchaly dny z různých pásem, což by mlčky lhalo, takže
 zůstane prostý seznam. Den bez záznamů není odkaz: prázdná osa nikomu
 nic neřekne.
 
+### Detekce ze stavebních kamer
+
+Stavební kamera se podepsat neumí — a nepotřebuje to. Události z ní
+přeposílá služba na relayi, která drží **vlastní `RELAY_SECRET`**.
+Kdo se za kterou kameru smí podepsat, rozhoduje `ingest_mode`
+v databázi, ne hlavička požadavku: kdyby si to volající směl vybrat,
+stačila by kompromitace VPS k podvržení detekce od kamery **u brány**,
+na které visí otevírání závory. Kamera, která se umí podepsat sama, si
+relay mluvit za sebe nenechá. Je to táž hranice jako u ohlášení
+záznamu, a drží ji `verify-camera.ts`.
+
+Ze stavební detekce **zásah nevzniká**: kamera nemá zónu a stavba
+nemá dron, takže se dispatch ani nezkouší. Kdyby se volal, zapsal by
+u každé události varování „detekce bez zóny“ — u stavby normální stav,
+ne závada — a přehlušil by ta skutečná.
+
+Konfiguraci si relay tahá z `/api/relay/cameras`, ne z konfiguráku na
+VPS. Druhý seznam by se rozešel při první kameře, kterou někdo
+přejmenuje nebo přepne na jinou IP, a rozešel by se tiše: služba by
+dál poslouchala adresu, na které už nikdo není. **Hesla ke kamerám
+portál nezná** — ta jsou na VPS.
+
+Podrobnosti: [infra/sky-watcher/README.md](infra/sky-watcher/README.md).
+
 ### Relay: dva watchery nad jedním inboxem
 
 Kamera posílá obě větve **jedním FTP účtem**; rozdělují se až na relayi

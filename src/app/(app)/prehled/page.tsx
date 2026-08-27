@@ -31,6 +31,7 @@ import {
   STUCK_WINDOW_HOURS,
   cameraSilenceWarnings,
   cameraWarnings,
+  relayCameraWarnings,
   platelessGateWarnings,
   stuckWorkWarnings,
   dockWarnings,
@@ -89,6 +90,8 @@ interface CameraRow {
   last_seen_at: string | null;
   /** Migrace 20260914180000; bez ní se čte jako "http". */
   ingest_mode: "http" | "ftp";
+  /** Ve schématu od první migrace, takže bez záchytné větve. */
+  lan_ip: string | null;
 }
 
 interface PatrolRow {
@@ -159,6 +162,8 @@ export default async function Page() {
   };
   let unknownPlates: { plate: string | null; armed: boolean }[] = [];
   let cameras = { total: 0, withoutZone: 0 };
+  /** Pro varování o kamerách přes relay bez adresy v síti. */
+  let relayCameras: { name: string; ingest_mode: string; lan_ip: string | null }[] = [];
   let zones = { total: 0, withoutWayline: 0 };
   // null = nepodařilo se zjistit (migrace 20260905120000 neběžela).
   // Varovat na základě neexistující tabulky by bylo totéž tiché
@@ -207,7 +212,7 @@ export default async function Page() {
           // ingest_mode přidává migrace 20260914180000; dokud neběžela,
           // dotaz spadne a níž se použije záchytná větev bez něj.
           supabase.from("cameras")
-            .select("id, name, zone_id, status, last_seen_at, ingest_mode")
+            .select("id, name, zone_id, status, last_seen_at, ingest_mode, lan_ip")
             .eq("site_id", site.id).neq("status", "decommissioned")
             .returns<CameraRow[]>(),
           // Zóna bez trasy je tichý výpadek stejného druhu jako kamera
@@ -315,7 +320,7 @@ export default async function Page() {
 
       if (cameraRows.error) {
         const bez = await supabase.from("cameras")
-          .select("id, name, zone_id, status, last_seen_at")
+          .select("id, name, zone_id, status, last_seen_at, lan_ip")
           .eq("site_id", site.id).neq("status", "decommissioned")
           .returns<CameraRow[]>();
         // Neznámý způsob příjmu se bere jako http, tedy jako dosud.
@@ -325,6 +330,7 @@ export default async function Page() {
       // Stavební kamera přes FTP zónu nikdy mít nebude — z ní zásah
       // nevzniká. Kdyby se počítala, hlásil by přehled každé stavby
       // „5 kamer nemá přiřazenou zónu“ hned po zapnutí modulu.
+      relayCameras = cameraList;
       const zonoveKamery = cameraList.filter((camera) => camera.ingest_mode !== "ftp");
       cameras = {
         total: zonoveKamery.length,
@@ -469,6 +475,9 @@ export default async function Page() {
     // z detekce zásah nevznikne. Na stavbě bez dronu tedy nedává smysl,
     // i když kamery má.
     ...(capabilities.drone ? cameraWarnings(cameras) : []),
+    // Bez adresy nepřijde detekce, ale záznamy chodí dál — kamera se
+    // tváří živá. Proto to musí říct přehled.
+    ...(capabilities.cameras ? relayCameraWarnings(relayCameras) : []),
     ...(capabilities.drone ? zoneWarnings(zones) : []),
     ...(capabilities.cameras ? unknownPlateWarnings(unknownPlates) : []),
     ...(capabilities.cameras ? platelessGateWarnings(gateCameras, gatePassages) : []),
@@ -839,7 +848,7 @@ function Numbers({
   // dronu nemá zásahy ani lety, areál bez kamer nemá vjezdy.
   const cells = visibleNavItems(
     [
-      { label: "Detekcí", value: counts.detections, muted: false, needs: "cameras" },
+      { label: "Detekcí", value: counts.detections, muted: false, needs: null },
       { label: "Vjezdů", value: counts.passages, muted: false, needs: "cameras" },
       { label: "Zásahů", value: counts.dispatches, muted: false, needs: "drone" },
       { label: "Potlačených", value: counts.suppressed, muted: true, needs: "drone" },

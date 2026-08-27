@@ -33,9 +33,6 @@ napadnout skrz závislost.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import logging
 import os
 import re
@@ -49,6 +46,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import portal
+from portal import PortalError
 
 # ── Konfigurace ──────────────────────────────────────────────────
 
@@ -64,9 +64,9 @@ MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "3"))
 # Kamera píše lokální čas bez zóny; do portálu jde UTC.
 CAMERA_TZ = ZoneInfo(os.environ.get("CAMERA_TZ", "Europe/Prague"))
 
-PORTAL_URL = os.environ.get("PORTAL_URL", "").rstrip("/")
-RELAY_SECRET = os.environ.get("RELAY_SECRET", "")
-HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT_SEC", "30"))
+# PORTAL_URL, RELAY_SECRET a HTTP_TIMEOUT bydlí v portal.py — sdílí je
+# se službou událostí.
+HTTP_TIMEOUT = portal.HTTP_TIMEOUT
 UPLOAD_TIMEOUT = float(os.environ.get("UPLOAD_TIMEOUT_SEC", "600"))
 
 # Ping po každém průchodu. Prázdné = nehlídá se zvenčí.
@@ -166,73 +166,12 @@ def parse_dahua_path(rel_path: Path) -> dict:
 # ── Portál ───────────────────────────────────────────────────────
 
 
-class PortalError(RuntimeError):
-    """Portál odpověděl chybou. Nese stav, ať se pozná dočasné od trvalého."""
-
-    def __init__(self, message: str, status: int | None = None, body: str = ""):
-        super().__init__(message)
-        self.status = status
-        self.body = body
-
-    @property
-    def permanent(self) -> bool:
-        """4xx kromě 429 opakováním nespraví — je to vada požadavku."""
-        if self.status is None:
-            return False
-        if self.status == 429:
-            return False
-        return 400 <= self.status < 500
-
-
-def _signed_request(path: str, payload: dict) -> dict:
-    """
-    POST na portál, podepsaný RELAY_SECRET.
-
-    Podepisuje se `${timestamp}.${tělo}` — svázání času s tělem, aby se
-    odchycený požadavek nedal přehrát s čerstvou hlavičkou. Tělo se
-    serializuje JEDNOU a použije dvakrát: podepisují se bajty, ne objekt.
-    """
-    if not PORTAL_URL:
-        raise PortalError("PORTAL_URL není nastavená")
-    if not RELAY_SECRET:
-        raise PortalError("RELAY_SECRET není nastavený")
-
-    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    timestamp = str(int(time.time()))
-    signature = hmac.new(
-        RELAY_SECRET.encode("utf-8"),
-        f"{timestamp}.".encode("utf-8") + body,
-        hashlib.sha256,
-    ).hexdigest()
-
-    request = urllib.request.Request(
-        f"{PORTAL_URL}{path}",
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Timestamp": timestamp,
-            "X-Signature": signature,
-        },
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
-            text = response.read().decode("utf-8", "replace")
-            return json.loads(text) if text else {}
-    except urllib.error.HTTPError as exc:
-        text = exc.read().decode("utf-8", "replace")[:500]
-        raise PortalError(f"portál odpověděl {exc.code}", exc.code, text) from exc
-    except urllib.error.URLError as exc:
-        raise PortalError(f"portál nedostupný: {exc.reason}") from exc
-
-
 def announce(payload: dict) -> dict:
-    return _signed_request("/api/ingest/recording", payload)
+    return portal.signed_post("/api/ingest/recording", payload)
 
 
 def confirm(recording_id: str) -> dict:
-    return _signed_request(
+    return portal.signed_post(
         "/api/ingest/recording/confirm", {"recording_id": recording_id}
     )
 
@@ -263,20 +202,7 @@ def upload(url: str, mp4: Path) -> None:
 
 
 def ping_healthcheck(ok: bool) -> None:
-    """
-    Ohlásí průchod hlídači. Nikdy nevyhazuje.
-
-    Je to smyčka, ne cron, takže ping patří na konec průchodu — ne do
-    crontabu, který tu žádný není.
-    """
-    if not HEALTHCHECK_URL:
-        return
-    url = HEALTHCHECK_URL if ok else f"{HEALTHCHECK_URL.rstrip('/')}/fail"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            response.read()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Ping hlídači selhal: %s", exc)
+    portal.ping_healthcheck(HEALTHCHECK_URL, ok)
 
 
 # ── ffmpeg ───────────────────────────────────────────────────────
@@ -443,12 +369,12 @@ def main() -> int:
         stream=sys.stdout,
     )
 
-    if not PORTAL_URL or not RELAY_SECRET:
+    if not portal.PORTAL_URL or not portal.RELAY_SECRET:
         log.error("Chybí PORTAL_URL nebo RELAY_SECRET — watcher se nespustí.")
         return 1
 
     FAILED_DIR.mkdir(parents=True, exist_ok=True)
-    log.info("Sky Guard watcher: %s → %s", INBOX_DIR, PORTAL_URL)
+    log.info("Sky Guard watcher: %s → %s", INBOX_DIR, portal.PORTAL_URL)
 
     stability = Stability()
     pokusy: dict[str, int] = {}

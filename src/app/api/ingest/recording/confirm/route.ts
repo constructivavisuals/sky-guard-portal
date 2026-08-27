@@ -3,7 +3,8 @@ import type { NextRequest } from "next/server";
 import { relaySecrets } from "@/lib/env.ts";
 import { clientIp } from "@/lib/ingest/rate-limit.ts";
 import { parseRecordingConfirm } from "@/lib/ingest/recording-payload.ts";
-import { publicFailureReason, verifySignature } from "@/lib/ingest/signature.ts";
+import { publicFailureReason } from "@/lib/ingest/signature.ts";
+import { verifyRelay } from "@/lib/ingest/verify-relay.ts";
 import { RECORDING_BUCKET } from "@/lib/recordings/storage.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
@@ -56,17 +57,13 @@ export async function POST(request: NextRequest): Promise<Response> {
   const signature = request.headers.get("x-signature");
   const timestamp = request.headers.get("x-timestamp");
 
-  let check = verifySignature({
+  const check = verifyRelay({
     rawBody,
     signature,
     timestamp,
     now: receivedAt,
-    secret: secrets[0],
+    secrets,
   });
-  for (const secret of secrets.slice(1)) {
-    if (check.valid) break;
-    check = verifySignature({ rawBody, signature, timestamp, now: receivedAt, secret });
-  }
 
   if (!check.valid) {
     console.warn("Potvrzení záznamu odmítnuto: podpis neprošel", {

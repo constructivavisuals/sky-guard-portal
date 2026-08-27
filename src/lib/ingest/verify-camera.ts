@@ -21,6 +21,18 @@ import {
 // přepnutá, projde na první pokus; ta, na kterou ještě nikdo nesáhl,
 // projde na druhý a zaloguje se — z logu je pak vidět, kolik jich
 // zbývá.
+//
+// ═══ Za FTP kameru mluví relay ═════════════════════════════════════
+// Stavební kamera se nepodepisuje: neumí to. Události z ní přeposílá
+// relay na VPS, který drží vlastní RELAY_SECRET a kameru pojmenuje
+// sériovým číslem v těle.
+//
+// Rozhoduje o tom `ingest_mode` v databázi, ne hlavička požadavku.
+// Kdyby si volající směl vybrat, kterým tajemstvím se ověří, stačila
+// by kompromitace VPS k podvržení detekce z LIBOVOLNÉ kamery
+// v portálu — včetně těch u brány, na které visí otevírání závory.
+// Kamera, která se umí podepsat sama, si relay mluvit za sebe nenechá;
+// je to táž hranice jako u ohlášení záznamu.
 // ═══════════════════════════════════════════════════════════════════
 
 /**
@@ -30,8 +42,14 @@ import {
  * PŘEDCHOZÍMU tajemství, tedy že kamera ještě čeká na přehrání.
  */
 export type CameraVerification =
-  | { valid: true; usedPrevious: boolean }
+  | { valid: true; usedPrevious: boolean; actor: VerifiedActor }
   | { valid: false; reason: SignatureFailure };
+
+/**
+ * Čím byl požadavek podepsaný. Jde to do `detections.ingest_key_id`,
+ * takže po rotaci klíčů je z evidence vidět, co ještě jede na čem.
+ */
+export type VerifiedActor = "camera" | "shared" | "relay";
 
 export function verifyForCamera(options: {
   rawBody: string;
@@ -40,10 +58,48 @@ export function verifyForCamera(options: {
   now: Date;
   /** Nové tajemství první, předchozí druhé. Viz env.ingestSecrets(). */
   secrets: readonly string[];
+  /**
+   * Tajemství relaye, taky nové → předchozí. Prázdné pole = relay není
+   * nastavený; FTP kamera pak neprojde. To je správně: bez tajemství
+   * není čím ověřit, a přijmout to bez ověření by znamenalo otevřený
+   * endpoint.
+   */
+  relaySecrets?: readonly string[];
   camera: IngestCameraRow | null;
 }): CameraVerification {
   const { rawBody, signature, timestamp, now, secrets, camera } = options;
   const base = { rawBody, signature, timestamp, now };
+
+  // ── FTP kamera: podepisuje se relay ──────────────────────────────
+  if (camera?.ingest_mode === "ftp") {
+    const relay = options.relaySecrets ?? [];
+    if (relay.length === 0) {
+      console.error("FTP kamera hlásí, ale RELAY_SECRET není nastavený", {
+        camera_id: camera.id,
+        site_id: camera.site_id,
+      });
+      return { valid: false, reason: "signature_mismatch" };
+    }
+
+    let posledniRelay: SignatureResult = {
+      valid: false,
+      reason: "signature_mismatch",
+    };
+    for (const [index, secret] of relay.entries()) {
+      const result = verifySignature({ ...base, secret });
+      if (result.valid) {
+        if (index > 0) {
+          console.warn("Relay jede na PŘEDCHOZÍM tajemství — čeká na přepnutí", {
+            camera_id: camera.id,
+            site_id: camera.site_id,
+          });
+        }
+        return { valid: true, usedPrevious: index > 0, actor: "relay" };
+      }
+      posledniRelay = result;
+    }
+    return posledniRelay;
+  }
 
   const serial = camera?.serial_number;
   /** Kamera bez otisku se ověřuje společným tajemstvím — jako dřív. */
@@ -68,7 +124,7 @@ export function verifyForCamera(options: {
 
     if (spolecne) {
       const result = verifySignature({ ...base, secret });
-      if (result.valid) return { valid: true, usedPrevious: previous };
+      if (result.valid) return { valid: true, usedPrevious: previous, actor: "shared" };
       posledni = result;
       continue;
     }
@@ -101,7 +157,7 @@ export function verifyForCamera(options: {
           serial,
         });
       }
-      return { valid: true, usedPrevious: previous };
+      return { valid: true, usedPrevious: previous, actor: "camera" };
     }
     posledni = result;
   }

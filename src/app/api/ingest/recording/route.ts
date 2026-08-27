@@ -6,7 +6,8 @@ import {
   mayIssueUploadUrl,
   parseRecordingAnnounce,
 } from "@/lib/ingest/recording-payload.ts";
-import { publicFailureReason, verifySignature } from "@/lib/ingest/signature.ts";
+import { publicFailureReason } from "@/lib/ingest/signature.ts";
+import { verifyRelay } from "@/lib/ingest/verify-relay.ts";
 import {
   RECORDING_BUCKET,
   UPLOAD_URL_TTL_SECONDS,
@@ -87,20 +88,14 @@ export async function POST(request: NextRequest): Promise<Response> {
   const signature = request.headers.get("x-signature");
   const timestamp = request.headers.get("x-timestamp");
 
-  let check = verifySignature({
+  const check = verifyRelay({
     rawBody,
     signature,
     timestamp,
     now: receivedAt,
-    secret: secrets[0],
+    secrets,
   });
-  let usedPrevious = false;
-
-  for (const secret of secrets.slice(1)) {
-    if (check.valid) break;
-    check = verifySignature({ rawBody, signature, timestamp, now: receivedAt, secret });
-    usedPrevious = check.valid;
-  }
+  const usedPrevious = check.valid && check.usedPrevious;
 
   if (!check.valid) {
     console.warn("Ohlášení záznamu odmítnuto: podpis neprošel", {

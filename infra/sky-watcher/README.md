@@ -85,6 +85,90 @@ z kamery a někdo se na něj má podívat.
 Po každém průchodu, i prázdném, jde ping na `HEALTHCHECK_URL`. Hlídá se
 ticho, tedy že watcher žije — ne že zrovna něco přišlo.
 
+## Události: detekce člověka v reálném čase
+
+Druhá služba ve stejném obrazu, `sky-events`. Ke každé stavební kameře
+drží jedno dlouhé HTTP spojení na `eventManager.cgi?action=attach`;
+kamera po něm hlásí události, jak nastávají. Když ohlásí člověka,
+služba si od ní stáhne snímek ze `snapshot.cgi` a pošle detekci na
+`/api/ingest/detection`.
+
+Detekci umí **kamera sama** — model má SMD s rozlišením člověka. Portál
+obraz nevyhodnocuje, jen přijímá, co kamera řekla.
+
+### Odkud ví o kamerách
+
+Z portálu: `GET /api/relay/cameras`, podepsaný `RELAY_SECRET` nad
+prázdným tělem. Vrací stavební kamery se sériovým číslem a `lan_ip`.
+Seznam se obnovuje každých pět minut, takže nová kamera naskočí bez
+zásahu na VPS.
+
+Druhý seznam v konfiguráku by se rozešel při první kameře, kterou někdo
+přejmenuje nebo přepne na jinou IP — a rozešel by se **tiše**: služba by
+dál poslouchala adresu, na které už nikdo není.
+
+**Hesla ke kamerám portál nezná a znát nemá.** Berou se z `.env` na
+VPS; jsou pro všechny kamery stejná. Kdyby chodila z portálu, znamenala
+by jeho kompromitace přístup do vnitřní sítě každé stavby.
+
+### Nastavení v `.env`
+
+| Proměnná | Výchozí | K čemu |
+|---|---|---|
+| `CAMERA_USERNAME` | `admin` | účet do kamery |
+| `CAMERA_PASSWORD` | — | **povinné**, bez něj se služba nespustí |
+| `EVENT_CODES` | `SmartMotionHuman` | co se hlásí jako detekce |
+| `EVENT_ACTIONS` | `Start,Pulse` | `Stop` se ignoruje — konec pohybu není detekce |
+| `EVENT_CLASS` | `person` | třída zapsaná do detekce |
+| `EVENT_COOLDOWN_SEC` | `30` | nejméně vteřin mezi dvěma hlášeními téhož kódu |
+| `SUBSCRIBE_CODES` | `All` | co se odebírá od kamery (viz níž) |
+| `HEARTBEAT_SEC` | `10` | jak často kamera posílá tep |
+| `CONFIG_REFRESH_SEC` | `300` | jak často se tahá seznam kamer |
+
+### Jak zjistit správný kód události
+
+Odebírá se `All`, filtruje se až `EVENT_CODES`. Každý kód, který kamera
+pošle, se **jednou** zaloguje — i ten nehlášený:
+
+```
+Kamera Klanečná — jeřáb hlásí kód SmartMotionHuman (hlásí se dál: ne)
+```
+
+Takže: projít se před kamerou, přečíst log, doplnit kód do `EVENT_CODES`
+a restartovat službu. Hádat se nemusí nic.
+
+```bash
+docker compose logs -f sky-events | grep "hlásí kód"
+```
+
+### Prodleva mezi hlášeními
+
+Člověk procházející záběrem vyvolá událost každou vteřinu. Bez prodlevy
+by z deseti minut práce na place bylo šest set řádků v evidenci, takže
+se týž kód od téže kamery hlásí nejvýš jednou za `EVENT_COOLDOWN_SEC`.
+
+### Výpadky
+
+Spojení se obnovuje samo: 1 s → 2 → 4 → … se stropem na 60 s a s
+rozptylem, aby po výpadku proudu nenaskočily všechny kamery v jednom
+rytmu. Strop je tam schválně — hodinová pauza po dvacátém pokusu by
+znamenala, že se kamera po opravě sítě probere až večer.
+
+Kamera posílá **tep** (`heartbeat=10`); bez něj by mlčící kamera
+vypadala stejně jako klidná noc, což je přesně ta závada, kterou tahle
+služba mít nesmí. Ticho delší než 30 s se bere jako spadlé spojení.
+
+Výpadek portálu běžící spojení **nezavírá**. Detekce se ztratí tou
+nedoručenou zprávou, ne tím, že přestaneme poslouchat.
+
+### Do vnitřních sítí přes Tailscale
+
+Kamery jsou v `192.168.11.0/24` (Klanečná) a `192.168.12.0/24`
+(Mírovka), dostupné přes Brume subnet routery. Na VPS to znamená
+`tailscale up --accept-routes`; kontejner pak jde ven přes routovací
+tabulku hostitele. Když se na kameru z kontejneru nedovoláš, ale
+z hostitele ano, přidej službě `network_mode: host`.
+
 ## Montáž nové kamery
 
 Postup na místě — co nastavit v kameře, co založit v portálu předem
@@ -96,6 +180,7 @@ Celý řetěz proti **falešnému portálu**, bez VPS a bez Sky Guardu:
 
 ```bash
 python3 infra/sky-watcher/test/test_watcher.py
+python3 infra/sky-watcher/test/test_events.py
 ```
 
 Vyrobí syntetické `.dav`, postaví portál na localhostu a ověří vznik
@@ -105,6 +190,12 @@ požadavku, a že cizí tajemství neprojde. Falešný portál ověřuje podpis
 touž cestou jako ten skutečný — kdyby se obě strany rozešly v tom, co
 se podepisuje, projeví se to tady.
 
-Bez ffmpegu se test **přeskočí** (návratový kód 2), ne aby vypadal jako
+Druhý test staví **falešnou kameru** — multipart proud s řádky `Code=`,
+`snapshot.cgi` — a falešný portál, a prožene tím celý řetěz: stažení
+konfigurace, čtení proudu, filtr kódů, snímek, odeslání detekce. Ověřuje
+i to, na čem by naivní parser spadl: kamera posílá `data=` jako JSON na
+víc řádků. Nepotřebuje ffmpeg ani síť.
+
+Bez ffmpegu se test watcheru **přeskočí** (návratový kód 2), ne aby vypadal jako
 selhání kódu. Na macOS s Homebrew bývá příčinou upgrade x265 bez
 rebuildu ffmpegu: `brew reinstall ffmpeg`.

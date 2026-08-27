@@ -200,6 +200,38 @@ export function cameraWarnings(cameras: {
 }
 
 /**
+ * Stavební kamery bez adresy v síti.
+ *
+ * Je to tichý výpadek, a navíc nenápadnější než ostatní: kamera bez
+ * `lan_ip` posílá záznamy dál a v portálu se tváří živá, ale službě
+ * událostí chybí adresa, na kterou se má připojit. Detekce z ní tedy
+ * NIKDY nepřijde. Bez tohohle varování se to pozná tak, že se jednou
+ * někdo bude ptát, proč z té stavby nikdy nic nebylo.
+ *
+ * Týká se jen kamer přes relay — u kamery, která se hlásí sama, portál
+ * adresu nepotřebuje.
+ */
+export function relayCameraWarnings(
+  cameras: readonly { name: string; ingest_mode: string; lan_ip: string | null }[],
+): Warning[] {
+  const bezAdresy = cameras.filter(
+    (camera) => camera.ingest_mode === "ftp" && !camera.lan_ip,
+  );
+  if (bezAdresy.length === 0) return [];
+
+  const jmena = bezAdresy.map((camera) => `„${camera.name}“`).join(", ");
+  return [
+    {
+      key: "relay_cameras_without_ip",
+      text:
+        bezAdresy.length === 1
+          ? `Kamera ${jmena} nemá vyplněnou adresu v síti, takže z ní nepřijde žádná detekce. Záznamy chodí dál, proto to není poznat jinak.`
+          : `${bezAdresy.length} kamer nemá vyplněnou adresu v síti (${jmena}), takže z nich nepřijde žádná detekce. Záznamy chodí dál, proto to není poznat jinak.`,
+    },
+  ];
+}
+
+/**
  * Zóny, které nemají trasu.
  *
  * Zásah se od migrace 20260903180000 zakládá jako plánovaná úloha ve

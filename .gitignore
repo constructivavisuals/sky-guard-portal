@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 !.env.local.example
 .gstack/
+
+# Python bytecode relaye
+__pycache__/

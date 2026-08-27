@@ -8,11 +8,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY watcher.py /app/watcher.py
+# Jeden obraz, dvě služby: watcher přebírá soubory z FTP, events visí
+# na spojení ke kamerám. Sdílí portal.py, takže se podpis nemůže
+# rozejít mezi nimi.
+COPY watcher.py events.py portal.py /app/
 
 # Nepouštět jako root: kontejner sahá na sdílený inbox a jediné, co
 # potřebuje, je číst a mazat vlastní soubory.
 RUN useradd --create-home --uid 10001 watcher
 USER watcher
 
-ENTRYPOINT ["python", "-u", "/app/watcher.py"]
+# Který skript se pustí, říká compose. Watcher je výchozí.
+ENTRYPOINT ["python", "-u"]
+CMD ["/app/watcher.py"]

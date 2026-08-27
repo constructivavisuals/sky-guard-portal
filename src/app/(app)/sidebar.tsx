@@ -20,38 +20,38 @@ import {
 
 import { Logo } from "@/components/logo.tsx";
 import { logoUrl } from "@/lib/logo.ts";
-import { visibleNavItems, type NavNeeds } from "@/lib/nav.ts";
+import { visibleRoutes } from "@/lib/nav.ts";
 import type { CurrentProfile } from "@/lib/profile.ts";
 import type { SiteCapabilities } from "@/lib/site.ts";
 import { profileInitial } from "@/lib/profile.ts";
 import { USER_ROLE_LABELS } from "@/types/database.ts";
 
 /**
- * Položky navigace. `needs` říká, co k nim lokalita musí mít.
+ * Položky navigace. Co k nim lokalita musí mít, je v NAV_NEEDS
+ * v lib/nav.ts — tady se to schválně nepíše, aby se spodní lišta
+ * a sidebar nemohly rozejít. Rozešly se.
  *
- * Stavba bez dronu nemá zásahy, lety ani hlídky; areál bez kamer nemá
- * detekce ani bránu. Je to úklid obrazovky, ne bezpečnost — stránky
- * samotné zůstávají dostupné, protože klient se stavbou i areálem se
- * na ně z „všech lokalit“ dostane právem.
+ * Je to úklid obrazovky, ne bezpečnost — stránky samotné zůstávají
+ * dostupné, protože klient se stavbou i areálem se na ně z „všech
+ * lokalit“ dostane právem.
  */
 export const NAV_ITEMS = [
-  { href: "/prehled", label: "Přehled", icon: LayoutDashboard, needs: null },
-  { href: "/detekce", label: "Detekce", icon: ScanEye, needs: "cameras" },
-  { href: "/zasahy", label: "Zásahy", icon: Send, needs: "drone" },
-  { href: "/lety", label: "Lety", icon: Plane, needs: "drone" },
-  { href: "/hlidky", label: "Hlídky", icon: Route, needs: "drone" },
-  { href: "/arealy", label: "Areály", icon: MapPin, needs: null },
-  { href: "/zaznamy", label: "Záznamy", icon: Video, needs: "cameras" },
-  { href: "/brana", label: "Brána", icon: DoorOpen, needs: "cameras" },
-  { href: "/reporty", label: "Reporty", icon: FileText, needs: null },
-  { href: "/nastaveni", label: "Nastavení", icon: Settings, needs: null },
+  { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
+  { href: "/detekce", label: "Detekce", icon: ScanEye },
+  { href: "/zasahy", label: "Zásahy", icon: Send },
+  { href: "/lety", label: "Lety", icon: Plane },
+  { href: "/hlidky", label: "Hlídky", icon: Route },
+  { href: "/arealy", label: "Areály", icon: MapPin },
+  { href: "/zaznamy", label: "Záznamy", icon: Video },
+  { href: "/brana", label: "Brána", icon: DoorOpen },
+  { href: "/reporty", label: "Reporty", icon: FileText },
+  { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const satisfies readonly NavItem[];
 
 export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  needs: NavNeeds;
 }
 
 /**
@@ -74,7 +74,7 @@ export function Sidebar({
   capabilities: SiteCapabilities;
 }) {
   const pathname = usePathname();
-  const items = visibleNavItems(NAV_ITEMS, capabilities);
+  const items = visibleRoutes(NAV_ITEMS, capabilities);
 
   return (
     <nav

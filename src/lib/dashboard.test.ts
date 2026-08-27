@@ -8,6 +8,7 @@ import {
   formatUntil,
   patrolWarnings,
   platelessGateWarnings,
+  relayCameraWarnings,
   stuckWorkWarnings,
   unknownPlateWarnings,
   zoneWarnings,
@@ -460,5 +461,47 @@ describe("stuckWorkWarnings", () => {
       "detections_without_dispatch",
       "passages_without_plate_read",
     ]);
+  });
+});
+
+describe("relayCameraWarnings", () => {
+  const ftp = (name: string, lan_ip: string | null) => ({
+    name,
+    ingest_mode: "ftp",
+    lan_ip,
+  });
+
+  it("kamera přes relay bez adresy je varování", () => {
+    const out = relayCameraWarnings([ftp("Jeřáb", null)]);
+    assert.equal(out.length, 1);
+    assert.match(out[0].text, /Jeřáb/);
+  });
+
+  it("text říká, proč to není poznat jinak", () => {
+    // Tohle je celý smysl varování: kamera bez adresy posílá záznamy
+    // dál a v portálu se tváří živá. Kdyby text jen řekl „chybí IP“,
+    // nikdo by nepochopil, že přišel o detekce.
+    const out = relayCameraWarnings([ftp("Jeřáb", null)]);
+    assert.match(out[0].text, /nepřijde žádná detekce/);
+    assert.match(out[0].text, /Záznamy chodí dál/);
+  });
+
+  it("vyplněná adresa nevaruje", () => {
+    assert.deepEqual(relayCameraWarnings([ftp("Jeřáb", "192.168.11.51")]), []);
+  });
+
+  it("kamera u brány adresu potřebovat nemusí", () => {
+    // Ta se hlásí sama, portál se na ni nepřipojuje.
+    assert.deepEqual(
+      relayCameraWarnings([{ name: "Vjezd", ingest_mode: "http", lan_ip: null }]),
+      [],
+    );
+  });
+
+  it("víc kamer se vypíše jmenovitě", () => {
+    const out = relayCameraWarnings([ftp("Jeřáb", null), ftp("Vrata", null)]);
+    assert.equal(out.length, 1);
+    assert.match(out[0].text, /Jeřáb/);
+    assert.match(out[0].text, /Vrata/);
   });
 });

@@ -22,7 +22,7 @@ import { useState } from "react";
 
 import type { SiteCapabilities } from "@/lib/site.ts";
 
-import { visibleNavItems } from "@/lib/nav.ts";
+import { visibleRoutes } from "@/lib/nav.ts";
 
 import type { NavItem } from "./sidebar.tsx";
 
@@ -30,22 +30,23 @@ import type { NavItem } from "./sidebar.tsx";
 // Pět položek je strop, na který se na 375 px vejdou popisky — zbytek
 // jde pod „Více“.
 
-// `needs` má týž význam jako v sidebaru — filtruje se sdílenou funkcí,
-// aby se obě navigace nemohly rozejít.
+// Co která položka potřebuje, je v NAV_NEEDS v lib/nav.ts. Tady ani
+// v sidebaru to vypsané není: dvě kopie téhož pravidla se rozešly
+// a nikdo si toho měsíc nevšiml.
 const PRIMARY = [
-  { href: "/prehled", label: "Přehled", icon: LayoutDashboard, needs: null },
-  { href: "/detekce", label: "Detekce", icon: ScanEye, needs: "cameras" },
-  { href: "/zasahy", label: "Zásahy", icon: Send, needs: "drone" },
-  { href: "/lety", label: "Lety", icon: Plane, needs: "drone" },
+  { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
+  { href: "/detekce", label: "Detekce", icon: ScanEye },
+  { href: "/zasahy", label: "Zásahy", icon: Send },
+  { href: "/lety", label: "Lety", icon: Plane },
 ] as const satisfies readonly NavItem[];
 
 const SECONDARY = [
-  { href: "/hlidky", label: "Hlídky", icon: Route, needs: "drone" },
-  { href: "/arealy", label: "Areály", icon: MapPin, needs: null },
-  { href: "/zaznamy", label: "Záznamy", icon: Video, needs: "cameras" },
-  { href: "/brana", label: "Brána", icon: DoorOpen, needs: "cameras" },
-  { href: "/reporty", label: "Reporty", icon: FileText, needs: null },
-  { href: "/nastaveni", label: "Nastavení", icon: Settings, needs: null },
+  { href: "/hlidky", label: "Hlídky", icon: Route },
+  { href: "/arealy", label: "Areály", icon: MapPin },
+  { href: "/zaznamy", label: "Záznamy", icon: Video },
+  { href: "/brana", label: "Brána", icon: DoorOpen },
+  { href: "/reporty", label: "Reporty", icon: FileText },
+  { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const satisfies readonly NavItem[];
 
 /** Jen pro administrátora; zámek je na stránce samotné. */
@@ -68,8 +69,8 @@ export function MobileNav({
   const [session, setSession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const primary = visibleNavItems(PRIMARY, capabilities);
-  const viditelneSecondary = visibleNavItems(SECONDARY, capabilities);
+  const primary = visibleRoutes(PRIMARY, capabilities);
+  const viditelneSecondary = visibleRoutes(SECONDARY, capabilities);
   const secondary = isAdmin
     ? [...viditelneSecondary, ...ADMIN_SECONDARY]
     : viditelneSecondary;

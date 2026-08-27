@@ -1,7 +1,7 @@
 import { after, type NextRequest } from "next/server";
 
 import { runDispatch, type DispatchContext } from "@/lib/dispatch/run.ts";
-import { ingestSecrets } from "@/lib/env.ts";
+import { ingestSecrets, relaySecrets } from "@/lib/env.ts";
 import { parseDetectionPayload } from "@/lib/ingest/payload.ts";
 import { findIngestCamera } from "@/lib/ingest/camera-lookup.ts";
 import { cameraCapabilities } from "@/lib/ingest/camera-lookup.ts";
@@ -30,6 +30,12 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 // Neznámé sériové číslo NESMÍ vracet jiný stav než neplatný podpis,
 // dokud podpis neprošel — jinak by šlo přes endpoint zjišťovat, které
 // kamery existují.
+//
+// ═══ Dva druhy volajících ══════════════════════════════════════════
+// Kamera u brány se podepisuje vlastním klíčem. Stavební kamera to
+// neumí; její události přeposílá relay na VPS podepsané RELAY_SECRET.
+// Kdo se za kterou smí podepsat, rozhoduje `ingest_mode` v databázi —
+// viz verify-camera.ts.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,6 +98,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(500, "server_misconfigured");
   }
 
+  // Relay smí chybět: portál bez stavebních kamer ho nepotřebuje
+  // a nasazení kvůli tomu nemá padat. Bez něj FTP kamera neprojde
+  // a verify-camera.ts to zaloguje jmenovitě.
+  let relay: string[] = [];
+  try {
+    relay = relaySecrets();
+  } catch {
+    // Ticho schválně: hlásit to při každé detekci z kamery u brány
+    // by byl šum. Hlásí se to až u kamery, které se to týká.
+  }
+
   let body: unknown;
   try {
     body = JSON.parse(rawBody);
@@ -140,6 +157,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     timestamp: request.headers.get("x-timestamp"),
     now: receivedAt,
     secrets,
+    relaySecrets: relay,
     camera,
   });
 
@@ -173,11 +191,19 @@ export async function POST(request: NextRequest): Promise<Response> {
   // podle nastavení nezvládá. Bývá to výměna modelu, na kterou nikdo
   // neupravil portál — a to se má poznat dřív než z toho, že se něco
   // chová divně.
-  const { raw: rawSPoznamkou, note: neocekavana } = markUnexpectedClass({
-    raw: payload.raw,
-    capabilities: cameraCapabilities(camera),
-    objectClass: payload.objectClass,
-  });
+  //
+  // U stavebních kamer se to nekontroluje: jejich schopnosti v portálu
+  // nikdo neudržuje, protože se nezakládají kvůli detekci, ale kvůli
+  // záznamu. Poznámka „hlásí, co neumí“ by u nich byla na každé
+  // detekci a přestala by se číst.
+  const { raw: rawSPoznamkou, note: neocekavana } =
+    camera.ingest_mode === "ftp"
+      ? { raw: payload.raw, note: null }
+      : markUnexpectedClass({
+          raw: payload.raw,
+          capabilities: cameraCapabilities(camera),
+          objectClass: payload.objectClass,
+        });
 
   if (neocekavana) {
     console.warn("Kamera hlásí třídu, kterou podle nastavení neumí", {
@@ -196,9 +222,14 @@ export async function POST(request: NextRequest): Promise<Response> {
       // Čím byl požadavek podepsaný: vlastním klíčem kamery, nebo
       // společným tajemstvím. Bez toho by po rotaci klíčů nešlo zjistit,
       // které kamery ještě jedou na starém.
-      ingest_key_id: camera.ingest_secret_hash
-        ? (camera.serial_number ?? "camera")
-        : "shared",
+      // "relay" = přeposlala to VPS za stavební kameru, která se
+      // podepsat neumí.
+      ingest_key_id:
+        check.actor === "relay"
+          ? "relay"
+          : camera.ingest_secret_hash
+            ? (camera.serial_number ?? "camera")
+            : "shared",
       // Ingest z kamer; dronové detekce půjdou jinou cestou, až se
       // budou tahat data z FlightHubu.
       source: "camera",
@@ -311,6 +342,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     detectedAt: payload.detectedAt,
     receivedAt,
   };
+
+  // Stavební kamera bez zóny zásah nespouští. runDispatch by to sám
+  // přeskočil, ale zapsal by přitom varování „detekce bez zóny“ —
+  // u stavby je to normální stav, ne závada, a varování na každé
+  // události by přehlušilo ta skutečná.
+  if (camera.ingest_mode === "ftp" && !camera.zone_id) {
+    return Response.json(
+      { detection_id: detection.id, dispatch: "skipped" },
+      { status: 200 },
+    );
+  }
 
   after(async () => {
     try {

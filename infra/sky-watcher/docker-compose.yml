@@ -19,3 +19,17 @@ services:
     environment:
       INBOX_DIR: /inbox
       FAILED_DIR: /failed
+
+  # Události ze stavebních kamer: detekce člověka v reálném čase.
+  #
+  # Vlastní služba schválně. Watcher chodí po adresáři a přebírá hotové
+  # soubory, tohle visí na spojení a čeká — a hlavně: záznam, který
+  # dorazí o dvě minuty později, nikoho nebolí, kdežto detekce ano.
+  sky-events:
+    build: .
+    container_name: sky-events
+    restart: unless-stopped
+    env_file: .env
+    command: /app/events.py
+    # Bez svazků: k FTP inboxu ani k úložišti tahle služba nemá co mít.
+    # Mluví jen s kamerami v LAN a s portálem.

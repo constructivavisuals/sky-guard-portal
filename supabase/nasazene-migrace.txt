@@ -44,3 +44,4 @@
 20260915120000_camera_recordings.sql
 20260915180000_recordings_bucket.sql
 20260916120000_rth_altitude.sql
+20260917120000_recording_day_counts.sql
