@@ -335,6 +335,32 @@ eval "$(npm run --silent relay-podpis potvrzeni <recording_id>)"
 Bez souboru v úložišti vrátí krok 3 **409 `file_not_found`** — a to je
 správně, ne chyba testu.
 
+### Seznam záznamů, kalendář a osa dne
+
+`/zaznamy` je obrazovka, na které se po montáži ověřuje, že řetěz
+kamera → relay → portál → úložiště šlape. Filtr kamery a dne jsou
+**odkazy, ne tlačítka** — filtr je součástí adresy, takže jde poslat
+i otevřít v nové kartě, a celá ta část je serverová bez řádku
+JavaScriptu v prohlížeči.
+
+**Den je den lokality**, ne prohlížeče a ne UTC. Kdo se dívá na stavbu
+z dovolené, musí vidět tentýž čtvrtek jako mistr na place — a v UTC by
+se každý letní večer po 22:00 přelil do dalšího dne. Platí to na obou
+stranách: `lib/recordings/timeline.ts` počítá hranice dne přes
+`zonedTimeToUtc` (takže říjnový den vyjde jako 25 hodin, ne jako 24
+posunutých) a RPC `camera_recording_day_counts` používá
+`AT TIME ZONE s.timezone`.
+
+To RPC je **záměrně bez `SECURITY DEFINER`** — běží právy volajícího,
+takže se uplatní RLS a na cizí lokalitu vrátí prázdno. S ním by stačilo
+uhodnout UUID lokality a šlo by zjistit, kdy se natáčelo na cizí
+stavbě.
+
+Kalendář a osa se ukazují jen u **jedné vybrané lokality**. U „všech
+lokalit“ by se míchaly dny z různých pásem, což by mlčky lhalo, takže
+zůstane prostý seznam. Den bez záznamů není odkaz: prázdná osa nikomu
+nic neřekne.
+
 ### Relay: dva watchery nad jedním inboxem
 
 Kamera posílá obě větve **jedním FTP účtem**; rozdělují se až na relayi

@@ -814,6 +814,15 @@ export type Database = {
       site_is_visible: { Args: { p_site_id: string }; Returns: boolean };
       site_is_manager: { Args: { p_site_id: string }; Returns: boolean };
       camera_site_id: { Args: { p_camera_id: string }; Returns: string };
+      camera_recording_day_counts: {
+        Args: {
+          p_site_id: string;
+          p_camera_id?: string | null;
+          p_from?: string | null;
+          p_to?: string | null;
+        };
+        Returns: { day: string; recordings: number }[];
+      };
       flight_site_id: { Args: { p_flight_id: string }; Returns: string };
       flight_is_visible: { Args: { p_flight_id: string }; Returns: boolean };
       site_is_armed: {

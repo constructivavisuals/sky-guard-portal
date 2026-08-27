@@ -3,7 +3,16 @@ import { Video } from "lucide-react";
 
 import { Pagination, pageFromParam, pageRange } from "@/components/pagination.tsx";
 import { DataTable, Td, TdTight, Th, Tr } from "@/components/table.tsx";
-import { EmptyState, PageHeader } from "@/components/ui.tsx";
+import { EmptyState, PageHeader, Section } from "@/components/ui.tsx";
+import { localDateISO } from "@/lib/arrivals/rules.ts";
+import {
+  dayRange,
+  isDayString,
+  isMonthString,
+  monthOf,
+  type DayString,
+  type MonthString,
+} from "@/lib/recordings/timeline.ts";
 import { formatBytes, formatDateTime, orDash } from "@/lib/format.ts";
 import {
   RECORDING_BUCKET,
@@ -13,6 +22,9 @@ import {
 } from "@/lib/recordings/storage.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
+
+import { CameraFilter, RecordingCalendar, zaznamyHref, type CameraOption } from "./filters.tsx";
+import { DayTimeline } from "./timeline.tsx";
 
 export const metadata: Metadata = { title: "Záznamy" };
 
@@ -25,6 +37,7 @@ export const metadata: Metadata = { title: "Záznamy" };
 
 interface RecordingRow {
   id: string;
+  camera_id: string;
   started_at: string;
   ended_at: string | null;
   event_type: string | null;
@@ -57,16 +70,38 @@ const EVENT_LABELS: Record<string, string> = {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ strana?: string }>;
+  searchParams: Promise<{
+    strana?: string;
+    kamera?: string;
+    den?: string;
+    mesic?: string;
+  }>;
 }) {
-  const { strana } = await searchParams;
+  const { strana, kamera, den, mesic } = await searchParams;
   const page = pageFromParam(strana);
   const { from, to } = pageRange(page);
-  const { selected } = await getSiteSelection();
+  const { selected, selectedRow } = await getSiteSelection();
+
+  // Kalendář i osa dne stojí na pásmu lokality, takže dávají smysl jen
+  // u jedné vybrané. U „všech lokalit“ by se míchaly dny z různých
+  // pásem, což by mlčky lhalo — zůstane prostý seznam.
+  const timeZone = selectedRow?.timezone;
+  const kalendar = Boolean(selected && timeZone);
+
+  const kameraId = typeof kamera === "string" && kamera ? kamera : null;
+  const vybranyDen: DayString | null = isDayString(den) ? den : null;
+  const dnes = timeZone ? localDateISO(timeZone) : null;
+  const mesicKalendare: MonthString = isMonthString(mesic)
+    ? mesic
+    : (vybranyDen ? monthOf(vybranyDen) : (dnes ? monthOf(dnes) : "2026-01"));
+
+  const rozsah = vybranyDen && timeZone ? dayRange(vybranyDen, timeZone) : null;
 
   let rows: RecordingRow[] = [];
   let total = 0;
   let failed = false;
+  let cameras: CameraOption[] = [];
+  const pocty = new Map<DayString, number>();
   /** Podepsané adresy k nahraným souborům, podle cesty. */
   const odkazy = new Map<string, string>();
 
@@ -79,15 +114,25 @@ export default async function Page({
     let query = supabase
       .from("camera_recordings")
       .select(
-        "id, started_at, ended_at, event_type, size_bytes, storage_path, " +
+        "id, camera_id, started_at, ended_at, event_type, size_bytes, storage_path, " +
           "uploaded_at, video_expired_at, " +
           "cameras!inner(name, serial_number, sites!inner(name, timezone))",
         { count: "exact" },
       )
-      .order("started_at", { ascending: false })
-      .range(from, to);
+      .order("started_at", { ascending: false });
 
     if (selected) query = query.eq("cameras.site_id", selected.id);
+    if (kameraId) query = query.eq("camera_id", kameraId);
+
+    if (rozsah) {
+      // Den se filtruje na hranicích lokality, ne na UTC půlnoci.
+      // Stránkování u dne nedává smysl — den je konečný.
+      query = query
+        .gte("started_at", rozsah.from.toISOString())
+        .lt("started_at", rozsah.to.toISOString());
+    } else {
+      query = query.range(from, to);
+    }
 
     const { data, count, error } = await query.returns<RecordingRow[]>();
     if (error) failed = true;
@@ -112,6 +157,28 @@ export default async function Page({
         }
       }
     }
+    // Kamery do filtru a počty do kalendáře. Obojí jen u vybrané
+    // lokality; napříč lokalitami by to byl seznam bez konce.
+    if (kalendar && selected) {
+      const [{ data: cameraRows }, { data: dayRows }] = await Promise.all([
+        supabase
+          .from("cameras")
+          .select("id, name, serial_number")
+          .eq("site_id", selected.id)
+          .eq("ingest_mode", "ftp")
+          .order("name")
+          .returns<CameraOption[]>(),
+        supabase.rpc("camera_recording_day_counts", {
+          p_site_id: selected.id,
+          p_camera_id: kameraId,
+        }),
+      ]);
+
+      cameras = cameraRows ?? [];
+      for (const row of (dayRows ?? []) as { day: string; recordings: number }[]) {
+        pocty.set(row.day, Number(row.recordings));
+      }
+    }
   } catch {
     failed = true;
   }
@@ -123,9 +190,41 @@ export default async function Page({
         description={
           selected
             ? `Co natočily kamery na lokalitě ${selected.name}.`
-            : "Co natočily stavební kamery napříč lokalitami."
+            : "Co natočily stavební kamery napříč lokalitami. Kalendář a osa dne dávají smysl jen u jedné lokality — přepněte ji v liště."
+        }
+        action={
+          vybranyDen ? (
+            <a
+              href={zaznamyHref({ kamera: kameraId, mesic: mesicKalendare })}
+              className="text-sm text-[var(--accent-bright)] hover:underline"
+            >
+              Zrušit den
+            </a>
+          ) : undefined
         }
       />
+
+      {kalendar ? (
+        <Section className="py-4 sm:py-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <CameraFilter
+              cameras={cameras}
+              active={kameraId}
+              den={vybranyDen}
+              mesic={mesicKalendare}
+            />
+            <div className="lg:w-[19rem] lg:shrink-0">
+              <RecordingCalendar
+                month={mesicKalendare}
+                counts={pocty}
+                selectedDay={vybranyDen}
+                kamera={kameraId}
+                today={dnes ?? ""}
+              />
+            </div>
+          </div>
+        </Section>
+      ) : null}
 
       {failed ? (
         <EmptyState
@@ -136,11 +235,24 @@ export default async function Page({
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Video className="h-5 w-5" aria-hidden="true" />}
-          title="Žádné záznamy"
-          description="Záznam se objeví, jakmile kamera pošle první soubor na relay. Když kamera hlásí a tady nic není, podívejte se do logu watcheru."
+          title={vybranyDen ? "V ten den se nic nenatočilo" : "Žádné záznamy"}
+          description={
+            vybranyDen
+              ? "Vyberte jiný den v kalendáři. Dny se záznamy jsou zvýrazněné a nesou počet."
+              : "Záznam se objeví, jakmile kamera pošle první soubor na relay. Když kamera hlásí a tady nic není, podívejte se do logu watcheru."
+          }
         />
       ) : (
         <>
+          {rozsah && vybranyDen ? (
+            <DayTimeline
+              day={vybranyDen}
+              rows={rows}
+              range={rozsah}
+              timeZone={timeZone}
+            />
+          ) : null}
+
           <DataTable
             caption="Záznamy ze stavebních kamer, nejnovější první"
             head={
@@ -208,7 +320,10 @@ export default async function Page({
             })}
           </DataTable>
 
-          <Pagination page={page} total={total} basePath="/zaznamy" />
+          {/* Den je konečný, takže se nestránkuje. */}
+          {vybranyDen ? null : (
+            <Pagination page={page} total={total} basePath="/zaznamy" />
+          )}
         </>
       )}
     </>
