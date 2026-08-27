@@ -123,16 +123,52 @@ async function take(
 /**
  * IP odesílatele.
  *
- * Za Vercelem je skutečná adresa v x-forwarded-for; první položka je
- * klient, zbytek jsou proxy. Hlavičku si může kdokoli vymyslet, takže
- * jako důkaz neslouží — na omezení počtu požadavků a do logu stačí.
+ * ═══ Pořadí zdrojů není libovolné ══════════════════════════════════
+ * `x-forwarded-for` si smí připsat kdokoli po cestě, včetně toho, kdo
+ * požadavek posílá. Brát z něj PRVNÍ položku znamená brát hodnotu,
+ * kterou si odesílatel vybral sám — a tou se dají udělat tři věci:
+ *
+ *   * obejít vědro na IP (každý požadavek si vymyslí jinou adresu),
+ *   * nafouknout tabulku věder donekonečna,
+ *   * podvrhnout `detections.source_ip`, což je údaj, který detail
+ *     detekce ukazuje operátorovi jako doklad o původu.
+ *
+ * Věřit se dá jen tomu, co doplnila NAŠE proxy:
+ *
+ *   1. `x-vercel-forwarded-for` — nastavuje edge Vercelu a odesílatel
+ *      ji přepsat nemůže; cizí hodnota se zahodí.
+ *   2. `x-real-ip` — totéž u běžných reverzních proxy.
+ *   3. poslední položka `x-forwarded-for` — tu připsala proxy nejblíž
+ *      k nám. Ne první: ta je z druhého konce řetězu, tedy od
+ *      odesílatele.
+ *
+ * Za jiným než popsaným nasazením (přímo vystavený Node) je poslední
+ * položka pořád tou nejméně špatnou volbou.
+ * ═══════════════════════════════════════════════════════════════════
  */
 export function clientIp(headers: Headers): string | null {
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first.slice(0, 45);
-  }
-  const real = headers.get("x-real-ip");
-  return real ? real.trim().slice(0, 45) : null;
+  const vercel = prvni(headers.get("x-vercel-forwarded-for"));
+  if (vercel) return vercel;
+
+  const real = headers.get("x-real-ip")?.trim();
+  if (real) return real.slice(0, MAX_IP_LENGTH);
+
+  return posledni(headers.get("x-forwarded-for"));
+}
+
+/** Nejdelší adresa, která dává smysl: IPv6 se zónou. */
+const MAX_IP_LENGTH = 45;
+
+/** První položka seznamu — u hlavičky od naší proxy je to klient. */
+function prvni(value: string | null): string | null {
+  const first = value?.split(",")[0]?.trim();
+  return first ? first.slice(0, MAX_IP_LENGTH) : null;
+}
+
+/** Poslední položka seznamu — tu připsala proxy nejblíž k nám. */
+function posledni(value: string | null): string | null {
+  if (!value) return null;
+  const parts = value.split(",");
+  const last = parts[parts.length - 1]?.trim();
+  return last ? last.slice(0, MAX_IP_LENGTH) : null;
 }

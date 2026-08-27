@@ -43,6 +43,22 @@ Schéma a RLS jde ověřit lokálně proti jednorázovému PostgreSQL
 supabase/tests/run-local.sh
 ```
 
+## IP odesílatele
+
+`x-forwarded-for` si smí připsat kdokoli po cestě, včetně toho, kdo
+požadavek posílá — **první** položka je tedy hodnota, kterou si vybral
+odesílatel sám. Dala by se jí obejít vědra rate limitu, nafouknout
+jejich tabulka a hlavně podvrhnout `detections.source_ip`, což je údaj,
+který detail detekce ukazuje operátorovi jako doklad o původu.
+
+`clientIp()` proto bere v tomhle pořadí:
+
+1. `x-vercel-forwarded-for` — nastavuje edge Vercelu, odesílatel ji
+   přepsat nemůže,
+2. `x-real-ip` — totéž u běžných reverzních proxy,
+3. **poslední** položku `x-forwarded-for` — tu připsala proxy nejblíž
+   k nám.
+
 ## Práva role anon
 
 Supabase dává rolím `anon` a `authenticated` plná práva na všechny

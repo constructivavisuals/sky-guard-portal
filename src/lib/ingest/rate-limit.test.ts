@@ -71,17 +71,54 @@ describe("takeIngestToken", () => {
 });
 
 describe("clientIp", () => {
-  it("bere první položku z x-forwarded-for", () => {
-    const h = new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1, 10.0.0.2" });
+  it("hlavička od Vercelu má přednost", () => {
+    // Tuhle si edge nastavuje sám a odesílatel ji přepsat nemůže.
+    const h = new Headers({
+      "x-vercel-forwarded-for": "203.0.113.7",
+      "x-forwarded-for": "1.2.3.4, 203.0.113.7",
+      "x-real-ip": "5.6.7.8",
+    });
     assert.equal(clientIp(h), "203.0.113.7");
   });
 
-  it("spadne zpět na x-real-ip", () => {
-    assert.equal(clientIp(new Headers({ "x-real-ip": "198.51.100.9" })), "198.51.100.9");
+  it("z x-forwarded-for bere POSLEDNÍ položku, ne první", () => {
+    // První položku si připisuje odesílatel. Kdyby se brala, dala by
+    // se jí obejít vědra na IP, nafouknout jejich tabulka a hlavně
+    // podvrhnout detections.source_ip, který detail detekce ukazuje
+    // jako doklad o původu.
+    const h = new Headers({ "x-forwarded-for": "1.2.3.4, 10.0.0.1, 203.0.113.7" });
+    assert.equal(clientIp(h), "203.0.113.7");
+  });
+
+  it("podvržená hlavička od odesílatele neprojde", () => {
+    // Přesně ten útok: klient si do XFF napíše cizí adresu, proxy za
+    // ni připíše tu skutečnou.
+    const h = new Headers({ "x-forwarded-for": "8.8.8.8, 198.51.100.9" });
+    assert.equal(clientIp(h), "198.51.100.9");
+  });
+
+  it("jediná položka je ta správná", () => {
+    assert.equal(
+      clientIp(new Headers({ "x-forwarded-for": "203.0.113.7" })),
+      "203.0.113.7",
+    );
+  });
+
+  it("x-real-ip má přednost před x-forwarded-for", () => {
+    const h = new Headers({
+      "x-real-ip": "198.51.100.9",
+      "x-forwarded-for": "1.2.3.4",
+    });
+    assert.equal(clientIp(h), "198.51.100.9");
   });
 
   it("bez hlaviček vrací null", () => {
     assert.equal(clientIp(new Headers()), null);
+  });
+
+  it("prázdná hodnota se bere jako chybějící", () => {
+    assert.equal(clientIp(new Headers({ "x-forwarded-for": "   " })), null);
+    assert.equal(clientIp(new Headers({ "x-vercel-forwarded-for": "" })), null);
   });
 
   it("nesmyslně dlouhou hodnotu ořízne", () => {
