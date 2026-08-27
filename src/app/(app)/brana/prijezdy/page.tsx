@@ -19,7 +19,8 @@ export const metadata: Metadata = { title: "Ohlášené příjezdy" };
 
 interface ArrivalRow {
   id: string;
-  plate: string;
+  /** null u ohlášení, které po lhůtě přišlo o značku. */
+  plate: string | null;
   arrival_date: string;
   note: string | null;
   night_ok: boolean;
@@ -187,7 +188,9 @@ export default async function Page({ searchParams }: PageProps<"/brana/prijezdy"
                     ) : null}
                   </TdTight>
                   <Td label="Značka" className="font-mono">
-                    {row.plate}
+                    {/* Ohlášení po lhůtě značku nemá — v historii se
+                        pozná podle pomlčky, řádek zůstává kvůli počtům. */}
+                    {orDash(row.plate)}
                   </Td>
                   <Td label="Dopravce">{orDash(row.carriers?.name)}</Td>
                   <Td label="Lokalita" className="text-[var(--text-muted)]">
@@ -225,7 +228,9 @@ export default async function Page({ searchParams }: PageProps<"/brana/prijezdy"
                   </Td>
                   {admin ? (
                     <Td className="text-right">
-                      {zruseno ? null : <CancelArrival id={row.id} plate={row.plate} />}
+                      {zruseno ? null : (
+                        <CancelArrival id={row.id} plate={row.plate ?? "—"} />
+                      )}
                     </Td>
                   ) : null}
                 </Tr>

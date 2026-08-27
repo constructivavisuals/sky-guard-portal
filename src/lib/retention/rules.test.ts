@@ -2,9 +2,12 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import {
+  arrivalAnonymization,
   batches,
+  cutoffDateISO,
   DEFAULT_RETENTION_DAYS,
   expiredPaths,
+  passageAnonymization,
   retentionCutoff,
 } from "./rules.ts";
 
@@ -79,5 +82,59 @@ describe("batches", () => {
   it("prázdný seznam nedá žádnou dávku", () => {
     // Prázdná dávka by znamenala volání úložiště pro nic.
     assert.deepEqual(batches([], 50), []);
+  });
+});
+
+describe("passageAnonymization", () => {
+  const NOW = new Date("2026-08-27T10:00:00Z");
+
+  it("smaže značku, jistotu i jméno ze seznamu", () => {
+    const z = passageAnonymization(NOW);
+    assert.equal(z.plate, null);
+    assert.equal(z.confidence, null);
+    assert.equal(z.known_label, null);
+    assert.equal(z.known_plate_id, null);
+    assert.equal(z.anonymized_at, NOW.toISOString());
+  });
+
+  it("list_match a plate_source nechává být", () => {
+    // Rozpad na známé a neznámé musí v měsíčním reportu platit i po
+    // lhůtě — a ani jeden z těch sloupců neříká nic o osobě.
+    const z = passageAnonymization(NOW) as Record<string, unknown>;
+    assert.equal("list_match" in z, false);
+    assert.equal("plate_source" in z, false);
+  });
+
+  it("storage_path nemaže — o snímek se stará mazání souborů", () => {
+    const z = passageAnonymization(NOW) as Record<string, unknown>;
+    assert.equal("storage_path" in z, false);
+  });
+});
+
+describe("arrivalAnonymization", () => {
+  it("smaže značku i volnou poznámku", () => {
+    // V poznámce od řidiče může být cokoli včetně jména.
+    const z = arrivalAnonymization(new Date("2026-08-27T10:00:00Z"));
+    assert.equal(z.plate, null);
+    assert.equal(z.note, null);
+    assert.ok(z.anonymized_at);
+  });
+
+  it("night_ok ani datum nemaže — bez nich by řádek nedával smysl", () => {
+    const z = arrivalAnonymization(new Date()) as Record<string, unknown>;
+    assert.equal("night_ok" in z, false);
+    assert.equal("arrival_date" in z, false);
+  });
+});
+
+describe("cutoffDateISO", () => {
+  it("z času udělá kalendářní datum", () => {
+    assert.equal(cutoffDateISO(new Date("2026-05-30T22:15:00Z")), "2026-05-30");
+  });
+
+  it("hodí se přímo na porovnání s arrival_date", () => {
+    // Ohlášení nemá čas, jen datum, takže se lhůta musí porovnat taky
+    // datem — jinak by textové porovnání nikdy nesedělo.
+    assert.match(cutoffDateISO(retentionCutoff(90, new Date("2026-08-27T00:00:00Z"))), /^\d{4}-\d{2}-\d{2}$/);
   });
 });

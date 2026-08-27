@@ -78,3 +78,73 @@ export function batches<T>(items: readonly T[], size: number = DELETE_BATCH): T[
   }
   return out;
 }
+
+// ── Anonymizace ──────────────────────────────────────────────────
+//
+// ═══ Proč se řádky nemažou ═════════════════════════════════════════
+// SPZ je osobní údaj a držet ho bez lhůty nejde. Smazat celý vjezd by
+// ale zahodilo i to, co osobní údaj není: kolikrát někdo do areálu
+// vjel a kolik z toho bylo neznámých značek. Ta čísla jsou v měsíčním
+// reportu a musí platit i zpětně.
+//
+// Řádek proto zůstane a zmizí z něj jen to, čím se dá identifikovat
+// osoba nebo vozidlo. Hashování by nestačilo: SPZ je krátký
+// a vyčíslitelný řetězec, takže z otisku jde původní hodnota dopočítat
+// hrubou silou — to je pseudonymizace vydávaná za anonymizaci.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Kolik řádků se v jednom běhu anonymizuje.
+ *
+ * Vyšší než strop na mazání souborů: tady se nikam nevolá po síti, jde
+ * jen o to, aby jeden UPDATE nezabral celý běh.
+ */
+export const MAX_ANONYMIZE_PER_RUN = 5_000;
+
+/**
+ * Po jaké nečinnosti se maže vědro rate limitu.
+ *
+ * Klíč vědra nese IP adresu, tedy osobní údaj. Hodina je s rezervou
+ * víc, než kolik trvá nejpomalejší doplnění (0,2 žetonu za vteřinu
+ * u stránky řidiče, tedy plné vědro za necelé dvě minuty), takže se
+ * mazáním o žádnou ochranu nepřijde.
+ */
+export const RATE_LIMIT_RETENTION_MINUTES = 60;
+
+/** Co se z vjezdu po lhůtě vymaže. Ostatní sloupce zůstávají. */
+export function passageAnonymization(now: Date = new Date()) {
+  return {
+    // Samotná značka.
+    plate: null,
+    // Jistota čtení bez značky nic neříká a jen svádí k domýšlení.
+    confidence: null,
+    // Jméno ze seznamu — typicky firma nebo člověk („Novák, beton“).
+    known_label: null,
+    known_plate_id: null,
+    anonymized_at: now.toISOString(),
+    // POZOR: list_match a plate_source se schválně NEMAŽOU. Nejsou to
+    // údaje o osobě, ale o tom, jak vjezd dopadl a kdo značku četl —
+    // a rozpad na známé a neznámé musí v reportu platit i zpětně.
+  };
+}
+
+/** Co se z ohlášení po lhůtě vymaže. */
+export function arrivalAnonymization(now: Date = new Date()) {
+  return {
+    plate: null,
+    // Volný text od řidiče. Může v něm být cokoli včetně jména.
+    note: null,
+    anonymized_at: now.toISOString(),
+  };
+}
+
+/**
+ * Kalendářní datum `dny` zpět v ISO tvaru.
+ *
+ * Ohlášení nemá čas, jen datum příjezdu, takže se lhůta musí porovnat
+ * taky datem. Pásmo se neřeší: den sem nebo tam je u devadesátidenní
+ * lhůty jedno.
+ */
+export function cutoffDateISO(cutoff: Date): string {
+  return cutoff.toISOString().slice(0, 10);
+}

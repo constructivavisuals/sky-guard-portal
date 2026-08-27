@@ -6,9 +6,14 @@ import { DETECTION_BUCKET } from "@/lib/detections/storage.ts";
 import { FLIGHT_BUCKET } from "@/lib/flights/storage.ts";
 import { PASSAGE_BUCKET } from "@/lib/plates/storage.ts";
 import {
+  arrivalAnonymization,
   batches,
+  cutoffDateISO,
   expiredPaths,
+  MAX_ANONYMIZE_PER_RUN,
   MAX_DELETES_PER_RUN,
+  passageAnonymization,
+  RATE_LIMIT_RETENTION_MINUTES,
   retentionCutoff,
   type RetentionRow,
 } from "@/lib/retention/rules.ts";
@@ -93,6 +98,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   const report = {
     sites: sites?.length ?? 0,
     deleted: { media: 0, detections: 0, passages: 0 },
+    /** Řádky, ze kterých po lhůtě zmizel osobní údaj. */
+    anonymized: { passages: 0, arrivals: 0, ips: 0 },
+    /** Smazaná vědra rate limitu — klíč nese IP adresu. */
+    rateLimitBuckets: 0,
     failed: 0,
     /** Strop se vyčerpal a zbytek zůstal na příště. */
     truncated: false,
@@ -123,6 +132,36 @@ export async function GET(request: NextRequest): Promise<Response> {
         });
       }
     }
+  }
+
+  // ── Osobní údaje po lhůtě ──────────────────────────────────────
+  // Soubory výš, data tady. Řádky zůstávají — počty vjezdů v měsíčním
+  // reportu musí platit i zpětně — jen z nich zmizí to, čím se dá
+  // identifikovat osoba nebo vozidlo.
+  for (const site of sites ?? []) {
+    const cutoff = retentionCutoff(site.retention_days, now);
+    try {
+      const vysledek = await anonymizovat(db, site, cutoff, now);
+      report.anonymized.passages += vysledek.passages;
+      report.anonymized.arrivals += vysledek.arrivals;
+      report.anonymized.ips += vysledek.ips;
+    } catch (caught) {
+      report.failed += 1;
+      console.error("Anonymizace po lhůtě selhala", {
+        site_id: site.id,
+        message: caught instanceof Error ? caught.message : String(caught),
+      });
+    }
+  }
+
+  // Vědra rate limitu nevisí na lokalitě — jedno mazání za běh.
+  try {
+    report.rateLimitBuckets = await uklizetVedra(db, now);
+  } catch (caught) {
+    report.failed += 1;
+    console.error("Úklid věder rate limitu selhal", {
+      message: caught instanceof Error ? caught.message : String(caught),
+    });
   }
 
   await recordCronRun("retention", report, report.failed === 0);
@@ -192,4 +231,138 @@ async function uklidit(
   });
 
   return smazano;
+}
+
+/**
+ * Smaže osobní údaje ze záznamů starších než lhůta.
+ *
+ * Vjezdy a ohlášení se anonymizují (řádek zůstává), u detekcí se
+ * nuluje adresa odesílatele. Sloupce, které přidávají ručně nasazované
+ * migrace, chybět můžou: každý krok má vlastní try/catch, aby jeden
+ * chybějící sloupec nezastavil zbytek.
+ */
+async function anonymizovat(
+  db: ReturnType<typeof supabaseAdmin>,
+  site: SiteRow,
+  cutoff: Date,
+  now: Date,
+): Promise<{ passages: number; arrivals: number; ips: number }> {
+  const out = { passages: 0, arrivals: 0, ips: 0 };
+
+  // ── Vjezdy ─────────────────────────────────────────────────────
+  // Nejdřív id, pak update podle nich: PostgREST neumí u zápisu limit
+  // a jeden neomezený UPDATE by na dlouhé historii mohl uříznout běh.
+  const { data: vjezdy, error: vjezdyError } = await db
+    .from("vehicle_passages")
+    .select("id")
+    .eq("site_id", site.id)
+    .lt("passed_at", cutoff.toISOString())
+    .is("anonymized_at", null)
+    .not("plate", "is", null)
+    .limit(MAX_ANONYMIZE_PER_RUN)
+    .returns<{ id: string }[]>();
+
+  if (vjezdyError) {
+    // Chybějící sloupec anonymized_at (migrace 20260913120000) není
+    // důvod shodit celý úklid.
+    console.warn("Vjezdy k anonymizaci se nenačetly", {
+      site_id: site.id,
+      message: vjezdyError.message,
+    });
+  } else if (vjezdy && vjezdy.length > 0) {
+    const { error } = await db
+      .from("vehicle_passages")
+      .update(passageAnonymization(now))
+      .in("id", vjezdy.map((row) => row.id));
+    if (error) throw new Error(`anonymizace vjezdů: ${error.message}`);
+    out.passages = vjezdy.length;
+  }
+
+  // ── Ohlášené příjezdy ──────────────────────────────────────────
+  const { data: ohlaseni, error: ohlaseniError } = await db
+    .from("announced_arrivals")
+    .select("id")
+    .eq("site_id", site.id)
+    .lt("arrival_date", cutoffDateISO(cutoff))
+    .is("anonymized_at", null)
+    .not("plate", "is", null)
+    .limit(MAX_ANONYMIZE_PER_RUN)
+    .returns<{ id: string }[]>();
+
+  if (ohlaseniError) {
+    console.warn("Ohlášení k anonymizaci se nenačetla", {
+      site_id: site.id,
+      message: ohlaseniError.message,
+    });
+  } else if (ohlaseni && ohlaseni.length > 0) {
+    const { error } = await db
+      .from("announced_arrivals")
+      .update(arrivalAnonymization(now))
+      .in("id", ohlaseni.map((row) => row.id));
+    if (error) throw new Error(`anonymizace ohlášení: ${error.message}`);
+    out.arrivals = ohlaseni.length;
+  }
+
+  // ── Adresy odesílatelů u detekcí ───────────────────────────────
+  // IP adresa je osobní údaj a u detekce starší než lhůta už nemá co
+  // dokládat. Řádek i snímek zůstávají.
+  const { data: detekce, error: detekceError } = await db
+    .from("detections")
+    .select("id")
+    .eq("site_id", site.id)
+    .lt("detected_at", cutoff.toISOString())
+    .not("source_ip", "is", null)
+    .limit(MAX_ANONYMIZE_PER_RUN)
+    .returns<{ id: string }[]>();
+
+  if (detekceError) {
+    console.warn("Detekce k vyčištění adres se nenačetly", {
+      site_id: site.id,
+      message: detekceError.message,
+    });
+  } else if (detekce && detekce.length > 0) {
+    const { error } = await db
+      .from("detections")
+      .update({ source_ip: null })
+      .in("id", detekce.map((row) => row.id));
+    if (error) throw new Error(`vyčištění adres: ${error.message}`);
+    out.ips = detekce.length;
+  }
+
+  if (out.passages > 0 || out.arrivals > 0 || out.ips > 0) {
+    console.info("Anonymizace po lhůtě", {
+      site: site.name,
+      ...out,
+      starsi_nez: cutoff.toISOString(),
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Smaže vědra rate limitu, do kterých se dlouho nesáhlo.
+ *
+ * Klíč vědra nese IP adresu nebo sériové číslo kamery, takže je to
+ * tabulka osobních údajů, která rostla donekonečna. Hodina nečinnosti
+ * je s rezervou víc, než kolik trvá doplnění i toho nejpomalejšího
+ * vědra — mazáním se o žádnou ochranu nepřijde.
+ */
+async function uklizetVedra(
+  db: ReturnType<typeof supabaseAdmin>,
+  now: Date,
+): Promise<number> {
+  const hranice = new Date(
+    now.getTime() - RATE_LIMIT_RETENTION_MINUTES * 60_000,
+  ).toISOString();
+
+  const { data, error } = await db
+    .from("ingest_rate_limits")
+    .delete()
+    .lt("updated_at", hranice)
+    .select("key")
+    .returns<{ key: string }[]>();
+
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
 }

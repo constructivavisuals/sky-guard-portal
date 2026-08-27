@@ -69,6 +69,9 @@ run_test_file dispatch_outcomes.sql
 echo "== testy hlídek =="
 run_test_file patrols.sql
 
+echo "== anonymizace po lhůtě =="
+run_test_file retention_anonymization.sql
+
 echo "== práva anon a čtení cron_runs =="
 run_test_file anon_and_cron_read.sql
 

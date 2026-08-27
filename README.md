@@ -373,6 +373,37 @@ nevěděl.
 Jeden běh smaže nejvýš 500 souborů; zbytek vezme zítřek a useknutí je
 vidět v souhrnu jako `truncated`.
 
+### Osobní údaje po lhůtě
+
+Soubory jsou jen půlka věci. Řádky zůstávaly napořád — a v nich značky
+vozidel, adresy odesílatelů a jména z evidence známých značek. SPZ je
+podle EDPB osobní údaj a držet ho bez lhůty nejde.
+
+Řádky se proto **nemažou, ale anonymizují**: zůstane všechno kromě
+toho, čím se dá identifikovat osoba nebo vozidlo. Počty vjezdů
+v měsíčním reportu tak platí i zpětně — a platí i rozpad na známé
+a neznámé, protože `list_match` se zachovává.
+
+| Kde | Co zmizí | Co zůstane |
+|---|---|---|
+| `vehicle_passages` | `plate`, `confidence`, `known_label`, `known_plate_id` | čas, kamera, `list_match`, `plate_source`, `anonymized_at` |
+| `announced_arrivals` | `plate`, `note` (volný text od řidiče) | datum, dopravce, `night_ok` |
+| `detections` | `source_ip` | vše ostatní |
+| `ingest_rate_limits` | celý řádek po hodině nečinnosti | — |
+
+Hashovat značku by nestačilo: SPZ je krátký a vyčíslitelný řetězec,
+takže z otisku jde původní hodnota dopočítat hrubou silou. To by byla
+pseudonymizace vydávaná za anonymizaci.
+
+Vědra rate limitu jsou zvláštní případ — klíč nese IP adresu, takže je
+to tabulka osobních údajů, která rostla donekonečna. Mažou se po hodině
+nečinnosti; plné vědro se doplní nejpozději za dvě minuty, takže se tím
+o žádnou ochranu nepřijde.
+
+Omezení `vehicle_passages_match_needs_plate` proto nově dovolí shodu se
+seznamem bez značky — ale **jen** u anonymizovaného řádku. Zapsat shodu
+bez značky „jen tak“ dál nejde.
+
 ## Push notifikace
 
 ### Klíče

@@ -65,6 +65,10 @@ export function matchArrival(options: {
     (arrival) =>
       arrival.cancelled_at === null &&
       arrival.arrival_date === today &&
+      // Anonymizované ohlášení (po lhůtě) značku nemá a nemůže se tedy
+      // s ničím shodovat. Do rozhodování o dnešním vjezdu se stejně
+      // nedostane — lhůta je v řádu měsíců.
+      arrival.plate !== null &&
       normalizePlate(arrival.plate) === hledana,
   );
 

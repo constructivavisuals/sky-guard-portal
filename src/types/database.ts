@@ -638,6 +638,14 @@ export type VehiclePassage = {
   known_plate_id: string | null;
   known_label: string | null;
   plate_read_at: string | null;
+  /**
+   * Kdy z řádku zmizela značka a jméno ze seznamu. Migrace
+   * 20260913120000, proto volitelné.
+   *
+   * Řádek zůstává kvůli počtům v měsíčním reportu; identifikovat podle
+   * něj vozidlo už nejde.
+   */
+  anonymized_at?: string | null;
   passed_at: string;
   created_at: string;
 };
@@ -976,8 +984,11 @@ export type AnnouncedArrival = {
   id: string;
   carrier_id: string;
   site_id: string;
-  /** Tak, jak ji řidič napsal. Porovnává se přes plate_normalize(). */
-  plate: string;
+  /**
+   * Tak, jak ji řidič napsal. Porovnává se přes plate_normalize().
+   * NULL jen u anonymizovaného ohlášení po lhůtě.
+   */
+  plate: string | null;
   /** `YYYY-MM-DD` v pásmu lokality. */
   arrival_date: string;
   note: string | null;
@@ -985,6 +996,12 @@ export type AnnouncedArrival = {
   night_ok: boolean;
   /** Zrušeno řidičem. Řádek zůstává kvůli dohledatelnosti. */
   cancelled_at: string | null;
+  /**
+   * Kdy z ohlášení zmizela značka a poznámka. Migrace 20260913120000,
+   * proto volitelné. Řádek zůstává, protože se na něj odvolává
+   * decision_reason zásahů.
+   */
+  anonymized_at?: string | null;
   created_at: string;
 };
 
