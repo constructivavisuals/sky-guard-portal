@@ -91,6 +91,19 @@ export function formatConfidence(value: number | null): string {
 }
 
 /** Ohnisko objektivu. */
+/**
+ * Velikost souboru pro člověka.
+ *
+ * Zaokrouhluje na desetinu MB: u záznamu z kamery je podstatné, jestli
+ * má jednotky MB nebo pár kilobajtů (rozbitý remux), ne přesné číslo.
+ */
+export function formatBytes(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} kB`;
+  return `${(value / 1_048_576).toFixed(1)} MB`;
+}
+
 export function formatFocalLength(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "—";
   return `${new Intl.NumberFormat("cs-CZ", {

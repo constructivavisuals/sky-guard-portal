@@ -5,6 +5,7 @@ import {
   formatArmedDays,
   formatArmedWindow,
   formatConditions,
+  formatBytes,
   formatConfidence,
   formatDateTime,
   formatDuration,
@@ -247,5 +248,25 @@ describe("durationBetween", () => {
       durationBetween("2026-08-26T08:12:00Z", "2026-08-26T08:00:00Z"),
       null,
     );
+  });
+});
+
+describe("formatBytes", () => {
+  it("megabajty na desetinu", () => {
+    assert.equal(formatBytes(4_194_304), "4.0 MB");
+    assert.equal(formatBytes(2_500_000), "2.4 MB");
+  });
+
+  it("malé soubory v kilobajtech", () => {
+    // Pár kilobajtů u záznamu z kamery znamená rozbitý remux — musí
+    // být na první pohled poznat, že to není megabajt.
+    assert.equal(formatBytes(2_048), "2 kB");
+    assert.equal(formatBytes(512), "512 B");
+  });
+
+  it("chybějící velikost je pomlčka, ne nula", () => {
+    assert.equal(formatBytes(null), "—");
+    assert.equal(formatBytes(undefined), "—");
+    assert.equal(formatBytes(Number.NaN), "—");
   });
 });

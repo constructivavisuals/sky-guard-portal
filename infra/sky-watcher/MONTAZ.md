@@ -203,8 +203,25 @@ takže je to nejrychlejší důkaz, že řetěz šlape.
 
 ### 4. Jde video přehrát?
 
-Zatím **jen přes databázi** — obrazovka se záznamy je fáze 5 a ještě
-není. V SQL Editoru:
+*Záznamy* v menu (objeví se jen na lokalitě, která má kamery). Seznam
+je nejnovější první a ukazuje čas, kameru se sériovým číslem, typ
+události, velikost a stav:
+
+| Stav | Co znamená |
+|---|---|
+| **Nahráno** | soubor je v úložišti a portál si jeho velikost ověřil — tohle je ten definitivní důkaz |
+| **Přenáší se** | ohlášení prošlo, nahrání ne. Podívej se do logu watcheru |
+| **Bez souboru** | řádek bez cesty; nemělo by nastat |
+| **Po lhůtě** | video se po 14 dnech smazalo, řádek zůstal |
+
+U nahraného záznamu je vpravo **Přehrát** — otevře video v nové kartě
+na podepsané adrese, která platí deset minut.
+
+Velikost je druhá věc, kterou stojí za to zkontrolovat: desítky sekund
+záznamu mají jednotky MB. Pár kilobajtů znamená rozbitý remux.
+
+Kdyby seznam nesouhlasil s tím, co říká watcher, dá se totéž vytáhnout
+i v SQL Editoru:
 
 ```sql
 select r.id, r.started_at, r.event_type, r.size_bytes,

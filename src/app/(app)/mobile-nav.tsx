@@ -15,6 +15,7 @@ import {
   Send,
   Settings,
   Users,
+  Video,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -41,6 +42,7 @@ const PRIMARY = [
 const SECONDARY = [
   { href: "/hlidky", label: "Hlídky", icon: Route, needs: "drone" },
   { href: "/arealy", label: "Areály", icon: MapPin, needs: null },
+  { href: "/zaznamy", label: "Záznamy", icon: Video, needs: "cameras" },
   { href: "/brana", label: "Brána", icon: DoorOpen, needs: "cameras" },
   { href: "/reporty", label: "Reporty", icon: FileText, needs: null },
   { href: "/nastaveni", label: "Nastavení", icon: Settings, needs: null },

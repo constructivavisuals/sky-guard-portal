@@ -13,6 +13,7 @@ import {
   DoorOpen,
   Settings,
   Users,
+  Video,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
@@ -40,6 +41,7 @@ export const NAV_ITEMS = [
   { href: "/lety", label: "Lety", icon: Plane, needs: "drone" },
   { href: "/hlidky", label: "Hlídky", icon: Route, needs: "drone" },
   { href: "/arealy", label: "Areály", icon: MapPin, needs: null },
+  { href: "/zaznamy", label: "Záznamy", icon: Video, needs: "cameras" },
   { href: "/brana", label: "Brána", icon: DoorOpen, needs: "cameras" },
   { href: "/reporty", label: "Reporty", icon: FileText, needs: null },
   { href: "/nastaveni", label: "Nastavení", icon: Settings, needs: null },

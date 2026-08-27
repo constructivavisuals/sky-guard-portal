@@ -101,3 +101,21 @@ describe("siteCapabilities", () => {
     });
   });
 });
+
+describe("Záznamy v navigaci", () => {
+  // Regrese na to, že se sekce po montáži nezobrazí tam, kde má.
+  const POLOZKY_ZAZNAMU = [
+    { href: "/zaznamy", needs: "cameras" },
+    { href: "/zasahy", needs: "drone" },
+  ] as const;
+
+  it("stavba bez dronu Záznamy vidí", () => {
+    const out = visibleNavItems(POLOZKY_ZAZNAMU, { drone: false, cameras: true });
+    assert.deepEqual(out.map((p) => p.href), ["/zaznamy"]);
+  });
+
+  it("areál bez kamer je nevidí", () => {
+    const out = visibleNavItems(POLOZKY_ZAZNAMU, { drone: true, cameras: false });
+    assert.deepEqual(out.map((p) => p.href), ["/zasahy"]);
+  });
+});
