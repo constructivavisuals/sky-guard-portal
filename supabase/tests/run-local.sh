@@ -69,6 +69,9 @@ run_test_file dispatch_outcomes.sql
 echo "== testy hlídek =="
 run_test_file patrols.sql
 
+echo "== kamerový modul =="
+run_test_file camera_module.sql
+
 echo "== anonymizace po lhůtě =="
 run_test_file retention_anonymization.sql
 

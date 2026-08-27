@@ -172,6 +172,91 @@ Postup rotace:
 Prázdná nebo shodná hodnota se ignoruje, takže krok 3 jde udělat i tak,
 že se proměnná nechá prázdná.
 
+## Stavební kamery
+
+Klient může mít stavbu s kamerami a bez dronu, areál s dronem a bez
+kamer, nebo obojí. Řídí to `sites.has_drone` a `sites.has_cameras` —
+vědomé nastavení, ne odvozenina z toho, jestli je vyplněné `dock_sn`
+(lokalita může na dron teprve čekat).
+
+Stavební kamery jsou Dahua, které umí jen FTP. Přijímá je relay: soubor
+remuxne do MP4, uloží do R2 a založí řádek v `camera_recordings`.
+Časosběr **do Sky Guardu nepatří** — je to marketingová funkce
+Constructivy a snímky (`.jpg`) míří dál tam. Relay má proto dva cíle
+a rozděluje je podle přípony; spojkou mezi systémy je sériové číslo
+kamery, nic jiného.
+
+### Dva způsoby příjmu pod jednou tabulkou
+
+Kamera je fyzické zařízení a patří na jeden řádek v `cameras`. Rozdíl
+mezi nimi je ale bezpečnostní, takže ho nese výslovný sloupec
+`ingest_mode`, ne odvozenina ze souběhu nullable sloupců:
+
+| | `http` | `ftp` |
+|---|---|---|
+| doručení | podepsaný požadavek na `/api/ingest` | nahrání na relay |
+| ověření | HMAC klíč odvozený z `INGEST_SECRET` | **žádné** |
+| co ji chrání | podpis každého požadavku | nedostupnost FTP zvenčí |
+| zóna a zásah | ano | ne |
+
+CHECK v databázi drží, že FTP kamera **nesmí mít ingest klíč** (otisk by
+tvrdil, že se požadavky ověřují) a **musí mít FTP účet** (bez něj ji
+watcher nedohledá).
+
+Kontrola schopností (`detects_person` a spol.) se u FTP kamer nepoužívá:
+watcher třídy objektů nezná a typ události bere z cesty k souboru.
+
+### Tři lhůty, které se nesmí splést
+
+| Sloupec | Co znamená | Výchozí |
+|---|---|---|
+| `sites.retention_days` | naše lhůta pro Supabase Storage — snímky detekcí, vjezdů, média letů | 90 dní |
+| `sites.clip_retention_days` | naše lhůta pro video ze stavebních kamer v R2 | 14 dní |
+| `cameras.sd_retention_days` | jak dlouho vydrží záznam na SD kartě **v kameře** | — |
+
+Poslední z nich je údaj o zařízení, ne rozhodnutí. Constructiva má týž
+sloupec pojmenovaný `retention_days` a její README před tou záměnou
+varuje; tady se rovnou zakládá pod jménem, které si to splést nemůže.
+
+### Záznam přežije video
+
+Po uplynutí `clip_retention_days` se maže objekt v R2, ale řádek
+v `camera_recordings` zůstává a vyplní se `video_expired_at`. V portálu
+je pak vidět, že se v ten čas něco dělo — jen to nejde přehrát. `r2_key`
+zůstává jako stopa, kde objekt byl, takže sám o sobě není podmínkou
+přehratelnosti.
+
+Idempotence příjmu stojí **jen** na `sd_file_path`. Constructiva má
+vedle toho ještě unique `(camera_id, started_at)` z doby před FTP
+příjmem a její README ho popisuje jako past: dvojice main + sub stream
+má stejný čas začátku a druhý stream se zahodí. Tady ten index záměrně
+není.
+
+### Servisní role relaye
+
+Relay běží na cizím serveru, takže na něm leží přihlašovací údaje.
+Nemá service_role klíč — má dvě role s právy na jednotlivé **sloupce**:
+
+| Role | Umí |
+|---|---|
+| `cam_ingest` | dohledat kameru, založit záznam, orazítkovat `cameras.last_seen_at` |
+| `cam_retention` | přečíst lhůtu lokality a označit `video_expired_at` |
+
+`cam_ingest` je proti constructivě rozšířený o `UPDATE (last_seen_at)`.
+Je to vědomé: platí se tím za to, že odpadá celý hlídač výpadků
+(tabulka, dvě funkce, kontejner a webhook) — Sky Guard už umí varovat
+podle `last_seen_at` sám. Grant je sloupcový a hlídá ho whitelist
+v `supabase/tests/rls_audit.sql`, který **spadne na jakékoli právo
+navíc** i na právo, které v seznamu chybí. Kontrola se dá pustit i proti
+produkci.
+
+Hesla se nastavují ručně a do gitu nepatří:
+
+```sql
+ALTER ROLE cam_ingest    PASSWORD '…';
+ALTER ROLE cam_retention PASSWORD '…';
+```
+
 ## Co kamera umí
 
 `cameras.detects_person`, `detects_vehicle` a `reads_plate` (migrace
