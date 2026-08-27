@@ -314,7 +314,10 @@ describe("runDispatch — co musí být připravené, než se letí", () => {
     assert.equal(inserted[0].decision_reason?.dock?.battery_percent, 12);
   });
 
-  it("plné úložiště doku potlačí zásah", async () => {
+  it("plné úložiště doku zásah NEZASTAVÍ", async () => {
+    // Ověřeno u doku: dron vzlétne i s plnou kartou. Neodletěný zásah
+    // je horší ztráta než nepořízená nahrávka — na zaplnění upozorní
+    // varování, ne potlačený zásah.
     const { deps: d, inserted } = deps({
       getDockState: async () => ({
         ok: true,
@@ -324,8 +327,11 @@ describe("runDispatch — co musí být připravené, než se letí", () => {
 
     await runDispatch(context(), d);
 
-    assert.equal(inserted[0].outcome, "suppressed_dock");
-    assert.equal(inserted[0].decision_reason?.dock?.reason, "storage_full");
+    assert.equal(inserted[0].outcome, "sent");
+    assert.equal(inserted[0].decision_reason?.dock?.ok, true);
+    // Hodnota se do důvodu zapisuje dál — až se bude dohledávat,
+    // proč u letu chybí záznam, tohle je ta stopa.
+    assert.equal(inserted[0].decision_reason?.dock?.storage_used_percent, 99.4);
   });
 
   it("nedostupný dok zásah potlačí, neposílá naslepo", async () => {

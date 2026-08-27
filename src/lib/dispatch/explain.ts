@@ -300,6 +300,9 @@ function popisDoku(dock: NonNullable<DecisionReason["dock"]>): string {
       return dock.battery_percent === null
         ? "Dron neměl dost nabito."
         : `Dron měl ${Math.round(dock.battery_percent)} % baterie, což je pod hranicí pro vzlet.`;
+    // Zaplněné úložiště už let neblokuje (viz dock-readiness.ts).
+    // Tahle větev tu zůstává pro STARÉ zásahy, které se tehdy potlačily
+    // — zapsané rozhodnutí se nepřepisuje podle dnešních pravidel.
     case "storage_full":
       return dock.storage_used_percent === null
         ? "Úložiště doku bylo plné, nebylo kam ukládat snímky."

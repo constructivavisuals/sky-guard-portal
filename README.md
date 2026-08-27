@@ -380,12 +380,20 @@ Z toho plyne, co musí být nastavené, aby zásah odletěl:
   ne dronu.
 * **lokalita musí mít rozumnou výšku návratu** (`sites.rth_altitude`,
   výchozí 60 m). Viz níž — je to nejtišší způsob, jak nevzlétnout.
-* **dok musí být ve stavu, ze kterého se dá vzlétnout**: dron v doku,
-  baterie nad 40 %, úložiště pod 95 %. Táž kritéria jako u hlídek,
-  sdílená v `lib/dispatch/dock-readiness.ts`. Když nevyhoví, zásah se
-  neodešle a důvod je v `dispatches.decision_reason.dock`; výsledek je
+* **dok musí být ve stavu, ze kterého se dá vzlétnout**: dron v doku
+  a baterie nad 40 %. Táž kritéria jako u hlídek, sdílená
+  v `lib/dispatch/dock-readiness.ts`. Když nevyhoví, zásah se neodešle
+  a důvod je v `dispatches.decision_reason.dock`; výsledek je
   `suppressed_dock`, ne `failed` — nic se nepokazilo, jen dron nemohl
   letět.
+
+  **Plné úložiště doku mezi kritéria nepatří.** Ověřeno u doku: dron
+  vzlétne i s plnou kartou — zaplněné úložiště znamená, že se nemusí
+  uložit záznam, ne že se nedá letět. A to je jiná ztráta: nahrávka,
+  která se nepořídí, je nepříjemná, kdežto neodletěný zásah znamená,
+  že se nad zónou nikdo nepodíval. Zaplnění se proto od 90 % hlásí
+  jako varování na přehledu a notifikací z cronu, jinou větou než
+  „zásah neodletí“.
 
 Když se některý vstup pro rozhodnutí nepodaří zjistit, zásah končí
 jako `suppressed_unknown` — ne jako `suppressed_disarmed`. Ty dva se
@@ -575,7 +583,8 @@ takže závěr spadne na `NULL` — tvrdit „nic tam není“ na základě čá
 snímků by lhalo.
 
 Endpoint vrací souhrn, co naplánoval, co přeskočil (dron mimo dok,
-baterie pod 40 %, zaplněné úložiště) a co selhalo. Přeskočení je
+baterie pod 40 % — zaplněné úložiště mezi důvody NEPATŘÍ, viz Zásah)
+a co selhalo. Přeskočení je
 normální provozní stav a končí stavem 200; jakékoli **selhání vrací
 500**, aby `-f` v curlu poslalo mail. Bez toho by běh, ve kterém
 selhalo plánování všech hlídek, prošel tiše.

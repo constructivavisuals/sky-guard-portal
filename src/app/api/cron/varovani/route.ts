@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { recordCronRun } from "@/lib/cron/record.ts";
 import {
   CAMERA_SILENT_MINUTES,
+  STORAGE_WARNING_PERCENT,
   PLATE_READ_STUCK_MINUTES,
   STUCK_GRACE_MINUTES,
   STUCK_WINDOW_HOURS,
@@ -250,6 +251,19 @@ export async function GET(request: NextRequest): Promise<Response> {
         continue;
       }
 
+      // Zaplněné úložiště je varování, ne překážka: dron vzlétne
+      // i s plnou kartou, jen se nemusí uložit záznam. Hlásí se proto
+      // zvlášť a jinou větou — „zásah neodletí“ by tu byla nepravda.
+      const uloziste = dock.state.storageUsedPercent;
+      if (uloziste !== null && uloziste > STORAGE_WARNING_PERCENT) {
+        const posláno = await poslat("dock_problem", "storage", {
+          title: `Dok na lokalitě ${site.name} má skoro plné úložiště`,
+          body: `Zaplněné na ${Math.round(uloziste)} %. Dron létá dál, ale záznamy z letů se nemusí uložit.`,
+          url: "/prehled",
+        });
+        if (posláno) report.dockWarnings += 1;
+      }
+
       const readiness = checkDockReadiness(dock.state);
       if (readiness.ok) continue;
 
@@ -259,10 +273,6 @@ export async function GET(request: NextRequest): Promise<Response> {
           dock.state.batteryPercent === null
             ? "Dron nemá dost nabito."
             : `Dron má ${Math.round(dock.state.batteryPercent)} % baterie, pod hranicí pro vzlet.`,
-        storage_full:
-          dock.state.storageUsedPercent === null
-            ? "Úložiště doku je plné."
-            : `Úložiště doku je zaplněné na ${Math.round(dock.state.storageUsedPercent)} %.`,
       };
 
       const posláno = await poslat("dock_problem", "dock", {

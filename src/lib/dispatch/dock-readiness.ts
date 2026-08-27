@@ -13,13 +13,7 @@ import type { DockState } from "./flighthub.ts";
  */
 export const MIN_BATTERY_PERCENT = 40;
 
-/** Nad tímhle zaplněním nemá dok kam ukládat pořízené snímky. */
-export const MAX_STORAGE_PERCENT = 95;
-
-export type DockBlockReason =
-  | "drone_not_in_dock"
-  | "low_battery"
-  | "storage_full";
+export type DockBlockReason = "drone_not_in_dock" | "low_battery";
 
 export type DockReadiness =
   | { ok: true; reason: null }
@@ -34,7 +28,20 @@ export type DockReadiness =
  * dok opravdu poslal.
  *
  * Vypnutý dron překážka není. „power_off“ je běžný stav mezi lety;
- * probouzí ho naplánovaná úloha. Rozhoduje jen to, jestli sedí v doku.
+ * probouzí ho úloha. Rozhoduje jen to, jestli sedí v doku.
+ *
+ * ═══ Plné úložiště TAKY NEBLOKUJE ══════════════════════════════════
+ * Dřív se nad 95 % zaplnění let odmítal. Ověřeno u doku: dron vzlétne
+ * i s plným úložištěm — zaplněná karta znamená, že se nemusí uložit
+ * ZÁZNAM, ne že se nedá letět.
+ *
+ * A to je jiná ztráta: neodletěný zásah znamená, že se nad zónou
+ * nikdo nepodíval. Nahrávka, která se nepořídí, je nepříjemná;
+ * nepřítomný dron je ta věc, kvůli které tenhle portál existuje.
+ *
+ * Zaplnění se proto hlásí jako VAROVÁNÍ (dashboard.ts, práh 90 %)
+ * a jako notifikace z cronu varování — ne jako důvod nevzlétnout.
+ * ═══════════════════════════════════════════════════════════════════
  */
 export function checkDockReadiness(state: DockState): DockReadiness {
   if (!state.droneInDock) return { ok: false, reason: "drone_not_in_dock" };
@@ -44,13 +51,6 @@ export function checkDockReadiness(state: DockState): DockReadiness {
     state.batteryPercent < MIN_BATTERY_PERCENT
   ) {
     return { ok: false, reason: "low_battery" };
-  }
-
-  if (
-    state.storageUsedPercent !== null &&
-    state.storageUsedPercent > MAX_STORAGE_PERCENT
-  ) {
-    return { ok: false, reason: "storage_full" };
   }
 
   return { ok: true, reason: null };

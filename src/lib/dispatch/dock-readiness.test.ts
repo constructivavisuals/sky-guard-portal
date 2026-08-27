@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 
 import {
   checkDockReadiness,
-  MAX_STORAGE_PERCENT,
   MIN_BATTERY_PERCENT,
 } from "./dock-readiness.ts";
 import type { DockState } from "./flighthub.ts";
@@ -50,15 +49,25 @@ describe("checkDockReadiness", () => {
     );
   });
 
-  it("blokuje nad hranicí zaplnění, na hranici ne", () => {
+  it("plné úložiště let NEBLOKUJE", () => {
+    // Ověřeno u doku: dron vzlétne i s plnou kartou. Zaplněné úložiště
+    // znamená, že se nemusí uložit záznam — ne že se nedá letět.
+    // Neodletěný zásah je horší ztráta než nepořízená nahrávka.
+    for (const zaplneni of [95, 99, 100]) {
+      assert.equal(
+        checkDockReadiness(dock({ storageUsedPercent: zaplneni })).ok,
+        true,
+        `${zaplneni} %`,
+      );
+    }
+  });
+
+  it("plné úložiště nezachrání vybitou baterii", () => {
+    // Baterie blokuje dál — tam dron opravdu nedoletí.
     assert.equal(
-      checkDockReadiness(dock({ storageUsedPercent: MAX_STORAGE_PERCENT + 0.1 }))
+      checkDockReadiness(dock({ storageUsedPercent: 100, batteryPercent: 10 }))
         .reason,
-      "storage_full",
-    );
-    assert.equal(
-      checkDockReadiness(dock({ storageUsedPercent: MAX_STORAGE_PERCENT })).ok,
-      true,
+      "low_battery",
     );
   });
 
