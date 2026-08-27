@@ -9,7 +9,9 @@ import {
   logoPathFor,
 } from "@/lib/logo.ts";
 import { isAdmin } from "@/lib/profile.ts";
+import { roleChangeError } from "@/lib/roles.ts";
 import { createClient } from "@/lib/supabase/server.ts";
+import type { UserRole } from "@/types/database.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 import {
   parseClientForm,
@@ -64,6 +66,33 @@ function snapshot(data: FormData): Record<string, string | string[]> {
 
 async function requireAdmin(): Promise<boolean> {
   return isAdmin(await getCurrentProfile());
+}
+
+/**
+ * Obstará vstupy pro `roleChangeError()` a zeptá se na výsledek.
+ *
+ * Samotné rozhodnutí je v lib/roles.ts, aby šlo otestovat bez
+ * databáze. Tady je jen čtení — obojí pod session uživatele, takže
+ * i na tuhle kontrolu platí RLS.
+ */
+async function zkontrolovatRoli(
+  targetId: string,
+  novaRole: UserRole,
+): Promise<string | null> {
+  const profile = await getCurrentProfile();
+  const supabase = await createClient();
+
+  const [{ data: current }, { count, error }] = await Promise.all([
+    supabase.from("profiles").select("role").eq("id", targetId).maybeSingle<{ role: UserRole }>(),
+    supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin"),
+  ]);
+
+  return roleChangeError({
+    isSelf: Boolean(profile && profile.id === targetId),
+    currentRole: current?.role ?? null,
+    newRole: novaRole,
+    adminCount: error ? null : count,
+  });
 }
 
 /** Hláška z Admin API bez podrobností, které uživateli nepomůžou. */
@@ -258,6 +287,13 @@ export async function upravitKlienta(
   const parsed = parseClientForm(data);
   if (!parsed.ok) {
     return { ok: false, errors: parsed.errors, values: snapshot(data), attempt };
+  }
+
+  // Před zápisem, ne po něm: role se mění jedním UPDATE spolu se
+  // jménem a firmou, takže po něm už není co vracet.
+  const roleErr = await zkontrolovatRoli(id, parsed.value.role);
+  if (roleErr) {
+    return { ok: false, errors: { role: roleErr }, values: snapshot(data), attempt };
   }
 
   const logo = await nahratLogo(id, data.get("logo") as File | null);
