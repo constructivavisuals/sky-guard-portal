@@ -108,6 +108,36 @@ kamera otisk nemá, podepisuje se společným `INGEST_SECRET` a server to
 při každé detekci zaloguje — podle toho se pozná, na které kamery se
 zapomnělo.
 
+### Rotace hlavního tajemství
+
+Klíč každé kamery se odvozuje z `INGEST_SECRET`. Kdyby se ověřovalo jen
+proti jedné hodnotě, jeho výměna by naráz zneplatnila klíče **všech**
+kamer — a než by je někdo objel a přehrál, ingest by nepřijal jedinou
+detekci. Nepoznalo by se to: kamera zmlkne stejně, jako když jí někdo
+utrhne kabel, a portál to ohlásí až po hodině jako „kamera se
+neozvala“.
+
+Ověřuje se proto proti dvěma hodnotám naráz:
+
+| Proměnná | Význam |
+|---|---|
+| `INGEST_SECRET` | nové tajemství, zkouší se první |
+| `INGEST_SECRET_PREVIOUS` | to předchozí, jen po dobu přepojení |
+
+Postup rotace:
+
+1. Do `INGEST_SECRET_PREVIOUS` uložit současnou hodnotu, do
+   `INGEST_SECRET` novou. Od téhle chvíle hlásí všechny kamery dál.
+2. Přehrát kamery po jedné (`npm run kamera-klic` s novým tajemstvím
+   v prostředí). Každá, která ještě jede na starém, se při detekci
+   zaloguje jako „kamera jede na PŘEDCHOZÍM tajemství“ — z logu je
+   vidět, kolik jich zbývá.
+3. Až v logu nikdo nezbyde, `INGEST_SECRET_PREVIOUS` smazat. Tím starý
+   klíč přestane platit.
+
+Prázdná nebo shodná hodnota se ignoruje, takže krok 3 jde udělat i tak,
+že se proměnná nechá prázdná.
+
 ## Co kamera umí
 
 `cameras.detects_person`, `detects_vehicle` a `reads_plate` (migrace

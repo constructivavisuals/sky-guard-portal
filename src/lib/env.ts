@@ -32,6 +32,40 @@ export function ingestSecret(): string {
   return required("INGEST_SECRET");
 }
 
+/**
+ * Tajemství, kterými se smí ingest ověřit — nové i to předchozí.
+ *
+ * ═══ Proč dvě ═════════════════════════════════════════════════════
+ * Klíč každé kamery se odvozuje z INGEST_SECRET. Když se tajemství
+ * vymění, přestanou zároveň platit klíče VŠECH kamer — a než někdo
+ * objede areál a přehraje je, ingest nepřijme jedinou detekci. Přitom
+ * se to ani nepozná: kamera zmlkne stejně, jako když jí někdo utrhne
+ * kabel, a portál to ohlásí až po hodině jako „kamera se neozvala“.
+ *
+ * INGEST_SECRET_PREVIOUS proto drží tu starou hodnotu po dobu
+ * přepojení. Kamery jedou dál na starém klíči, přehrávají se po jedné
+ * a v logu je vidět, kolik jich ještě zbývá. Po dokončení se proměnná
+ * smaže a rotace je hotová.
+ *
+ * Pořadí je dané: nové tajemství se zkouší první, aby už přepnutá
+ * kamera prošla na první pokus a stará hodnota se s každým dnem
+ * používala míň.
+ * ═════════════════════════════════════════════════════════════════
+ */
+export function ingestSecrets(): string[] {
+  const out = [required("INGEST_SECRET")];
+
+  const previous = process.env.INGEST_SECRET_PREVIOUS?.trim();
+  // Prázdná hodnota se bere jako nenastavená, jinak by se ověřovalo
+  // proti prázdnému tajemství.
+  if (previous) {
+    // Shodné hodnoty nemají smysl a jen by zdvojily práci.
+    if (previous !== out[0]) out.push(previous);
+  }
+
+  return out;
+}
+
 export interface FlightHubConfig {
   host: string;
   projectUuid: string;

@@ -1,26 +1,16 @@
 import { after, type NextRequest } from "next/server";
 
 import { runDispatch, type DispatchContext } from "@/lib/dispatch/run.ts";
-import { ingestSecret } from "@/lib/env.ts";
-import {
-  cameraKeyFingerprint,
-  deriveCameraKey,
-} from "@/lib/ingest/camera-key.ts";
+import { ingestSecrets } from "@/lib/env.ts";
 import { parseDetectionPayload } from "@/lib/ingest/payload.ts";
-import {
-  findIngestCamera,
-  type IngestCameraRow,
-} from "@/lib/ingest/camera-lookup.ts";
+import { findIngestCamera } from "@/lib/ingest/camera-lookup.ts";
 import { cameraCapabilities } from "@/lib/ingest/camera-lookup.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
 import { markUnexpectedClass } from "@/lib/ingest/unexpected.ts";
 import { DETECTION_BUCKET } from "@/lib/detections/storage.ts";
 import { ingestImagePath, MAX_IMAGE_BYTES } from "@/lib/ingest/image.ts";
-import {
-  publicFailureReason,
-  verifySignature,
-  type SignatureResult,
-} from "@/lib/ingest/signature.ts";
+import { publicFailureReason } from "@/lib/ingest/signature.ts";
+import { verifyForCamera } from "@/lib/ingest/verify-camera.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
 // POST /api/ingest/detection
@@ -51,63 +41,6 @@ function jsonError(status: number, error: string, detail?: unknown) {
   );
 }
 
-/**
- * Ověření podpisu klíčem té kamery, za kterou se požadavek vydává.
- *
- * Neznámá kamera se ověřuje společným tajemstvím: nová kamera se tak
- * dá zapojit ještě před tím, než ji někdo založí v portálu, a hlavně
- * to nedá jinou odpověď než u kamery existující. Rozdíl mezi „neznámá“
- * a „špatný podpis“ se volajícímu přizná až po platném podpisu.
- */
-function verifyForCamera(options: {
-  rawBody: string;
-  signature: string | null;
-  timestamp: string | null;
-  now: Date;
-  masterSecret: string;
-  camera: IngestCameraRow | null;
-}): SignatureResult {
-  const { rawBody, signature, timestamp, now, masterSecret, camera } = options;
-  const base = { rawBody, signature, timestamp, now };
-
-  const serial = camera?.serial_number;
-  if (!camera || !camera.ingest_secret_hash || !serial) {
-    if (camera) {
-      // Fallback na společné tajemství. Loguje se, aby bylo vidět, které
-      // kamery ještě čekají na vlastní klíč — bez toho by se na ně při
-      // rotaci INGEST_SECRET zapomnělo.
-      console.warn("Kamera se podepisuje společným INGEST_SECRET", {
-        camera_id: camera.id,
-        site_id: camera.site_id,
-      });
-    }
-    return verifySignature({ ...base, secret: masterSecret });
-  }
-
-  let derived: string;
-  try {
-    derived = deriveCameraKey(masterSecret, serial, camera.ingest_key_version);
-  } catch (error) {
-    console.error("Klíč kamery nejde odvodit", {
-      camera_id: camera.id,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return { valid: false, reason: "signature_mismatch" };
-  }
-
-  if (cameraKeyFingerprint(derived) !== camera.ingest_secret_hash) {
-    // Uložený otisk nepatří ke klíči, který z INGEST_SECRET vyjde —
-    // typicky po rotaci hlavního tajemství bez přegenerování kamer.
-    // Bez tohohle hlášení by kamera jen tiše přestala hlásit.
-    console.error("Otisk klíče kamery nesedí na odvozený klíč", {
-      camera_id: camera.id,
-      key_version: camera.ingest_key_version,
-    });
-    return { valid: false, reason: "signature_mismatch" };
-  }
-
-  return verifySignature({ ...base, secret: derived });
-}
 
 /**
  * Nad tímhle se tělo ani nečte.
@@ -150,9 +83,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(413, "payload_too_large");
   }
 
-  let secret: string;
+  let secrets: string[];
   try {
-    secret = ingestSecret();
+    secrets = ingestSecrets();
   } catch {
     // Chybějící konfigurace nesmí vypadat jako neplatný podpis.
     console.error("INGEST_SECRET není nastavený");
@@ -206,7 +139,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     signature: request.headers.get("x-signature"),
     timestamp: request.headers.get("x-timestamp"),
     now: receivedAt,
-    masterSecret: secret,
+    secrets,
     camera,
   });
 
