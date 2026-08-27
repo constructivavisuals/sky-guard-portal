@@ -74,6 +74,8 @@ interface ZoneRow {
     timezone: string;
     cooldown_seconds: number;
     dock_sn: string | null;
+    /** Migrace 20260916120000; bez ní se použije výchozí výška. */
+    rth_altitude: number | null;
   } | null;
 }
 
@@ -81,6 +83,11 @@ interface ZoneRow {
 const ZAKLAD =
   "id, name, enabled, location, default_level, site_id, " +
   "sites(timezone, cooldown_seconds, dock_sn)";
+
+/** S výškou návratu. Přidává ji migrace 20260916120000. */
+const S_VYSKOU =
+  "id, name, enabled, location, default_level, site_id, " +
+  "sites(timezone, cooldown_seconds, dock_sn, rth_altitude)";
 
 export async function poslatDronDoZony(
   _prev: ManualDispatchState,
@@ -105,10 +112,20 @@ export async function poslatDronDoZony(
   // 20260903180000 a PostgREST odmítne celý dotaz, když jediný sloupec
   // chybí. Bez záchytné větve by tlačítko na nezmigrované databázi
   // hlásilo „zónu se nepodařilo najít“ místo „zóna nemá trasu“.
-  let { data: zone, error } = await dotaz(`${ZAKLAD}, wayline_uuid`);
+  let { data: zone, error } = await dotaz(`${S_VYSKOU}, wayline_uuid`);
+  if (error) {
+    ({ data: zone, error } = await dotaz(`${ZAKLAD}, wayline_uuid`));
+    if (zone && zone.sites) zone.sites = { ...zone.sites, rth_altitude: null };
+  }
   if (error) {
     ({ data: zone, error } = await dotaz(ZAKLAD));
-    if (zone) zone = { ...zone, wayline_uuid: null };
+    if (zone) {
+      zone = {
+        ...zone,
+        wayline_uuid: null,
+        sites: zone.sites ? { ...zone.sites, rth_altitude: null } : null,
+      };
+    }
   }
 
   if (error || !zone || !zone.sites) {
@@ -133,6 +150,7 @@ export async function poslatDronDoZony(
     siteCooldownSeconds: zone.sites.cooldown_seconds,
     siteTimezone: zone.sites.timezone,
     siteDockSn: zone.sites.dock_sn,
+    siteRthAltitude: zone.sites.rth_altitude,
     zoneWaylineUuid: zone.wayline_uuid,
     // Hranice zóny platí i tady, i když ruční zásah stejně jede na
     // nejvyšším stupni — zvednout se dá jen nahoru, takže nic nezmění.

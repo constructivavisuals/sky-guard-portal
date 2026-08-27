@@ -2,7 +2,6 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import {
-  DISPATCH_LEAD_SECONDS,
   runDispatch,
   type DispatchDeps,
   type DispatchNotification,
@@ -30,6 +29,7 @@ function context(overrides: Partial<DispatchContext> = {}): DispatchContext {
     siteCooldownSeconds: 900,
     siteTimezone: "Europe/Prague",
     siteDockSn: "DOCK-1",
+    siteRthAltitude: 60,
     zoneWaylineUuid: "wayline-1",
     zoneDefaultLevel: 1,
     objectClass: "person",
@@ -371,12 +371,11 @@ describe("runDispatch — let k zásahu", () => {
     // Počasí z doku se ukládá k letu, stejně jako u hlídek.
     assert.equal(flights[0].conditions?.wind_speed, 2);
 
+    // Zásah jde immediate, takže se nic neplánuje dopředu: čas letu je
+    // okamžik odeslání. Sync si ho stejně přepíše skutečným začátkem
+    // z trajektorie.
     const lead = flights[0].beginAt.getTime() - pred;
-    assert.ok(
-      lead >= (DISPATCH_LEAD_SECONDS - 2) * 1000 &&
-        lead <= (DISPATCH_LEAD_SECONDS + 2) * 1000,
-      `začátek za ${lead} ms`,
-    );
+    assert.ok(lead >= 0 && lead <= 2000, `začátek za ${lead} ms`);
   });
 
   it("potlačený zásah let nezakládá", async () => {
@@ -735,7 +734,6 @@ describe("runDispatch — ruční zásah z portálu", () => {
     assert.equal(flights.length, 1);
     assert.equal(flights[0].fhTaskUuid, "task-1");
     assert.equal(flights[0].dispatchId, "dispatch-1");
-    assert.ok(DISPATCH_LEAD_SECONDS > 0);
   });
 });
 
@@ -783,5 +781,59 @@ describe("runDispatch — spodní hranice zóny", () => {
     await runDispatch(context({ objectClass: "unknown", zoneDefaultLevel: 4 }), d);
     assert.equal(inserted[0].outcome, "failed");
     assert.equal(inserted[0].level_sent, 4);
+  });
+});
+
+describe("runDispatch — výška návratu", () => {
+  /** Odchytí, co se poslalo do FlightHubu. */
+  function sledovat(overrides: Partial<DispatchContext> = {}) {
+    let odeslano: Record<string, unknown> | null = null;
+    const { deps: d, inserted } = deps({
+      createFlightTask: async (input) => {
+        odeslano = input as unknown as Record<string, unknown>;
+        return { taskUuid: "task-1", httpStatus: 200, response: { code: 0 }, ok: true };
+      },
+    });
+    return { d, inserted, odeslano: () => odeslano, ctx: context(overrides) };
+  }
+
+  it("výška lokality jde do úlohy i do důvodu", async () => {
+    const { d, inserted, odeslano, ctx } = sledovat({ siteRthAltitude: 45 });
+    await runDispatch(ctx, d);
+
+    assert.equal(odeslano()?.rthAltitude, 45);
+    assert.equal(inserted[0].decision_reason?.rth_altitude_m, 45);
+  });
+
+  it("nezjištěná výška spadne na výchozích 60, ne na starých 100", async () => {
+    // Natvrdo 100 m bylo nad stropem projektu a mise se nespouštěly —
+    // přitom to vypadalo, jako by dron nereagoval.
+    const { d, inserted, odeslano, ctx } = sledovat({ siteRthAltitude: null });
+    await runDispatch(ctx, d);
+
+    assert.equal(odeslano()?.rthAltitude, 60);
+    assert.equal(inserted[0].decision_reason?.rth_altitude_m, 60);
+  });
+
+  it("zásah letí okamžitě, ne plánovaně", async () => {
+    const { d, odeslano, ctx } = sledovat();
+    await runDispatch(ctx, d);
+
+    assert.equal(odeslano()?.taskType, "immediate");
+    // Časy se u okamžité úlohy neposílají vůbec.
+    assert.equal("beginAt" in (odeslano() ?? {}), false);
+    assert.equal("latestBeginAt" in (odeslano() ?? {}), false);
+  });
+
+  it("potlačený zásah výšku do důvodu nepíše", async () => {
+    // Do FlightHubu se nic neposlalo, takže tvrdit „poslali jsme 60 m“
+    // by byla lež o něčem, co se nestalo.
+    const { d, inserted } = sledovat();
+    await runDispatch(context({ siteRthAltitude: 45 }), d);
+    void inserted;
+
+    const { deps: potlaceny, inserted: bezLetu } = deps({ isSiteArmed: async () => false });
+    await runDispatch(context({ siteRthAltitude: 45 }), potlaceny);
+    assert.equal(bezLetu[0].decision_reason?.rth_altitude_m, undefined);
   });
 });

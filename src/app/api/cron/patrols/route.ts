@@ -3,7 +3,11 @@ import type { NextRequest } from "next/server";
 
 import { recordCronRun } from "@/lib/cron/record.ts";
 import { checkDockReadiness } from "@/lib/dispatch/dock-readiness.ts";
-import { createFlightTask, getDockState } from "@/lib/dispatch/flighthub.ts";
+import {
+  DEFAULT_RTH_ALTITUDE,
+  createFlightTask,
+  getDockState,
+} from "@/lib/dispatch/flighthub.ts";
 import { patrolRunsBetween } from "@/lib/patrols/schedule.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 import type { IsoWeekday } from "@/types/database.ts";
@@ -36,7 +40,13 @@ interface PatrolRow {
   window_to: string;
   days: IsoWeekday[];
   interval_minutes: number;
-  sites: { name: string; timezone: string; dock_sn: string | null } | null;
+  sites: {
+    name: string;
+    timezone: string;
+    dock_sn: string | null;
+    /** Migrace 20260916120000; bez ní se použije DEFAULT_RTH_ALTITUDE. */
+    rth_altitude: number | null;
+  } | null;
 }
 
 function authorized(request: NextRequest): boolean {
@@ -60,13 +70,30 @@ export async function GET(request: NextRequest): Promise<Response> {
   const until = new Date(now.getTime() + HORIZON_MINUTES * 60_000);
   const db = supabaseAdmin();
 
-  const { data: patrols, error } = await db
-    .from("patrols")
-    .select(
-      "id, site_id, name, wayline_uuid, window_from, window_to, days, interval_minutes, sites(name, timezone, dock_sn)",
-    )
-    .eq("enabled", true)
-    .returns<PatrolRow[]>();
+  const SLOUPCE =
+    "id, site_id, name, wayline_uuid, window_from, window_to, days, interval_minutes";
+
+  const dotaz = (siteSloupce: string) =>
+    db
+      .from("patrols")
+      .select(`${SLOUPCE}, sites(${siteSloupce})`)
+      .eq("enabled", true)
+      .returns<PatrolRow[]>();
+
+  // Dvoustupňový výběr: rth_altitude přidává ručně nasazovaná migrace
+  // 20260916120000 a PostgREST odmítne celý dotaz, když sloupec chybí.
+  // Bez záchytné větve by se přestaly plánovat hlídky úplně.
+  let { data: patrols, error } = await dotaz("name, timezone, dock_sn, rth_altitude");
+
+  if (error) {
+    ({ data: patrols, error } = await dotaz("name, timezone, dock_sn"));
+    if (patrols) {
+      patrols = patrols.map((row) => ({
+        ...row,
+        sites: row.sites ? { ...row.sites, rth_altitude: null } : null,
+      }));
+    }
+  }
 
   if (error) {
     console.error("Načtení hlídek selhalo", { message: error.message });
@@ -201,10 +228,14 @@ export async function GET(request: NextRequest): Promise<Response> {
       }).format(beginAt);
 
       const task = await createFlightTask({
+        // Hlídka zůstává plánovaná: rozvrh říká, kdy se má letět,
+        // a begin_at je ten rozvrh. Zásah proti tomu jede immediate.
+        taskType: "timed",
         name: `${patrol.name} ${label}`,
         dockSn: site.dock_sn,
         waylineUuid: patrol.wayline_uuid,
         timeZone: site.timezone,
+        rthAltitude: site.rth_altitude ?? DEFAULT_RTH_ALTITUDE,
         beginAt,
         latestBeginAt: new Date(
           beginAt.getTime() + LATEST_BEGIN_SLACK_MINUTES * 60_000,

@@ -231,6 +231,14 @@ export type Site = {
   map_se_lon: number | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Výška návratu domů v metrech, posílaná do plánované úlohy.
+   * Migrace 20260916120000.
+   *
+   * Musí se vejít do stropu projektu ve FlightHubu — nad ním se mise
+   * nespustí a chyba nezní jako výška.
+   */
+  rth_altitude: number;
 };
 
 export type Zone = {
@@ -355,6 +363,16 @@ export type DecisionReason = {
    */
   zone_default_level?: number | null;
   zone_floor_applied?: boolean;
+  /**
+   * Výška návratu domů poslaná do úlohy, v metrech. Migrace
+   * 20260916120000, proto volitelné.
+   *
+   * Ukládá se proto, že nad stropem projektu ve FlightHubu se mise
+   * nespustí a chyba nezní jako výška. Bez zápisu by se u starého
+   * zásahu nedalo zjistit, s jakou hodnotou se to tehdy zkoušelo —
+   * a právě to je první otázka, když dron nevzlétl.
+   */
+  rth_altitude_m?: number;
   /**
    * Stav doku v okamžiku rozhodnutí. Migrace 20260903180000, takže
    * u starších zásahů chybí úplně — proto volitelné, ne jen nullable.

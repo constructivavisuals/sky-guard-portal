@@ -63,7 +63,9 @@ VALUES
    now(), 1048576);
 
 DO $$
-DECLARE v_ok BOOLEAN;
+DECLARE
+  v_ok BOOLEAN;
+  v_vyska INT;
 BEGIN
   -- ── Schopnosti lokality ────────────────────────────────────────
   v_ok := FALSE;
@@ -145,6 +147,30 @@ BEGIN
    WHERE camera_id = 'dddddddd-0000-0000-0000-00000000f005'
    LIMIT 1;
   RAISE NOTICE 'ok    main i sub stream se stejným časem projdou';
+
+  -- ── Výška návratu ──────────────────────────────────────────────
+  -- Nad stropem projektu ve FlightHubu se mise nespustí a chyba nezní
+  -- jako výška. Rozsah je pojistka proti překlepu, ne bezpečnostní
+  -- hranice — strop si určuje projekt.
+  IF (SELECT rth_altitude FROM sites
+       WHERE id = 'dddddddd-0000-0000-0000-00000000f004') <> 60 THEN
+    RAISE EXCEPTION 'FAIL výchozí výška návratu není 60 m';
+  END IF;
+  RAISE NOTICE 'ok    výchozí výška návratu je 60 m';
+
+  FOREACH v_vyska IN ARRAY ARRAY[5, 19, 501, 900] LOOP
+    v_ok := FALSE;
+    BEGIN
+      UPDATE sites SET rth_altitude = v_vyska
+       WHERE id = 'dddddddd-0000-0000-0000-00000000f004';
+    EXCEPTION WHEN check_violation THEN v_ok := TRUE;
+    END;
+    IF NOT v_ok THEN
+      RAISE EXCEPTION 'FAIL výška % m prošla', v_vyska;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'ok    nesmyslná výška návratu neprojde';
+
 
   -- ── Cesta v úložišti ───────────────────────────────────────────
   -- První složka MUSÍ být UUID lokality: na tom stojí čtecí politika

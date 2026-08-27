@@ -21,6 +21,7 @@ import {
 import { notify, type NotifyResult } from "../push/send.ts";
 import { checkDockReadiness } from "./dock-readiness.ts";
 import {
+  DEFAULT_RTH_ALTITUDE,
   createFlightTask,
   getDockState,
   type DockStateResult,
@@ -33,11 +34,18 @@ import {
 // (next/server `after`), takže se sem nesmí dostat nic, co by muselo
 // stihnout 1s limit endpointu.
 //
-// ═══ Zásah letí jako PLÁNOVANÁ ÚLOHA ═══════════════════════════════
+// ═══ Zásah letí OKAMŽITĚ ═══════════════════════════════════════════
 // Ne přes workflow trigger — ten čeká na ruční potvrzení v Message
-// Centru a bez kliknutí nevzlétne (viz flighthub.ts). Zásah tedy jede
-// touž cestou jako hlídka: POST /flight-task, task_type 'timed',
-// začátek za minutu.
+// Centru a bez kliknutí nevzlétne (viz flighthub.ts). Zásah jde tedy
+// přes POST /flight-task, ale s task_type 'immediate': startuje hned
+// a funguje i na vypnutý dron. Ověřeno naostro — 20 s od příkazu do
+// vzletu, minuta na místo.
+//
+// Časy se neposílají vůbec. Dřív se úloha zakládala jako 'timed'
+// s minutovým odkladem, protože se věřilo, že jinak uspaný dron
+// nevzlétne; ta minuta byla ve skutečnosti jen minuta, po kterou dron
+// nebyl nad zónou. Hlídky zůstávají 'timed' — tam je plánování dopředu
+// záměr, ne omezení.
 //
 // Z toho plyne, co všechno musí být připravené, než se dá letět:
 //
@@ -52,15 +60,7 @@ import {
 // souřadnic proto zásah nezastaví.
 // ═══════════════════════════════════════════════════════════════════
 
-/**
- * Za jak dlouho od rozhodnutí má úloha začít.
- *
- * Minuta je tam proto, že FlightHub odmítá úlohy s časem v minulosti
- * a mezi rozhodnutím a přijetím požadavku uteče kus vteřiny.
- * `latest_begin_at` je stejný: u zásahu nemá smysl start odkládat —
- * dron, který vyrazí o pět minut později, přiletí k prázdné zóně.
- */
-export const DISPATCH_LEAD_SECONDS = 60;
+
 
 /**
  * Stupeň ručního zásahu.
@@ -92,6 +92,15 @@ export interface DispatchContext {
   siteTimezone: string;
   /** Sériové číslo DOKU, ne dronu. Bez něj není odkud vzlétnout. */
   siteDockSn: string | null;
+  /**
+   * Výška návratu domů v metrech (`sites.rth_altitude`). NULL =
+   * nezjištěno, použije se DEFAULT_RTH_ALTITUDE.
+   *
+   * Nad stropem projektu ve FlightHubu se mise nespustí, takže tohle
+   * není kosmetika — je to rozdíl mezi „dron letí“ a „nic se nestalo
+   * a nikdo neví proč“.
+   */
+  siteRthAltitude: number | null;
   /** Trasa zóny ve FlightHubu. Bez ní se úloha nedá založit. */
   zoneWaylineUuid: string | null;
   /**
@@ -550,10 +559,18 @@ async function prepareDispatchRow(
 
   // ── Plánovaná úloha ────────────────────────────────────────────
 
-  const beginAt = new Date(Date.now() + DISPATCH_LEAD_SECONDS * 1_000);
   const zoneLabel = context.zoneName ?? "neznámá zóna";
+  const rthAltitude = context.siteRthAltitude ?? DEFAULT_RTH_ALTITUDE;
+  reason.rth_altitude_m = rthAltitude;
+
+  // Okamžik odeslání. U immediate úlohy není co plánovat, ale řádek
+  // letu potřebuje čas, od kterého se počítá — a sync si ho stejně
+  // přepíše skutečným začátkem z trajektorie.
+  const beginAt = new Date();
 
   const result = await deps.createFlightTask({
+    taskType: "immediate",
+    rthAltitude,
     // Stupeň jde do názvu: plánovaná úloha pole pro úroveň nemá,
     // takže jinak by v DJI nebylo poznat, jak vážný zásah to byl.
     name: context.manual
@@ -562,8 +579,6 @@ async function prepareDispatchRow(
     dockSn: context.siteDockSn,
     waylineUuid: context.zoneWaylineUuid,
     timeZone: context.siteTimezone,
-    beginAt,
-    latestBeginAt: beginAt,
   });
 
   return {

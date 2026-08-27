@@ -330,12 +330,26 @@ záchytnou větev bez těch sloupců.
 
 ## Zásah
 
-Zásah se ve FlightHubu zakládá jako **plánovaná úloha**
-(`POST /openapi/v0.1/flight-task`, `task_type: "timed"`), stejně jako
-hlídka. Ne přes `POST /openapi/v0.1/workflow`: Triggered Workflow čeká
-na ruční potvrzení v Message Centru, takže bez kliknutí mise nevzlétne.
-Ověřeno naostro. Workflow trigger je proto z kódu pryč celý — mrtvá
-větev, která vypadá funkčně, je horší než žádná.
+Zásah se ve FlightHubu zakládá přes `POST /openapi/v0.1/flight-task`
+s **`task_type: "immediate"`**. Ne přes `POST /openapi/v0.1/workflow`:
+Triggered Workflow čeká na ruční potvrzení v Message Centru, takže bez
+kliknutí mise nevzlétne. Ověřeno naostro. Workflow trigger je proto
+z kódu pryč celý — mrtvá větev, která vypadá funkčně, je horší než
+žádná.
+
+**`immediate` funguje i na vypnutý dron** — ověřeno naostro: 20 s od
+příkazu do vzletu, minuta na místo. Dřív se zásah zakládal jako
+`timed` s minutovým odkladem, protože se věřilo, že jinak uspaný dron
+nevzlétne. Ta minuta byla ve skutečnosti jen minuta, po kterou dron
+nebyl nad zónou; noční selhání, která to zdánlivě potvrzovala, měla
+jinou příčinu (viz výška návratu níž).
+
+U okamžité úlohy se `begin_at` ani `latest_begin_at` **neposílají
+vůbec**. Nejsou volitelné: čas v minulosti FlightHub odmítá a „hned“
+se jím zapsat nedá.
+
+**Hlídky zůstávají `timed`.** Tam plánování dopředu není omezení, ale
+záměr — rozvrh říká, kdy se má letět, a `begin_at` je ten rozvrh.
 
 Z toho plyne, co musí být nastavené, aby zásah odletěl:
 
@@ -345,6 +359,8 @@ Z toho plyne, co musí být nastavené, aby zásah odletěl:
   neodešle, jen zaloguje, a přehled na to upozorní varováním.
 * **lokalita musí mít sériové číslo doku** (`sites.dock_sn`) — doku,
   ne dronu.
+* **lokalita musí mít rozumnou výšku návratu** (`sites.rth_altitude`,
+  výchozí 60 m). Viz níž — je to nejtišší způsob, jak nevzlétnout.
 * **dok musí být ve stavu, ze kterého se dá vzlétnout**: dron v doku,
   baterie nad 40 %, úložiště pod 95 %. Táž kritéria jako u hlídek,
   sdílená v `lib/dispatch/dock-readiness.ts`. Když nevyhoví, zásah se
@@ -361,10 +377,6 @@ Režim střežení a cooldown jsou **fail-closed** (bez nich se neletí:
 planý let nebo zdvojený zásah stojí víc než zmeškaná detekce),
 eskalace **fail-open** (bez ní se letí na základním stupni — nižší
 stupeň je pořád zásah).
-
-Úloha začíná **za minutu** (`begin_at` i `latest_begin_at`). Nula slacku
-je schválně: dron, který vyrazí o pět minut později, přiletí k prázdné
-zóně.
 
 Vrácené `task_uuid` se ukládá do `dispatches.fh_task_uuid` a zároveň se
 zakládá řádek ve `flights` s `kind = 'dispatch'`, aby let dotáhla
@@ -393,6 +405,28 @@ Opravuje to migrace `20260909180000_dispatch_outcome_constraint.sql`.
 **Dokud neproběhne, žádný odeslaný zásah se nezapíše.** Pojistkou proti
 opakování je `supabase/tests/dispatch_outcomes.sql`: zkouší zapsat každý
 výsledek, který kód umí vyrobit.
+
+### Výška návratu domů
+
+V kódu byla natvrdo **100 m**. Projekt ve FlightHubu má ale vlastní
+strop — u nás 60 m — a mise, která ho překročí, se **nespustí**. Chyba
+přitom nezní jako výška: vypadá to, jako by dron nereagoval, a hledá
+se to na úplně špatném místě. Tohle stálo za nočními selháními, která
+se sváděla na uspaný dron.
+
+Výška je proto sloupec lokality (`sites.rth_altitude`, migrace
+20260916120000, rozsah 20–500 m) a nastavuje se ve formuláři areálu.
+Používá ji ingest i cron hlídek; když sloupec ještě není, spadne se na
+`DEFAULT_RTH_ALTITUDE`.
+
+Hodnota, se kterou se to zkoušelo, jde do `decision_reason.rth_altitude_m`
+a detail zásahu ji vypisuje. Bez toho by se u starého zásahu nedalo
+zjistit, s jakou výškou se letělo — a přesně to je první otázka, když
+dron nevzlétl.
+
+Rozsah 20–500 m je pojistka proti překlepu, ne bezpečnostní hranice.
+Strop si určuje projekt ve FlightHubu a portál ho nezná; kdo má
+v projektu jiný limit, musí si výšku přenastavit.
 
 ### Stupeň a spodní hranice zóny
 

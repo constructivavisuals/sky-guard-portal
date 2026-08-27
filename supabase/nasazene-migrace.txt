@@ -42,3 +42,8 @@
 20260912120000_processing_stuck.sql
 20260913120000_retention_anonymization.sql
 20260911120000_anon_revoke_and_cron_read.sql
+20260914120000_site_capabilities.sql
+20260914180000_cameras_ftp.sql
+20260915120000_camera_recordings.sql
+20260915180000_recordings_bucket.sql
+20260916120000_rth_altitude.sql

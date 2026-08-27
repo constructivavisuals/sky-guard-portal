@@ -13,10 +13,19 @@ import type { FlightConditions, Json } from "../../types/database.ts";
 // mrtvá větev, která vypadá funkčně, je horší než žádná.
 //
 // Automaticky jde spustit jedině plánovaná úloha (createFlightTask,
-// task_type 'timed'). Tou letí hlídky i zásahy.
+// task_type 'immediate' u zásahu, 'timed' u hlídky). Tou letí obojí.
 // ═══════════════════════════════════════════════════════════════════
 
 export const FLIGHTHUB_TIMEOUT_MS = 5_000;
+
+/**
+ * Výška návratu, když ji lokalita nemá nastavenou.
+ *
+ * Musí sedět s DEFAULT v migraci 20260916120000 a se stropem projektu
+ * ve FlightHubu. Vyšší hodnota misi nespustí — a chyba nezní jako
+ * výška, takže se hledá jinde.
+ */
+export const DEFAULT_RTH_ALTITUDE = 60;
 
 /** Strop pro chybovou hlášku ukládanou do dispatches.response. */
 export const MAX_ERROR_MESSAGE_LENGTH = 500;
@@ -104,17 +113,47 @@ function extractWaylines(body: unknown): Wayline[] {
   return out;
 }
 
-export interface FlightTaskInput {
+/**
+ * Kdy má úloha začít.
+ *
+ * ═══ immediate vs. timed ═══════════════════════════════════════════
+ * `immediate` startuje hned a funguje i na vypnutý dron — ověřeno
+ * naostro: 20 s od příkazu do vzletu, minuta na místo. Dřívější
+ * selhání, která to zpochybňovala, byla ve skutečnosti výška nad
+ * limitem projektu, ne uspaný dron.
+ *
+ * Zásah proto letí `immediate`: každá vteřina odkladu je vteřina, po
+ * kterou dron není nad zónou.
+ *
+ * Hlídka zůstává `timed`. Tam plánování dopředu NENÍ omezení, ale
+ * záměr — rozvrh říká, kdy se má letět, a `begin_at` je ten rozvrh.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+export type FlightTaskSchedule =
+  | { taskType: "immediate" }
+  | {
+      taskType: "timed";
+      /** Kdy má let začít. */
+      beginAt: Date;
+      /** Dokdy se smí start odložit. */
+      latestBeginAt: Date;
+    };
+
+export type FlightTaskInput = FlightTaskSchedule & {
   name: string;
   /** Sériové číslo DOCKU, ne dronu. */
   dockSn: string;
   waylineUuid: string;
   timeZone: string;
-  /** Kdy má let začít. */
-  beginAt: Date;
-  /** Dokdy se smí start odložit. */
-  latestBeginAt: Date;
-}
+  /**
+   * Výška návratu domů v metrech.
+   *
+   * Musí se vejít do stropu nastaveného v projektu ve FlightHubu —
+   * mise nad limitem se nespustí a chyba nezní jako výška. Proto je to
+   * údaj lokality (`sites.rth_altitude`), ne konstanta v kódu.
+   */
+  rthAltitude: number;
+};
 
 export interface FlightTaskResult {
   taskUuid: string | null;
@@ -168,14 +207,21 @@ export async function createFlightTask(
     sn: input.dockSn,
     wayline_uuid: input.waylineUuid,
     time_zone: input.timeZone,
-    rth_altitude: 100,
+    rth_altitude: input.rthAltitude,
     rth_mode: "optimal",
     wayline_precision_type: "gps",
     out_of_control_action_in_flight: "return_home",
     resumable_status: "auto",
-    task_type: "timed",
-    begin_at: Math.floor(input.beginAt.getTime() / 1000),
-    latest_begin_at: Math.floor(input.latestBeginAt.getTime() / 1000),
+    ...(input.taskType === "immediate"
+      ? // Časy se u okamžité úlohy NEPOSÍLAJÍ. Ne že by byly volitelné:
+        // begin_at v minulosti FlightHub odmítá a "hned" se jím zapsat
+        // nedá.
+        { task_type: "immediate" }
+      : {
+          task_type: "timed",
+          begin_at: Math.floor(input.beginAt.getTime() / 1000),
+          latest_begin_at: Math.floor(input.latestBeginAt.getTime() / 1000),
+        }),
   };
 
   try {

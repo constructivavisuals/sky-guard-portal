@@ -292,6 +292,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     siteCooldownSeconds: camera.sites.cooldown_seconds,
     siteTimezone: camera.sites.timezone,
     siteDockSn: camera.sites.dock_sn,
+    siteRthAltitude: camera.sites.rth_altitude,
     zoneWaylineUuid: camera.zones?.wayline_uuid ?? null,
     zoneDefaultLevel: camera.zones?.default_level ?? null,
     objectClass: "vehicle",

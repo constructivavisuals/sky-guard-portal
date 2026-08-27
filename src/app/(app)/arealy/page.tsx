@@ -5,6 +5,7 @@ import { Cctv, Clock, MapPin, ShieldCheck } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { formatArmedDays, formatArmedWindow, orDash, plural } from "@/lib/format.ts";
 import { getCurrentProfile } from "@/lib/current-profile.ts";
+import { DEFAULT_RTH_ALTITUDE } from "@/lib/dispatch/flighthub.ts";
 import { isAdmin } from "@/lib/profile.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
@@ -24,6 +25,7 @@ interface SiteRow {
   armed_days: IsoWeekday[];
   cooldown_seconds: number;
   retention_days: number;
+  rth_altitude: number;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -44,19 +46,26 @@ export default async function Page() {
   ]);
   const admin = isAdmin(profile);
 
+  const SLOUPCE =
+    "id, name, address, timezone, armed_from, armed_to, armed_days, " +
+    "cooldown_seconds, retention_days, dock_sn, drone_sn, " +
+    "fh_project_uuid, fh_workflow_uuid, zones(count), cameras(count)";
+
   let sites: SiteRow[] = [];
   let armed = new Map<string, ArmedState>();
   let failed = false;
 
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("sites")
-      .select(
-        "id, name, address, timezone, armed_from, armed_to, armed_days, cooldown_seconds, retention_days, dock_sn, drone_sn, fh_project_uuid, fh_workflow_uuid, zones(count), cameras(count)",
-      )
-      .order("name")
-      .returns<SiteRow[]>();
+    const dotaz = (sloupce: string) =>
+      supabase.from("sites").select(sloupce).order("name").returns<SiteRow[]>();
+
+    // Dvoustupňový výběr kvůli rth_altitude (migrace 20260916120000).
+    let { data, error } = await dotaz(`${SLOUPCE}, rth_altitude`);
+    if (error) {
+      ({ data, error } = await dotaz(SLOUPCE));
+      if (data) data = data.map((row) => ({ ...row, rth_altitude: DEFAULT_RTH_ALTITUDE }));
+    }
 
     if (error) failed = true;
     else {
@@ -187,6 +196,7 @@ function SiteCard({
               armed_days: site.armed_days,
               cooldown_seconds: site.cooldown_seconds,
                 retention_days: site.retention_days,
+                rth_altitude: site.rth_altitude,
               dock_sn: site.dock_sn,
               drone_sn: site.drone_sn,
               fh_project_uuid: site.fh_project_uuid,

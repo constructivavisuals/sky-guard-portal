@@ -270,7 +270,16 @@ export function conditionsFromReason(reason: DecisionReason): string[] {
 
   if (reason.zone_has_wayline === false) {
     out.push(
-      "Zóna nemá přiřazenou trasu ve FlightHubu, takže se plánovaná úloha nedala založit.",
+      "Zóna nemá přiřazenou trasu ve FlightHubu, takže se úloha nedala založit.",
+    );
+  }
+
+  // Výška se vypisuje vždycky, když je zapsaná. Když mise nevzlétne,
+  // je to první otázka — a strop projektu ve FlightHubu není nikde
+  // v portálu vidět, takže bez tohohle údaje se hádá.
+  if (typeof reason.rth_altitude_m === "number") {
+    out.push(
+      `Výška návratu poslaná do úlohy: ${reason.rth_altitude_m} m. Nad stropem projektu ve FlightHubu se mise nespustí.`,
     );
   }
 

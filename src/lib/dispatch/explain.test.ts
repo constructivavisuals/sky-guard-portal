@@ -249,3 +249,31 @@ describe("levelFromReason — spodní hranice zóny", () => {
     assert.equal(/hranic/i.test(e.text), false);
   });
 });
+
+describe("conditionsFromReason — výška návratu", () => {
+  const base = {
+    object_class: "person" as const,
+    base_level: 5,
+    level_sent: 5,
+    escalated: false,
+    escalation: null,
+    armed: true,
+    zone_enabled: true,
+    cooldown_seconds: 900,
+    seconds_since_last_sent: null,
+    cooldown_remaining_seconds: null,
+    decided_at: "2026-08-27T22:00:00Z",
+  };
+
+  it("zapsaná výška se vypíše", () => {
+    // Když mise nevzlétne, je to první otázka — a strop projektu ve
+    // FlightHubu není nikde v portálu vidět.
+    const radky = conditionsFromReason({ ...base, rth_altitude_m: 60 });
+    assert.ok(radky.some((r) => /60 m/.test(r)));
+  });
+
+  it("u zásahu z doby před sloupcem se nic nedomýšlí", () => {
+    const radky = conditionsFromReason(base);
+    assert.equal(radky.some((r) => /Výška návratu/.test(r)), false);
+  });
+});

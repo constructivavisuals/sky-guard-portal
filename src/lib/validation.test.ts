@@ -33,6 +33,7 @@ const validSite = {
   armed_days: ["1", "2", "3", "4", "5"],
   cooldown_seconds: "900",
   retention_days: "90",
+  rth_altitude: "60",
 };
 
 describe("parseSiteForm — platný vstup", () => {
@@ -525,6 +526,36 @@ describe("parseKnownPlateForm", () => {
     const r = parseKnownPlateForm(form({ ...valid, list_type: "deny" }));
     assert.ok(r.ok);
     assert.equal(r.value.list_type, "deny");
+  });
+});
+
+describe("parseSiteForm — výška návratu", () => {
+  it("výchozích 60 m projde", () => {
+    const r = parseSiteForm(form(validSite));
+    assert.ok(r.ok);
+    assert.equal(r.value.rth_altitude, 60);
+  });
+
+  it("nad stropem i pod rozumnou hranicí neprojde", () => {
+    // 100 m bylo natvrdo v kódu a nad stropem projektu — mise se
+    // nespouštěly a vypadalo to, jako by dron nereagoval.
+    for (const hodnota of ["0", "10", "501", "-5"]) {
+      const r = parseSiteForm(form({ ...validSite, rth_altitude: hodnota }));
+      assert.equal(r.ok, false, hodnota);
+    }
+  });
+
+  it("prázdné pole je chyba, ne tiché výchozí", () => {
+    const r = parseSiteForm(form({ ...validSite, rth_altitude: "" }));
+    assert.equal(r.ok, false);
+  });
+
+  it("100 m projde — strop je věc projektu, ne portálu", () => {
+    // Rozsah je jen pojistka proti překlepu. Kdo má v projektu vyšší
+    // strop, musí si ho nastavit; portál za něj hádat nebude.
+    const r = parseSiteForm(form({ ...validSite, rth_altitude: "100" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.rth_altitude, 100);
   });
 });
 

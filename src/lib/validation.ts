@@ -60,6 +60,8 @@ export interface SiteFormValue {
   armed_days: IsoWeekday[];
   cooldown_seconds: number;
   retention_days: number;
+  /** Výška návratu domů v metrech. Musí se vejít do stropu projektu. */
+  rth_altitude: number;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -116,6 +118,17 @@ export function parseSiteForm(data: FormData): Validated<SiteFormValue> {
     errors.retention_days = "Nejvýš deset let.";
   }
 
+  // Nad stropem projektu ve FlightHubu se mise NESPUSTÍ a chyba nezní
+  // jako výška — proto se překlep chytá tady, ne až tím, že dron
+  // nevzlétne. Rozsah sedí s CHECK v migraci 20260916120000.
+  const vyskaRaw = text(data, "rth_altitude");
+  const vyska = Number.parseInt(vyskaRaw, 10);
+  if (vyskaRaw === "" || !Number.isInteger(vyska)) {
+    errors.rth_altitude = "Zadejte výšku v metrech.";
+  } else if (vyska < 20 || vyska > 500) {
+    errors.rth_altitude = "Výška návratu musí být 20 až 500 m.";
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -123,6 +136,7 @@ export function parseSiteForm(data: FormData): Validated<SiteFormValue> {
     value: {
       name,
       retention_days: retence,
+      rth_altitude: vyska,
       address: optionalText(data, "address"),
       timezone,
       // Databáze má sloupec TIME; sekundy doplníme, ať je tvar jednotný.

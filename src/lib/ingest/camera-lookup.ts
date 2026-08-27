@@ -38,6 +38,11 @@ export interface IngestCameraRow {
     cooldown_seconds: number;
     timezone: string;
     dock_sn: string | null;
+    /**
+     * Výška návratu domů. NULL = sloupec ještě není (migrace
+     * 20260916120000) a použije se DEFAULT_RTH_ALTITUDE.
+     */
+    rth_altitude: number | null;
   } | null;
   zones: {
     id: string;
@@ -57,31 +62,40 @@ interface Variant {
   hasKey: boolean;
   hasWayline: boolean;
   hasCapabilities: boolean;
+  hasRth: boolean;
 }
 
 function columns(
   hasKey: boolean,
   hasWayline: boolean,
   hasCapabilities: boolean,
+  hasRth: boolean,
 ): string {
   const klic = hasKey ? ", ingest_secret_hash, ingest_key_version" : "";
   const trasa = hasWayline ? ", wayline_uuid" : "";
   const umi = hasCapabilities
     ? ", detects_person, detects_vehicle, reads_plate"
     : "";
+  const vyska = hasRth ? ", rth_altitude" : "";
   return (
     `id, site_id, zone_id, serial_number${klic}${umi}, ` +
-    "sites(id, cooldown_seconds, timezone, dock_sn), " +
+    `sites(id, cooldown_seconds, timezone, dock_sn${vyska}), ` +
     `zones(id, name, enabled, location, default_level${trasa})`
   );
 }
 
 /** Co v téhle variantě chybí, česky a s číslem migrace. */
-function label(hasKey: boolean, hasWayline: boolean, hasCapabilities: boolean): string {
+function label(
+  hasKey: boolean,
+  hasWayline: boolean,
+  hasCapabilities: boolean,
+  hasRth: boolean,
+): string {
   const chybi: string[] = [];
   if (!hasKey) chybi.push("ingest klíč (migrace 20260829120000)");
   if (!hasWayline) chybi.push("zones.wayline_uuid (migrace 20260903180000)");
   if (!hasCapabilities) chybi.push("schopnosti kamery (migrace 20260910120000)");
+  if (!hasRth) chybi.push("sites.rth_altitude (migrace 20260916120000)");
   return chybi.length === 0 ? "plné" : `bez ${chybi.join(", ")}`;
 }
 
@@ -99,13 +113,16 @@ const VARIANTS: Variant[] = (() => {
   for (const hasKey of [true, false]) {
     for (const hasWayline of [true, false]) {
       for (const hasCapabilities of [true, false]) {
-        out.push({
-          label: label(hasKey, hasWayline, hasCapabilities),
-          columns: columns(hasKey, hasWayline, hasCapabilities),
-          hasKey,
-          hasWayline,
-          hasCapabilities,
-        });
+        for (const hasRth of [true, false]) {
+          out.push({
+            label: label(hasKey, hasWayline, hasCapabilities, hasRth),
+            columns: columns(hasKey, hasWayline, hasCapabilities, hasRth),
+            hasKey,
+            hasWayline,
+            hasCapabilities,
+            hasRth,
+          });
+        }
       }
     }
   }
@@ -154,6 +171,14 @@ export async function findIngestCamera(
         // Neznámá schopnost je null, ne false: „nevíme“ se nesmí
         // zaměnit za „neumí“, jinak by po nasazení kódu před migrací
         // každá detekce vozidla vypadala jako závada.
+        sites: data.sites
+          ? {
+              ...data.sites,
+              // Neznámá výška se dosadí až v run.ts, ať je na jednom
+              // místě s tím, co se do úlohy opravdu pošle.
+              rth_altitude: variant.hasRth ? data.sites.rth_altitude : null,
+            }
+          : null,
         detects_person: variant.hasCapabilities ? data.detects_person : null,
         detects_vehicle: variant.hasCapabilities ? data.detects_vehicle : null,
         reads_plate: variant.hasCapabilities ? data.reads_plate : null,

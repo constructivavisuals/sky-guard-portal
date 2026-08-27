@@ -26,6 +26,7 @@ export interface SiteInitial {
   armed_days: number[];
   cooldown_seconds: number;
   retention_days: number;
+  rth_altitude: number;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -179,6 +180,17 @@ function SiteDialog({
           error={e.retention_days}
           defaultValue={keep("retention_days", site?.retention_days ?? 90)}
           hint="Po téhle době se z úložiště mažou snímky a záznamy z letů. Řádky zůstávají — mizí jen soubory."
+          required
+        />
+
+        <TextField
+          label="Výška návratu (m)"
+          name="rth_altitude"
+          type="number"
+          inputMode="numeric"
+          error={e.rth_altitude}
+          defaultValue={keep("rth_altitude", site?.rth_altitude ?? 60)}
+          hint="Musí se vejít do stropu projektu ve FlightHubu. Nad ním se mise nespustí a chyba nezní jako výška — dron prostě nevzlétne."
           required
         />
 

@@ -22,8 +22,8 @@ const INPUT = {
   dockSn: "DOCK-1",
   waylineUuid: "wayline-1",
   timeZone: "Europe/Prague",
-  beginAt: new Date("2026-08-24T22:01:00Z"),
-  latestBeginAt: new Date("2026-08-24T22:01:00Z"),
+  taskType: "immediate" as const,
+  rthAltitude: 60,
 } as const;
 
 let savedEnv: Record<string, string | undefined> = {};
@@ -129,5 +129,71 @@ describe("createFlightTask — chybějící konfigurace", () => {
     const { response } = await createFlightTask(INPUT);
 
     assert.ok(String(response.message).length <= MAX_ERROR_MESSAGE_LENGTH);
+  });
+});
+
+describe("createFlightTask — tvar těla úlohy", () => {
+  /** Odchytí tělo, které by šlo do FlightHubu, bez volání po síti. */
+  async function telo(input: Parameters<typeof createFlightTask>[0]) {
+    const puvodni = globalThis.fetch;
+    let body: Record<string, unknown> = {};
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({ task_uuid: "t-1" }), { status: 200 });
+    }) as typeof fetch;
+
+    const puvodniEnv = { ...process.env };
+    process.env.FH_HOST = "https://fh.example";
+    process.env.FH_PROJECT_UUID = "p-1";
+    process.env.FH_CREATOR = "portal";
+    process.env.FH_USER_TOKEN = "token";
+    try {
+      await createFlightTask(input);
+    } finally {
+      globalThis.fetch = puvodni;
+      process.env = puvodniEnv;
+    }
+    return body;
+  }
+
+  const spolecne = {
+    name: "Zásah",
+    dockSn: "DOCK-1",
+    waylineUuid: "w-1",
+    timeZone: "Europe/Prague",
+    rthAltitude: 60,
+  };
+
+  it("okamžitá úloha neposílá časy vůbec", async () => {
+    // begin_at v minulosti FlightHub odmítá a „hned“ se jím zapsat
+    // nedá — proto se u immediate nesmí objevit ani jeden.
+    const body = await telo({ ...spolecne, taskType: "immediate" });
+    assert.equal(body.task_type, "immediate");
+    assert.equal("begin_at" in body, false);
+    assert.equal("latest_begin_at" in body, false);
+  });
+
+  it("plánovaná úloha časy posílá v sekundách", async () => {
+    const beginAt = new Date("2026-08-27T22:00:00Z");
+    const body = await telo({
+      ...spolecne,
+      taskType: "timed",
+      beginAt,
+      latestBeginAt: new Date(beginAt.getTime() + 300_000),
+    });
+    assert.equal(body.task_type, "timed");
+    assert.equal(body.begin_at, Math.floor(beginAt.getTime() / 1000));
+    assert.equal(body.latest_begin_at, Math.floor(beginAt.getTime() / 1000) + 300);
+  });
+
+  it("výška návratu jde z parametru, ne z konstanty", async () => {
+    // Natvrdo 100 m bylo nad stropem projektu a mise se nespouštěly.
+    const body = await telo({ ...spolecne, rthAltitude: 45, taskType: "immediate" });
+    assert.equal(body.rth_altitude, 45);
+  });
+
+  it("dock jde do sn, ne dron", async () => {
+    const body = await telo({ ...spolecne, taskType: "immediate" });
+    assert.equal(body.sn, "DOCK-1");
   });
 });
