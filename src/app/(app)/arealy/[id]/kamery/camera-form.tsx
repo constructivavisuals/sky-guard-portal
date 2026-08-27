@@ -33,6 +33,8 @@ export interface CameraInitial {
   serial_number: string | null;
   lan_ip: string | null;
   mount_description: string | null;
+  ingest_mode: "http" | "ftp";
+  ftp_username: string | null;
   detects_person: boolean;
   detects_vehicle: boolean;
   reads_plate: boolean;
@@ -157,6 +159,26 @@ function CameraDialog({
         />
 
         <TextField label="Název" name="name" error={e.name} defaultValue={keep("name", camera?.name)} required />
+
+        <SelectField
+          label="Způsob příjmu"
+          name="ingest_mode"
+          error={e.ingest_mode}
+          defaultValue={keep("ingest_mode", camera?.ingest_mode ?? "http")}
+          options={[
+            { value: "http", label: "Podepsaný požadavek (perimetr)" },
+            { value: "ftp", label: "FTP přes relay (stavba)" },
+          ]}
+          hint="FTP kamera se NEOVĚŘUJE — chrání ji jen to, že na relay nikdo jiný nedosáhne. Nedostane proto ingest klíč a neřeší se u ní schopnosti."
+        />
+
+        <TextField
+          label="Účet na relayi"
+          name="ftp_username"
+          error={e.ftp_username}
+          defaultValue={keep("ftp_username", camera?.ftp_username)}
+          hint="Jen u FTP kamery. Kameru dohledá portál podle sériového čísla, ne podle účtu — tohle je evidence, aby šlo dohledat, kdo se kam přihlašuje."
+        />
         <TextField label="Model" name="model" error={e.model} defaultValue={keep("model", camera?.model)} />
 
         <div className="grid grid-cols-2 gap-3">

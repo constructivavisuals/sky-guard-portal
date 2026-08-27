@@ -62,6 +62,9 @@ export interface SiteFormValue {
   retention_days: number;
   /** Výška návratu domů v metrech. Musí se vejít do stropu projektu. */
   rth_altitude: number;
+  /** Co lokalita má. Řídí navigaci, dlaždice i varování. */
+  has_drone: boolean;
+  has_cameras: boolean;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -129,6 +132,17 @@ export function parseSiteForm(data: FormData): Validated<SiteFormValue> {
     errors.rth_altitude = "Výška návratu musí být 20 až 500 m.";
   }
 
+  // Nezaškrtnutý checkbox se v FormData vůbec neobjeví.
+  const hasDrone = data.get("has_drone") !== null;
+  const hasCameras = data.get("has_cameras") !== null;
+
+  // Lokalita bez dronu i bez kamer nemá co ukazovat — v menu by zbyl
+  // přehled a nastavení. Hlídá to i CHECK v migraci 20260914120000,
+  // ale jeho hláška u kolonky nesedí.
+  if (!hasDrone && !hasCameras) {
+    errors.has_drone = "Vyberte aspoň jedno: dron, nebo kamery.";
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -137,6 +151,8 @@ export function parseSiteForm(data: FormData): Validated<SiteFormValue> {
       name,
       retention_days: retence,
       rth_altitude: vyska,
+      has_drone: hasDrone,
+      has_cameras: hasCameras,
       address: optionalText(data, "address"),
       timezone,
       // Databáze má sloupec TIME; sekundy doplníme, ať je tvar jednotný.
@@ -262,6 +278,10 @@ export interface CameraFormValue {
   serial_number: string | null;
   /** Adresa v LAN lokality. Sloupec INET, formát hlídá i databáze. */
   lan_ip: string | null;
+  /** Jak kamera doručuje data. Viz migrace 20260914180000. */
+  ingest_mode: "http" | "ftp";
+  /** Účet na FTP relayi. Povinný u FTP kamery, jinak prázdný. */
+  ftp_username: string | null;
   /** Co kamera umí detekovat. Migrace 20260910120000. */
   detects_person: boolean;
   detects_vehicle: boolean;
@@ -352,6 +372,21 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
     errors.status = "Vyberte stav kamery.";
   }
 
+  const ingestMode = text(data, "ingest_mode");
+  if (ingestMode !== "http" && ingestMode !== "ftp") {
+    errors.ingest_mode = "Vyberte způsob příjmu.";
+  }
+
+  const ftpUsername = optionalText(data, "ftp_username");
+  if (ingestMode === "ftp" && !ftpUsername) {
+    // Bez účtu watcher kameru nedohledá a soubor skončí ve failed.
+    // Hlídá to i CHECK v databázi.
+    errors.ftp_username = "FTP kamera musí mít účet.";
+  }
+  if (ingestMode === "http" && ftpUsername) {
+    errors.ftp_username = "Účet na relayi má smysl jen u FTP kamery.";
+  }
+
   // Nezaškrtnutý checkbox se v FormData vůbec neobjeví.
   const detectsPerson = data.get("detects_person") !== null;
   const detectsVehicle = data.get("detects_vehicle") !== null;
@@ -365,8 +400,10 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
   }
 
   // Kamera, která neumí nic, by jen zabírala místo v evidenci a každá
-  // její detekce by se hlásila jako neočekávaná.
-  if (!detectsPerson && !detectsVehicle) {
+  // její detekce by se hlásila jako neočekávaná. U FTP kamery se ale
+  // schopnosti nepoužívají vůbec — watcher třídy objektů nezná a typ
+  // události bere z cesty — takže je nemá smysl vyžadovat.
+  if (ingestMode !== "ftp" && !detectsPerson && !detectsVehicle) {
     errors.detects_person = "Vyberte aspoň jednu schopnost.";
   }
 
@@ -381,6 +418,8 @@ export function parseCameraForm(data: FormData): Validated<CameraFormValue> {
       model: optionalText(data, "model"),
       serial_number: optionalText(data, "serial_number"),
       lan_ip: optionalText(data, "lan_ip"),
+      ingest_mode: ingestMode as "http" | "ftp",
+      ftp_username: ftpUsername,
       detects_person: detectsPerson,
       detects_vehicle: detectsVehicle,
       reads_plate: readsPlate,

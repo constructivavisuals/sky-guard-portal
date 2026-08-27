@@ -24,6 +24,8 @@ export interface SiteDetail {
   retention_days: number;
   /** Migrace 20260916120000; bez ní se čte výchozích 60 m. */
   rth_altitude: number;
+  has_drone: boolean;
+  has_cameras: boolean;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -43,7 +45,7 @@ const COLUMNS =
   "zones(count), cameras(count)";
 
 /** S výškou návratu. Přidává ji migrace 20260916120000. */
-const COLUMNS_S_VYSKOU = `${COLUMNS}, rth_altitude`;
+const COLUMNS_S_VYSKOU = `${COLUMNS}, rth_altitude, has_drone, has_cameras`;
 
 export interface ArealData {
   site: SiteDetail | null;
@@ -64,7 +66,14 @@ export const nactiAreal = cache(async (id: string): Promise<ArealData> => {
     let { data, error } = await dotaz(COLUMNS_S_VYSKOU);
     if (error) {
       ({ data, error } = await dotaz(COLUMNS));
-      if (data) data = { ...data, rth_altitude: DEFAULT_RTH_ALTITUDE };
+      if (data) {
+        data = {
+          ...data,
+          rth_altitude: DEFAULT_RTH_ALTITUDE,
+          has_drone: true,
+          has_cameras: false,
+        };
+      }
     }
 
     // RLS nerozlišuje „neexistuje“ a „nevidíš na ni“ — obojí je prázdno.

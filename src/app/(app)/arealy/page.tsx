@@ -26,6 +26,8 @@ interface SiteRow {
   cooldown_seconds: number;
   retention_days: number;
   rth_altitude: number;
+  has_drone: boolean;
+  has_cameras: boolean;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -61,10 +63,19 @@ export default async function Page() {
       supabase.from("sites").select(sloupce).order("name").returns<SiteRow[]>();
 
     // Dvoustupňový výběr kvůli rth_altitude (migrace 20260916120000).
-    let { data, error } = await dotaz(`${SLOUPCE}, rth_altitude`);
+    let { data, error } = await dotaz(
+      `${SLOUPCE}, rth_altitude, has_drone, has_cameras`,
+    );
     if (error) {
       ({ data, error } = await dotaz(SLOUPCE));
-      if (data) data = data.map((row) => ({ ...row, rth_altitude: DEFAULT_RTH_ALTITUDE }));
+      if (data) {
+        data = data.map((row) => ({
+          ...row,
+          rth_altitude: DEFAULT_RTH_ALTITUDE,
+          has_drone: true,
+          has_cameras: false,
+        }));
+      }
     }
 
     if (error) failed = true;
@@ -197,6 +208,8 @@ function SiteCard({
               cooldown_seconds: site.cooldown_seconds,
                 retention_days: site.retention_days,
                 rth_altitude: site.rth_altitude,
+                has_drone: site.has_drone,
+                has_cameras: site.has_cameras,
               dock_sn: site.dock_sn,
               drone_sn: site.drone_sn,
               fh_project_uuid: site.fh_project_uuid,

@@ -34,6 +34,7 @@ const validSite = {
   cooldown_seconds: "900",
   retention_days: "90",
   rth_altitude: "60",
+  has_drone: "on",
 };
 
 describe("parseSiteForm — platný vstup", () => {
@@ -186,7 +187,43 @@ describe("parseCameraForm", () => {
     // Zaškrtnutý checkbox posílá prohlížeč jako "on"; výchozí kamera
     // umí osobu a nic víc.
     detects_person: "on",
+    ingest_mode: "http",
   };
+
+  it("FTP kamera potřebuje účet, ale ne schopnosti", () => {
+    // U FTP kamery se schopnosti nepoužívají — watcher třídy objektů
+    // nezná a typ události bere z cesty.
+    const bez = parseCameraForm(
+      form({ site_id: SITE_ID, name: "Jeřáb", status: "online", ingest_mode: "ftp" }),
+    );
+    assert.equal(bez.ok, false);
+    assert.ok(bez.ok === false && bez.errors.ftp_username);
+
+    const r = parseCameraForm(
+      form({
+        site_id: SITE_ID,
+        name: "Jeřáb",
+        status: "online",
+        ingest_mode: "ftp",
+        ftp_username: "cam-klanecna-01",
+      }),
+    );
+    assert.ok(r.ok);
+    assert.equal(r.value.ingest_mode, "ftp");
+    assert.equal(r.value.ftp_username, "cam-klanecna-01");
+    assert.equal(r.value.detects_person, false);
+  });
+
+  it("účet na relayi u podepsané kamery nedává smysl", () => {
+    const r = parseCameraForm(form({ ...validCamera, ftp_username: "cam-01" }));
+    assert.equal(r.ok, false);
+  });
+
+  it("neznámý způsob příjmu neprojde", () => {
+    for (const mode of ["", "rtsp", "smtp"]) {
+      assert.equal(parseCameraForm(form({ ...validCamera, ingest_mode: mode })).ok, false, mode);
+    }
+  });
 
   it("minimální vstup projde", () => {
     const r = parseCameraForm(form(validCamera));
@@ -219,14 +256,20 @@ describe("parseCameraForm", () => {
   });
 
   it("kamera bez jediné schopnosti neprojde", () => {
-    const bez = { site_id: SITE_ID, name: "Slepá", status: "online" };
+    const bez = { site_id: SITE_ID, name: "Slepá", status: "online", ingest_mode: "http" };
     assert.equal(parseCameraForm(form(bez)).ok, false);
   });
 
   it("samotné vozidlo bez osoby je v pořádku", () => {
     // Kamera nad závorou, která lidi nerozlišuje.
     const r = parseCameraForm(
-      form({ site_id: SITE_ID, name: "Závora", status: "online", detects_vehicle: "on" }),
+      form({
+        site_id: SITE_ID,
+        name: "Závora",
+        status: "online",
+        ingest_mode: "http",
+        detects_vehicle: "on",
+      }),
     );
     assert.ok(r.ok);
     assert.equal(r.value.detects_person, false);
@@ -526,6 +569,34 @@ describe("parseKnownPlateForm", () => {
     const r = parseKnownPlateForm(form({ ...valid, list_type: "deny" }));
     assert.ok(r.ok);
     assert.equal(r.value.list_type, "deny");
+  });
+});
+
+describe("parseSiteForm — co lokalita má", () => {
+  it("areál s dronem projde", () => {
+    const r = parseSiteForm(form(validSite));
+    assert.ok(r.ok);
+    assert.equal(r.value.has_drone, true);
+    assert.equal(r.value.has_cameras, false);
+  });
+
+  it("stavba jen s kamerami projde", () => {
+    const { has_drone: _, ...bezDronu } = validSite;
+    void _;
+    const r = parseSiteForm(form({ ...bezDronu, has_cameras: "on" }));
+    assert.ok(r.ok);
+    assert.equal(r.value.has_drone, false);
+    assert.equal(r.value.has_cameras, true);
+  });
+
+  it("lokalita bez dronu i bez kamer neprojde", () => {
+    // V menu by zbyl přehled a nastavení. Je to překlep, ne stav —
+    // a hlídá to i CHECK v databázi.
+    const { has_drone: _, ...bezNiceho } = validSite;
+    void _;
+    const r = parseSiteForm(form(bezNiceho));
+    assert.equal(r.ok, false);
+    assert.ok(r.ok === false && r.errors.has_drone);
   });
 });
 

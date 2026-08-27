@@ -239,6 +239,16 @@ export type Site = {
    * nespustí a chyba nezní jako výška.
    */
   rth_altitude: number;
+  /**
+   * Co lokalita má. Migrace 20260914120000. Řídí navigaci, dlaždice
+   * i varování; CHECK v databázi drží, že platí aspoň jedno.
+   */
+  has_drone: boolean;
+  has_cameras: boolean;
+  /** Lhůta pro video ze stavebních kamer. NENÍ to retention_days. */
+  clip_retention_days: number;
+  /** Po jaké době ticha se kamera bere za nehlásící. */
+  offline_threshold_minutes: number;
 };
 
 export type Zone = {
@@ -305,6 +315,22 @@ export type Camera = {
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Jak kamera doručuje data. Migrace 20260914180000.
+   *
+   * `http` = podepsaný požadavek na /api/ingest (ověřuje se).
+   * `ftp` = nahrává na relay, který ji NEOVĚŘUJE — chrání ji jen
+   * nedostupnost FTP zvenčí.
+   */
+  ingest_mode: "http" | "ftp";
+  ftp_username: string | null;
+  tailscale_host: string | null;
+  rtsp_main_path: string | null;
+  rtsp_sub_path: string | null;
+  credentials_secret_name: string | null;
+  sd_capacity_gb: number | null;
+  /** Lhůta SD KARTY V KAMEŘE, ne našeho úložiště. */
+  sd_retention_days: number | null;
 };
 
 /**

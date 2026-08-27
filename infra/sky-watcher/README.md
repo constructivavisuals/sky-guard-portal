@@ -85,6 +85,11 @@ z kamery a někdo se na něj má podívat.
 Po každém průchodu, i prázdném, jde ping na `HEALTHCHECK_URL`. Hlídá se
 ticho, tedy že watcher žije — ne že zrovna něco přišlo.
 
+## Montáž nové kamery
+
+Postup na místě — co nastavit v kameře, co založit v portálu předem
+a jak ověřit, že záznam dorazil: **[MONTAZ.md](MONTAZ.md)**.
+
 ## Test
 
 Celý řetěz proti **falešnému portálu**, bez VPS a bez Sky Guardu:

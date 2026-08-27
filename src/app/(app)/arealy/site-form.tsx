@@ -4,6 +4,7 @@ import { Pencil, Plus } from "lucide-react";
 import { useActionState, useState } from "react";
 
 import {
+  CheckboxField,
   EMPTY_FORM_STATE,
   FormDialog,
   FormError,
@@ -27,6 +28,8 @@ export interface SiteInitial {
   cooldown_seconds: number;
   retention_days: number;
   rth_altitude: number;
+  has_drone: boolean;
+  has_cameras: boolean;
   dock_sn: string | null;
   drone_sn: string | null;
   fh_project_uuid: string | null;
@@ -99,6 +102,12 @@ function SiteDialog({
     if (sent === undefined) return fallback;
     return (Array.isArray(sent) ? sent : [sent]).map(Number);
   };
+
+  // Nezaškrtnutý checkbox se v odeslaných datech neobjeví, takže se
+  // nedá rozlišit „nezaškrtnuto“ od „formulář se ještě neodesílal“
+  // podle jediného pole. Rozhoduje přítomnost celého snímku.
+  const keepChecked = (name: string, fallback: boolean) =>
+    state.values ? state.values[name] !== undefined : fallback;
 
   const e = state.errors;
   const zones = Intl.supportedValuesOf("timeZone");
@@ -182,6 +191,34 @@ function SiteDialog({
           hint="Po téhle době se z úložiště mažou snímky a záznamy z letů. Řádky zůstávají — mizí jen soubory."
           required
         />
+
+        <fieldset className="border border-[var(--line)] p-4">
+          <legend className="px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
+            Co lokalita má
+          </legend>
+          <div className="space-y-2.5">
+            <CheckboxField
+              label="Dron"
+              name="has_drone"
+              defaultChecked={keepChecked("has_drone", site?.has_drone ?? true)}
+              hint="Zásahy, lety, hlídky a stav doku."
+            />
+            <CheckboxField
+              label="Kamery"
+              name="has_cameras"
+              defaultChecked={keepChecked("has_cameras", site?.has_cameras ?? false)}
+              hint="Detekce a brána. Stavba s kamerami a bez dronu je běžný případ."
+            />
+          </div>
+          {e.has_drone ? (
+            <p className="mt-2 text-xs text-[var(--danger)]">{e.has_drone}</p>
+          ) : null}
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
+            Co lokalita nemá, zmizí z menu i z přehledu. Není to zámek —
+            stránky zůstávají dostupné, protože kdo má stavbu i areál, dostane
+            se na ně z „všech lokalit“ právem.
+          </p>
+        </fieldset>
 
         <TextField
           label="Výška návratu (m)"

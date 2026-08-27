@@ -29,6 +29,8 @@ interface CameraRow {
   serial_number: string | null;
   lan_ip: string | null;
   mount_description: string | null;
+  ingest_mode: "http" | "ftp";
+  ftp_username: string | null;
   detects_person: boolean;
   detects_vehicle: boolean;
   reads_plate: boolean;
@@ -74,7 +76,8 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
     // prázdný.
     const SLOUPCE =
       "id, site_id, zone_id, name, model, focal_mm, serial_number, lan_ip, " +
-      "mount_description, location, azimuth, status, sites(name), zones(name)";
+      "mount_description, ingest_mode, ftp_username, location, azimuth, status, " +
+      "sites(name), zones(name)";
     let { data, error } = await dotaz(
       `${SLOUPCE}, detects_person, detects_vehicle, reads_plate`,
     );
@@ -142,6 +145,7 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
               <Th>Název</Th>
               <Th>Zóna</Th>
               <Th>Model</Th>
+              <Th>Příjem</Th>
               <Th>Umí</Th>
               <Th className="text-right">Ohnisko</Th>
               {/* IP se přidává k sériovému číslu do jednoho sloupce:
@@ -167,6 +171,13 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
               </Td>
               <Td label="Zóna">{orDash(row.zones?.name)}</Td>
               <Td label="Model">{orDash(row.model)}</Td>
+              <Td label="Příjem">
+                {row.ingest_mode === "ftp" ? (
+                  <span className="text-xs">FTP relay</span>
+                ) : (
+                  <span className="text-xs text-[var(--text-muted)]">podepsaný</span>
+                )}
+              </Td>
               <Td label="Umí">
                 {capabilitiesKnown ? (
                   <CameraSkills camera={row} />
@@ -203,6 +214,8 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
                       serial_number: row.serial_number,
                       lan_ip: row.lan_ip,
                       mount_description: row.mount_description,
+                      ingest_mode: row.ingest_mode,
+                      ftp_username: row.ftp_username,
                       detects_person: row.detects_person,
                       detects_vehicle: row.detects_vehicle,
                       reads_plate: row.reads_plate,
