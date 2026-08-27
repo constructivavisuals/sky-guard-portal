@@ -19,6 +19,7 @@ import {
 
 import { Logo } from "@/components/logo.tsx";
 import { logoUrl } from "@/lib/logo.ts";
+import { visibleNavItems, type NavNeeds } from "@/lib/nav.ts";
 import type { CurrentProfile } from "@/lib/profile.ts";
 import type { SiteCapabilities } from "@/lib/site.ts";
 import { profileInitial } from "@/lib/profile.ts";
@@ -48,20 +49,7 @@ export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  /** null = ukazuje se vždycky. */
-  needs: "drone" | "cameras" | null;
-}
-
-/** Které položky dávají pro tenhle výběr lokalit smysl. */
-export function visibleNavItems<T extends { needs: "drone" | "cameras" | null }>(
-  items: readonly T[],
-  capabilities: { drone: boolean; cameras: boolean },
-): T[] {
-  return items.filter((item) => {
-    if (item.needs === "drone") return capabilities.drone;
-    if (item.needs === "cameras") return capabilities.cameras;
-    return true;
-  });
+  needs: NavNeeds;
 }
 
 /**

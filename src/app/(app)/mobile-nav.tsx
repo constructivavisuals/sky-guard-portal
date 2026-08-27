@@ -21,7 +21,9 @@ import { useState } from "react";
 
 import type { SiteCapabilities } from "@/lib/site.ts";
 
-import { visibleNavItems, type NavItem } from "./sidebar.tsx";
+import { visibleNavItems } from "@/lib/nav.ts";
+
+import type { NavItem } from "./sidebar.tsx";
 
 // Spodní navigace pro mobil, vzor převzatý z constructiva-portal.
 // Pět položek je strop, na který se na 375 px vejdou popisky — zbytek

@@ -203,6 +203,25 @@ Přepnutí lokality v liště volá `selectSite()`, která dělá
 `revalidatePath("/", "layout")` — layout se překreslí celý, takže se
 menu přizpůsobí samo.
 
+Filtr `visibleNavItems()` bydlí v `lib/nav.ts`, ne v sidebaru. Volá ho
+server (přehled) i klient (sidebar, spodní lišta), a kdyby byl
+v `"use client"` modulu, dostal by server jen klientskou referenci
+a spadlo by to za běhu na *„Attempted to call visibleNavItems() from
+the server"*. Přesně to se jednou stalo. **Build to nechytí** —
+`/prehled` je dynamická stránka a při buildu se nespustí — takže na to
+je vlastní kontrola:
+
+```bash
+npm run hranice     # scripts/hranice-klient-server.mjs
+```
+
+Projde soubory bez `"use client"` a najde, kde volají hodnotu
+importovanou z klientského modulu. Komponenty se nehlásí: ty se z něj
+importovat smí, server je jen vykreslí.
+
+Totéž dělení má `site.ts` (čisté, smí i klient) vs. `selected-site.ts`
+(server, sahá na `cookies()`).
+
 Dvě pravidla, která si při tom zaslouží pozor:
 
 * **Kamera bez zóny** je varování o *zásahu*, ne o kameře — bez zóny

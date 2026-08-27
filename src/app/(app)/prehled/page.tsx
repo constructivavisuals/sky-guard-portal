@@ -63,9 +63,8 @@ import {
   type SiteRow,
 } from "@/lib/selected-site.ts";
 import { nextArmedTransition } from "@/lib/site-status.ts";
+import { visibleNavItems } from "@/lib/nav.ts";
 import { createClient } from "@/lib/supabase/server.ts";
-
-import { visibleNavItems } from "../sidebar.tsx";
 import { isPlateReliable } from "@/lib/plates.ts";
 import {
   isSiteArmed,
