@@ -361,6 +361,25 @@ lokalit“ by se míchaly dny z různých pásem, což by mlčky lhalo, takže
 zůstane prostý seznam. Den bez záznamů není odkaz: prázdná osa nikomu
 nic neřekne.
 
+### Rozhraní, která se ověřují sama
+
+`/api/ingest/*`, `/api/relay/*`, `/api/cron/*` a `/api/sync/*` session
+cookie nemají a nikdy mít nebudou — podepisují se HMAC podpisem nebo
+sdíleným tajemstvím. Musí být proto vyjmuté z matcheru middlewaru,
+jinak dostanou 307 na `/login` místo odpovědi.
+
+Zapomnělo se na to **třikrát** a pokaždé se to poznalo až zvenčí,
+z relaye nebo z crontabu, kde přesměrování vypadá jako výpadek sítě.
+Hlídá to `middleware.test.ts`: prochází skutečné routy na disku,
+každou zařadí podle toho, čím se ověřuje (`supabaseAdmin()` = vlastní
+ověření, klient ze `server.ts` = session), a pustí na její adresu ten
+vzor z `middleware.ts` — tedy přesně to, co udělá Next. Routu, která se
+nedá zařadit, test odmítne taky: na tom rozhodnutí stojí, jestli patří
+do matcheru.
+
+Totéž hlídá i druhý seznam, `PUBLIC_PATHS`: stránka mimo skupinu
+`(app)` nemá layout portálu, takže se na ni chodí bez session.
+
 ### Detekce ze stavebních kamer
 
 Stavební kamera se podepsat neumí — a nepotřebuje to. Události z ní
