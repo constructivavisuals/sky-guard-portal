@@ -10,9 +10,17 @@
 -- ani na lokalitu, na kterou grant má. Admin vidí dál.
 --
 -- Běží v transakci ukončené ROLLBACKem.
+--
+-- Na začátku pouští rls_audit.sql: kontrolu, že žádná tabulka nezůstala
+-- bez RLS a že anon nemá práva na nic. Ta je ve vlastním souboru, aby
+-- šla vložit i do SQL Editoru a pustit proti produkci — tenhle soubor
+-- zakládá testovací účty a lokality, takže na produkci nemá co dělat.
 -- ═══════════════════════════════════════════════════════════════════
 
 \set ON_ERROR_STOP on
+
+-- Kontrola práv. Čistě čtecí, žádné fixtury — proto ještě před BEGIN.
+\i supabase/tests/rls_audit.sql
 BEGIN;
 SET search_path = public, extensions;
 

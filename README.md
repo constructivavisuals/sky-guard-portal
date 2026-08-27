@@ -84,12 +84,46 @@ chvíli, kdy vznikne tabulka, u níž se na `ENABLE ROW LEVEL SECURITY`
 zapomene — ta je okamžitě čitelná **i zapisovatelná** komukoli, kdo zná
 veřejný anon klíč. A ten je v každé stránce portálu.
 
-Migrace 20260911120000 proto `anon` práva na tabulky bere a mění
-i výchozí práva pro tabulky příští. Přihlášeným (`authenticated`) se
-nesahá na nic: tam RLS pracuje a zúžení práv by rozbilo provoz.
+Migrace 20260911120000 proto `anon` práva na **stávající** tabulky
+bere. Přihlášeným (`authenticated`) se nesahá na nic: tam RLS pracuje
+a zúžení práv by rozbilo provoz.
 
-Hlídá to `supabase/tests/anon_and_cron_read.sql` — včetně toho, že nově
-založená tabulka `anon` nic nedá, a že žádná tabulka nezůstala bez RLS.
+### Na tabulky budoucí databáze nedosáhne
+
+Výchozí práva se nastavují zvlášť pro každou roli, která objekt
+zakládá. Na `ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin` ale
+postgres v SQL Editoru nedosáhne — Supabase si tu roli drží pro sebe
+a odpoví `permission denied to change default privileges`. Migrace to
+proto zkusí, a když neprojde, jen to vypíše a pokračuje dál. Shodit
+kvůli tomu celou migraci by znamenalo přijít i o `REVOKE`, který
+projde a je důležitější.
+
+Ochranu tedy nedrží databáze, ale kontrola, kterou někdo pustí:
+
+```bash
+# lokálně: pouští se sama v rámci sady
+bash supabase/tests/run-local.sh
+
+# proti produkci: obsah souboru vložit do SQL Editoru v Supabase,
+# nebo přímo
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/rls_audit.sql
+```
+
+`supabase/tests/rls_audit.sql` **spadne**, když najde tabulku bez RLS
+nebo tabulku, na kterou má `anon` jakékoli právo. Je čistě čtecí —
+nezakládá, nemaže, nespouští transakci a nejsou v něm psql příkazy,
+takže se dá pustit i proti ostré databázi. Práva se ověřují přes
+`has_table_privilege()`, ne přes `information_schema`, aby se chytila
+i práva udělená roli `PUBLIC`. Tabulky patřící rozšířením (PostGIS
+a spol.) se přeskakují — nezaložil je portál.
+
+Lokálně ho pouští `rls_deny_by_default.sql` hned na začátku. Zvlášť je
+proto, že ten soubor zakládá testovací účty a lokality, takže na
+produkci nemá co dělat.
+
+Tabulka, která má RLS a žádnou politiku, není chyba — je zavřená pro
+všechny kromě `service_role`. Kontrola ji jen vypíše jako poznámku
+(`ingest_rate_limits`, `notification_log`).
 
 ## Ingest klíče kamer
 

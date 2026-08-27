@@ -14,10 +14,15 @@
 -- I ZAPISOVATELNÁ komukoli, kdo zná veřejný anon klíč — a ten je
 -- v každé stránce portálu.
 --
--- Tahle migrace bere `anon` práva na tabulky (má je mít jen přes
--- politiky, a žádné pro něj nejsou) a mění výchozí práva pro tabulky
--- příští. Přihlášeným (`authenticated`) se nesahá na nic: tam RLS
--- pracuje a zúžení práv by rozbilo běžný provoz.
+-- Tahle migrace bere `anon` práva na STÁVAJÍCÍ tabulky (má je mít jen
+-- přes politiky, a žádné pro něj nejsou). Přihlášeným
+-- (`authenticated`) se nesahá na nic: tam RLS pracuje a zúžení práv by
+-- rozbilo běžný provoz.
+--
+-- Výchozí práva pro tabulky BUDOUCÍ se zkoušejí taky, ale na roli
+-- supabase_admin postgres v SQL Editoru nedosáhne. Nedostatek práv
+-- proto migraci neshodí, jen vypíše poznámku — a tabulky, které
+-- teprve vzniknou, hlídá test supabase/tests/rls_audit.sql.
 --
 -- POZOR: `anon` roli potřebuje přihlašování (Supabase Auth běží mimo
 -- schema public) a stránka řidiče, která jede pod service_role. Nic
@@ -37,27 +42,62 @@
 
 SET search_path = public, extensions;
 
--- ── 1) anon ──────────────────────────────────────────────────────
+-- ── 1) anon: stávající tabulky ───────────────────────────────────
+--
+-- Tohle je ta podstatná část a projde vždycky: vlastníkem tabulek je
+-- postgres, tedy role, pod kterou se migrace pouští.
 
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
 
--- Výchozí práva pro tabulky, které teprve vzniknou. `FOR ROLE postgres`
--- i bez něj: migrace se pouštějí jako postgres přes SQL Editor, ale
--- tabulku může založit i supabase_admin.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon;
+-- ── 1b) anon: tabulky, které teprve vzniknou ─────────────────────
+--
+-- ═══ Nemusí projít, a je to tak v pořádku ══════════════════════════
+-- Výchozí práva se nastavují ZVLÁŠŤ pro každou roli, která objekt
+-- zakládá. Na `FOR ROLE supabase_admin` ale postgres v SQL Editoru
+-- nedosáhne — Supabase si tu roli drží pro sebe a odpoví
+-- „permission denied to change default privileges“. Ověřeno naostro.
+--
+-- Kdyby ten příkaz stál v migraci nahý, shodil by ji celou — a s ní
+-- i REVOKE výš, který projde a je důležitější. Každý pokus je proto
+-- ve vlastním bloku a nedostatek práv jen vypíše poznámku.
+--
+-- Co se nepodaří nastavit, hlídá TEST: supabase/tests/rls_audit.sql
+-- spadne, jakmile se objeví tabulka bez RLS nebo s právy pro anon.
+-- Pouští se lokálně v rls_deny_by_default.sql a dá se pustit i proti
+-- produkci — je čistě čtecí a bez psql příkazů, takže se vloží přímo
+-- do SQL Editoru. Ochrana se tím z databáze přesouvá do kontroly,
+-- kterou někdo pustí; horší než výchozí práva, pořád lepší než nic.
+-- ═════════════════════════════════════════════════════════════════
 
 DO $$
-DECLARE r TEXT;
+DECLARE
+  v_role   TEXT;
+  v_objekt TEXT;
+  v_prikaz TEXT;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['postgres', 'supabase_admin'] LOOP
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
-      EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON TABLES FROM anon', r);
-      EXECUTE format(
-        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon', r);
-    END IF;
+  -- NULL = bez FOR ROLE, tedy pro roli, která migraci pouští.
+  FOREACH v_role IN ARRAY ARRAY[NULL, 'postgres', 'supabase_admin']::TEXT[] LOOP
+    CONTINUE WHEN v_role IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role);
+
+    FOREACH v_objekt IN ARRAY ARRAY['TABLES', 'SEQUENCES'] LOOP
+      v_prikaz := format(
+        'ALTER DEFAULT PRIVILEGES%s IN SCHEMA public REVOKE ALL ON %s FROM anon',
+        CASE WHEN v_role IS NULL THEN '' ELSE format(' FOR ROLE %I', v_role) END,
+        v_objekt);
+
+      BEGIN
+        EXECUTE v_prikaz;
+        RAISE NOTICE 'Výchozí práva upravena: %', v_prikaz;
+      EXCEPTION
+        WHEN insufficient_privilege THEN
+          -- Přesně tenhle případ: role patří Supabase a postgres na ni
+          -- nedosáhne. Hlídá to test, ne databáze.
+          RAISE NOTICE 'Na výchozí práva role % nedosáhneme — hlídá to rls_audit.sql.',
+            coalesce(v_role, 'current_user');
+      END;
+    END LOOP;
   END LOOP;
 END $$;
 
@@ -74,23 +114,13 @@ COMMENT ON TABLE cron_runs IS
   'intervalu daného endpointu. Čte operátor a admin — klientovi čísla '
   'přes celý systém nic neřeknou a jsou to čísla i o cizích areálech.';
 
--- ── 3) Pojistka: tabulka bez RLS ─────────────────────────────────
+-- ── 3) Pojistka je v testu, ne tady ──────────────────────────────
 --
--- Revoke výš je záchranná síť, ne náhrada RLS. Když by někdo založil
--- tabulku a zapomněl na politiky, tenhle výpis to řekne nahlas při
--- příštím běhu migrací.
+-- Migrace zkontroluje stav v okamžiku, kdy se pouští; tabulka bez RLS
+-- ale vznikne až někdy potom. Kontrola proto patří do něčeho, co se
+-- pouští opakovaně — supabase/tests/rls_audit.sql.
 
 DO $$
-DECLARE v_bez TEXT;
 BEGIN
-  SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_bez
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity;
-
-  IF v_bez IS NOT NULL THEN
-    RAISE WARNING 'Tabulky bez RLS: %. Bez politik jsou otevřené všem, kdo mají klíč.', v_bez;
-  ELSE
-    RAISE NOTICE 'Všechny tabulky mají zapnutou RLS.';
-  END IF;
+  RAISE NOTICE 'Hotovo. Stav práv ověřte kdykoli souborem supabase/tests/rls_audit.sql.';
 END $$;
