@@ -43,6 +43,25 @@ Schéma a RLS jde ověřit lokálně proti jednorázovému PostgreSQL
 supabase/tests/run-local.sh
 ```
 
+## Práva role anon
+
+Supabase dává rolím `anon` a `authenticated` plná práva na všechny
+tabulky ve schématu `public` — jednou plošně a znovu přes
+`ALTER DEFAULT PRIVILEGES` pro každou nově založenou. Úzké `GRANT`y
+v migracích proto nic neomezují: širší právo už tam bylo.
+
+Dokud je na tabulce RLS a `anon` nemá politiku, nevadí to. Vadí to ve
+chvíli, kdy vznikne tabulka, u níž se na `ENABLE ROW LEVEL SECURITY`
+zapomene — ta je okamžitě čitelná **i zapisovatelná** komukoli, kdo zná
+veřejný anon klíč. A ten je v každé stránce portálu.
+
+Migrace 20260911120000 proto `anon` práva na tabulky bere a mění
+i výchozí práva pro tabulky příští. Přihlášeným (`authenticated`) se
+nesahá na nic: tam RLS pracuje a zúžení práv by rozbilo provoz.
+
+Hlídá to `supabase/tests/anon_and_cron_read.sql` — včetně toho, že nově
+založená tabulka `anon` nic nedá, a že žádná tabulka nezůstala bez RLS.
+
 ## Ingest klíče kamer
 
 Každá kamera se podepisuje vlastním klíčem. Klíč se nikde neukládá,
@@ -413,6 +432,12 @@ Prázdná tabulka **není** v pořádku a hlásí se jako „úloha zatím nikdy
 neproběhla“. Když ale chybí celá tabulka (migrace neběžela), přehled
 mlčí — varovat na základě něčeho, co neexistuje, by bylo totéž tiché
 selhání, jen obráceně.
+
+Běhy čte **operátor a admin**, klient ne (migrace 20260911120000):
+jsou to provozní čísla přes celý systém, tedy i o cizích areálech,
+a zaseklý cron klient stejně nespraví. Přehled proto varování o cronu
+klientovi vůbec nesestavuje — prázdná odpověď z RLS by jinak vypadala
+jako „úloha nikdy neproběhla“.
 
 ### Hlídač zvenčí (healthchecks.io)
 

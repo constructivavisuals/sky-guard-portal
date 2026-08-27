@@ -50,6 +50,8 @@ import {
   orDash,
 } from "@/lib/format.ts";
 import { zonedTimeToUtc } from "@/lib/patrols/schedule.ts";
+import { getCurrentProfile } from "@/lib/current-profile.ts";
+import { isOperator } from "@/lib/profile.ts";
 import { getSiteSelection, type SiteRow } from "@/lib/selected-site.ts";
 import { nextArmedTransition } from "@/lib/site-status.ts";
 import { createClient } from "@/lib/supabase/server.ts";
@@ -106,8 +108,16 @@ function startOfLocalDay(timeZone: string, now: Date): Date {
 }
 
 export default async function Page() {
-  const { selectedRow: site } = await getSiteSelection();
+  const [{ selectedRow: site }, profile] = await Promise.all([
+    getSiteSelection(),
+    getCurrentProfile(),
+  ]);
   const now = new Date();
+  // Stav cronu čte od migrace 20260911120000 jen operátor a admin.
+  // Klientovi by prázdná odpověď (RLS nevrací chybu, vrací nic)
+  // vypadala jako „úloha nikdy neproběhla“ — a to je varování o něčem,
+  // s čím stejně nic neudělá.
+  const operator = isOperator(profile);
 
   if (!site) {
     return (
@@ -275,7 +285,7 @@ export default async function Page() {
       // znamená „nevíme“, ne „nemá trasu“ — strašit varováním na
       // základě neexistujícího sloupce by bylo horší než mlčet.
       // Chybějící tabulka znamená „nevíme“, ne „neběží“.
-      if (cronRows.every((row) => !row.error)) {
+      if (operator && cronRows.every((row) => !row.error)) {
         cronRuns = CRON_JOBS.map((job, index) => {
           const radek = cronRows[index].data?.[0];
           return {

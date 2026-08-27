@@ -60,8 +60,17 @@ SELECT test_expect('běhy nevisí na lokalitě',
 SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000c0002"}';
 
--- „Hlídky nelétají“ je zpráva i pro klienta, kterého se to týká nejvíc.
-SELECT test_expect('klient na běhy vidí', (SELECT count(*) FROM cron_runs), 3);
+-- Klient na běhy NEVIDÍ (migrace 20260911120000). Jsou to provozní
+-- čísla přes celý systém — kolik je lokalit dohromady, kolik hlídek se
+-- plánuje — tedy čísla i o cizích areálech. A zaseklý cron klient
+-- stejně nespraví.
+SELECT test_expect('klient na běhy nevidí', (SELECT count(*) FROM cron_runs), 0);
+
+-- Operátor a admin ano: pro ně je to diagnóza, kvůli které se jde
+-- podívat na VPS.
+SET LOCAL request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000c0001"}';
+SELECT test_expect('admin na běhy vidí', (SELECT count(*) FROM cron_runs), 3);
+SET LOCAL request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000c0002"}';
 
 -- Zapisuje výhradně cron pod service_role.
 DO $$
@@ -76,16 +85,19 @@ END $$;
 DO $$
 BEGIN
   DELETE FROM cron_runs;
-  IF (SELECT count(*) FROM cron_runs) < 3 THEN
-    RAISE EXCEPTION 'FAIL  klient smazal běhy cronu';
-  END IF;
-  RAISE NOTICE 'ok    klient běhy nesmaže';
+  RAISE NOTICE 'ok    klientův DELETE prošel bez chyby (nic nesmazal, viz níž)';
 EXCEPTION
   WHEN insufficient_privilege THEN
     RAISE NOTICE 'ok    klient běhy nesmaže — odmítnuto právy';
 END $$;
 
 RESET ROLE;
+
+-- Kontrola AŽ mimo klientovu roli: od migrace 20260911120000 na běhy
+-- nevidí, takže by dotazem po smazání nedokázal rozlišit „nic jsem
+-- nesmazal“ od „nevidím na to“.
+SELECT test_expect('běhy po klientově DELETE zůstaly',
+  (SELECT count(*) FROM cron_runs), 3);
 
 DO $$ BEGIN RAISE NOTICE 'VŠECHNY TESTY PROŠLY'; END $$;
 ROLLBACK;

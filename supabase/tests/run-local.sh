@@ -69,6 +69,9 @@ run_test_file dispatch_outcomes.sql
 echo "== testy hlídek =="
 run_test_file patrols.sql
 
+echo "== práva anon a čtení cron_runs =="
+run_test_file anon_and_cron_read.sql
+
 echo "== schopnosti kamer =="
 run_test_file camera_capabilities.sql
 

@@ -34,3 +34,4 @@
 20260908180000_audit_coverage.sql
 20260909120000_retention.sql
 20260909180000_dispatch_outcome_constraint.sql
+20260910120000_camera_capabilities.sql
