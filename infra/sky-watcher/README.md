@@ -199,15 +199,22 @@ Vezme hotové `.mp4` z úložiště a řekne, proč ho přehrávač odmítá:
 kodek, tag, profil, level, rozlišení, pozice `moov` a hlavně **kde leží
 parametry streamu** (VPS/SPS/PPS).
 
-Na tom posledním záleží víc, než se zdá. `-tag:v hvc1`, který remux
-u HEVC vynucuje, není jen přejmenování FourCC — ffmpeg při něm parametry
-z jednotlivých vzorků **vyhodí** a nechá je jen v hlavičce `hvcC`. Když
-je kamera mění za běhu (Dahua Smart Codec), ty změny se ztratí:
+Na tom posledním záleží víc, než se zdá. `-tag:v hvc1` není jen
+přejmenování FourCC — ffmpeg při něm parametry z jednotlivých vzorků
+**vyhodí** a nechá je jen v hlavičce `hvcC`. Když je kamera mění za
+běhu, ty změny se ztratí:
 
 | | parametry | důsledek |
 |---|---|---|
-| `hev1` | in-band, u každého vzorku | přehraje Chrome, **odmítne Safari/iOS** |
-| `hvc1` | jen v `hvcC` | vezme iOS, **Chrome spadne**, mění-li kamera parametry |
+| `hev1` (dnes výchozí) | in-band, u každého vzorku | přehraje Chrome, **odmítne Safari/iOS** |
+| `hvc1` (`HEVC_TAG=hvc1`) | jen v `hvcC` | vezme iOS, **Chrome spadne**, mění-li kamera parametry |
+
+**Watcher od té doby tag NEVYNUCUJE** — píše `hev1`. Je to výměna, ne
+čistá oprava: spravilo to desktop na úkor iPhonu. Zpátky se to přepne
+`HEVC_TAG=hvc1` v `.env`, bez nasazování nové verze.
+
+Tuhle výměnu ruší jedině H.264: přehraje ho každý prohlížeč a žádný tag
+se neřeší. Stojí to překódování místo přebalení, tedy CPU na relayi.
 
 Se `--zdroj` skript týž `.dav` přebalí i bez toho tagu a porovná — tím
 odliší vadu kamery od vady remuxu. Bez zdroje to nerozhodne a řekne to.

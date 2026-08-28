@@ -11,9 +11,16 @@ import { objectUrl, signedHeaders, type S3Config } from "./s3.ts";
 const TIMEOUT_MS = 20_000;
 
 export class StorageError extends Error {
-  constructor(message: string, readonly status?: number) {
+  readonly status?: number;
+
+  // Přiřazení v těle, ne parametr s modifikátorem: `readonly status`
+  // v hlavičce konstruktoru je TypeScript, který node neumí odstranit
+  // samotným stripováním typů — a právě tak si repo pouští testy
+  // i skripty. Projevilo by se to až při prvním importu odsud.
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "StorageError";
+    this.status = status;
   }
 }
 

@@ -29,6 +29,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 KOREN = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(KOREN))
+
+import watcher  # noqa: E402
 SECRET = "testovaci-tajemstvi"
 SERIAL = "BK024AAPAGB5592"
 
@@ -133,6 +136,40 @@ def pust_watcher(inbox: Path, failed: Path, port: int) -> subprocess.CompletedPr
     )
 
 
+def test_tag_args(zkontroluj) -> None:
+    """
+    Vynucení čtyřznakového kódu u HEVC.
+
+    Výchozí je NEvynucovat: `-tag:v hvc1` vyhazuje parametry streamu
+    ze vzorků a Chrome pak spadne na PIPELINE_ERROR_DECODE. Zpátky se
+    to dá zapnout proměnnou, protože `hev1` zase neumí Safari a iOS —
+    je to výměna, ne čistá oprava.
+    """
+    import importlib
+
+    puvodni = os.environ.get("HEVC_TAG")
+
+    os.environ.pop("HEVC_TAG", None)
+    importlib.reload(watcher)
+    zkontroluj("výchozí stav tag NEvynucuje", watcher.tag_args("hevc") == [])
+    zkontroluj("ani u h265", watcher.tag_args("h265") == [])
+
+    os.environ["HEVC_TAG"] = "hvc1"
+    importlib.reload(watcher)
+    zkontroluj("HEVC_TAG=hvc1 se u HEVC uplatní",
+               watcher.tag_args("hevc") == ["-tag:v", "hvc1"])
+    zkontroluj("na H.264 se tag neaplikuje nikdy",
+               watcher.tag_args("h264") == [])
+    zkontroluj("neznámý kodek tag nedostane",
+               watcher.tag_args(None) == [] and watcher.tag_args("") == [])
+
+    if puvodni is None:
+        os.environ.pop("HEVC_TAG", None)
+    else:
+        os.environ["HEVC_TAG"] = puvodni
+    importlib.reload(watcher)
+
+
 def main() -> int:
     if not ffmpeg_funguje():
         print("PŘESKOČENO: ffmpeg není k dispozici nebo se nespustí.")
@@ -152,6 +189,9 @@ def main() -> int:
         else:
             print(f"FAIL  {popis} {detail}")
             chyby.append(popis)
+
+    # Nepotřebuje ffmpeg ani portál — čistá funkce.
+    test_tag_args(zkontroluj)
 
     with tempfile.TemporaryDirectory() as tmp:
         inbox = Path(tmp) / "inbox"

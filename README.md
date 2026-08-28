@@ -273,6 +273,34 @@ není podmínkou přehratelnosti.
 R2 se nikdy nepoužilo; starší poznámky o `r2_key` v komentářích byly
 převzaté z Constructivy.
 
+### Čtyřznakový kód u HEVC
+
+Kamery nahrávají H.265 a u něj se musí rozhodnout, jak se do MP4 zapíší
+parametry streamu (VPS/SPS/PPS). `-tag:v hvc1` je **nezapíše do vzorků**
+— nechá je jen v hlavičce `hvcC`. Když kamera parametry za běhu mění,
+ty změny se tím ztratí a Chrome, který si postaví dekodér jednou
+z `hvcC`, spadne na `PIPELINE_ERROR_DECODE` (VideoToolbox `-12909`).
+
+Watcher proto tag **nevynucuje** a píše `hev1`, kde parametry zůstávají
+u každého vzorku. Je to ale **výměna, ne oprava**:
+
+| | Chrome / desktop | Safari / iOS |
+|---|---|---|
+| `hev1` (dnes) | ano | **ne** |
+| `hvc1` (`HEVC_TAG=hvc1`) | ne, mění-li kamera parametry | ano |
+
+S H.265 nejde vyhovět oběma. Ruší to teprve H.264 — přehraje ho každý
+prohlížeč a tag se neřeší vůbec; platí se za to překódováním místo
+přebalení, tedy CPU na relayi.
+
+**Už nahrané soubory se opravit nedají.** Parametry, které `hvc1` při
+remuxu vyhodil, v souboru nejsou a není odkud je vzít — ověřeno měřením:
+ani `ffmpeg -c copy -tag:v hev1`, ani přepsání FourCC je do vzorků
+nedoplní. `npm run pretaguj` umí jen přepsat ten kód, což pomůže pouze
+tehdy, když souboru vadil samotný kód. Jinak zbývá počkat, až záznamy
+odejdou lhůtou (`clip_retention_days`, 14 dní), nebo je znovu stáhnout
+z SD karty kamery.
+
 Idempotence příjmu stojí **jen** na `sd_file_path`. Constructiva má
 vedle toho ještě unique `(camera_id, started_at)` z doby před FTP
 příjmem a její README ho popisuje jako past: dvojice main + sub stream

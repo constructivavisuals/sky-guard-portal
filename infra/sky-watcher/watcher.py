@@ -82,6 +82,14 @@ ORPHAN_IDX_TTL_SEC = int(os.environ.get("ORPHAN_IDX_TTL_SEC", "600"))
 
 ONCE = os.environ.get("WATCHER_ONCE", "0") == "1"
 
+# Čtyřznakový kód, který se u HEVC vynutí. Prázdné = nevynucovat nic,
+# tedy `hev1` s parametry u každého vzorku.
+#
+# `hvc1` vrátí chování pro Safari a iOS, ale za cenu desktopu — viz
+# remux_to_mp4(). Je to proměnná schválně: která strana té výměny
+# zrovna bolí víc, se pozná v provozu, ne při psaní.
+HEVC_TAG = os.environ.get("HEVC_TAG", "").strip()
+
 log = logging.getLogger("sky-watcher")
 
 
@@ -226,19 +234,54 @@ def probe_video_codec(src: Path) -> str | None:
     return name[0] if name else None
 
 
+def tag_args(codec: str | None) -> list[str]:
+    """
+    Argumenty ffmpegu pro vynucení čtyřznakového kódu.
+
+    Prázdný seznam znamená „nevynucovat nic“, což je výchozí stav —
+    ffmpeg pak u HEVC zapíše `hev1` a parametry nechá u každého vzorku.
+    Na jiný kodek než HEVC se tag neaplikuje nikdy: u H.264 by nedával
+    smysl a ffmpeg by ho odmítl.
+    """
+    if not HEVC_TAG:
+        return []
+    if (codec or "").lower() not in {"hevc", "h265"}:
+        return []
+    return ["-tag:v", HEVC_TAG]
+
+
 def remux_to_mp4(src: Path, dst: Path) -> None:
     """
     .dav → .mp4 bez překódování.
 
-    `-c copy`: obraz se nepřepočítává, jen se přebalí. U HEVC se vynutí
-    tag `hvc1` — ffmpeg jinak zapíše `hev1` a Safari ani iOS takové
-    video nepřehrají. Na desktopu přitom běží, takže to vypadá jako
-    chyba přehrávače, ne souboru.
+    `-c copy`: obraz se nepřepočítává, jen se přebalí.
+
+    ═══ Proč se `hvc1` UŽ NEVYNUCUJE ══════════════════════════════
+    Vynucovalo se, protože `hev1` neumí přehrát Safari ani iOS. Jenže
+    `-tag:v hvc1` není přejmenování čtyřznakového kódu: ffmpeg při něm
+    parametry streamu (VPS/SPS/PPS) ze VZORKŮ VYHODÍ a nechá je jen
+    v hlavičce `hvcC`. Když kamera parametry za běhu mění, ty změny se
+    tím ztratí — Chrome si postaví dekodér jednou z `hvcC`, narazí na
+    vzorek kódovaný jinak a spadne:
+
+        MediaError code 3, PIPELINE_ERROR_DECODE
+        VTDecompressionOutputCallback (-12909)
+
+    Bez toho tagu zůstanou parametry u každého vzorku a stream se
+    popisuje sám.
+
+    ═══ Je to VÝMĚNA, ne čistá oprava ═════════════════════════════
+    `hev1` odmítá Safari a iOS. Tahle změna tedy spravuje desktop na
+    úkor iPhonu — a zpátky se to vrátí nastavením HEVC_TAG=hvc1, bez
+    nasazování nové verze.
+
+    Skutečné řešení, které tuhle výměnu ruší, je H.264: přehraje ho
+    každý prohlížeč a žádný tag se řešit nemusí. Stojí to překódování
+    místo přebalení, tedy CPU na relayi.
 
     `+faststart` dá moov dopředu, aby šlo přehrávat od začátku stahování.
     """
-    codec = (probe_video_codec(src) or "").lower()
-    tag = ["-tag:v", "hvc1"] if codec in {"hevc", "h265"} else []
+    tag = tag_args(probe_video_codec(src))
 
     # .dav bývá holý Annex-B stream. Když ho ffmpeg neuhodne, zkusí se
     # vnutit formát podle kodeku.
