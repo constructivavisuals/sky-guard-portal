@@ -11,6 +11,7 @@ import {
   locateTime,
   nextIndex,
 } from "@/lib/recordings/playback.ts";
+import { createPlaybackGate } from "@/lib/recordings/prehravani.ts";
 import type { DayString } from "@/lib/recordings/timeline.ts";
 
 import { DayTimeline } from "./timeline.tsx";
@@ -37,6 +38,17 @@ import { DayTimeline } from "./timeline.tsx";
 // Skrytý prvek se NESMÍ schovat přes `display: none` — takový prvek
 // prohlížeč nemusí přednačítat a celé zdvojení by bylo k ničemu.
 // Proto průhlednost.
+//
+// ═══ play() a pause() se nesmí potkat ══════════════════════════════
+// `play()` je ROZEHRANÉ, dokud se obraz nerozjede, a `pause()` do té
+// doby celé volání zruší — prohlížeč to ohlásí jako
+// `AbortError: The play() request was interrupted by a call to pause()`.
+// U dvou střídajících se prvků se to potkávalo pravidelně: obě volání
+// se vyrušila a přehrávání zůstalo stát, přestože tlačítko reagovalo.
+//
+// Všechna volání proto vedou přes `createPlaybackGate()`, který na
+// rozehrané play() počká, než zastaví, a zrušené volání zahodí místo
+// aby ho nechal vybublat do konzole.
 
 interface Row {
   id: string;
@@ -88,6 +100,11 @@ export function ContinuousPlayer({
     [],
   );
 
+  // Jedna brána na celou komponentu: drží u obou prvků jejich rozehrané
+  // play(). Musí přežít render, jinak by po každé změně stavu zapomněla,
+  // na co se čeká.
+  const brana = useRef(createPlaybackGate());
+
   // ── Adresy se NEDRŽÍ ve stavu ───────────────────────────────────
   //
   // Plynou z indexu: aktivní prvek hraje `clips[index]`, ten druhý má
@@ -124,7 +141,7 @@ export function ContinuousPlayer({
         // z databáze je odhad a seek za konec video zasekne.
         const strop = Number.isFinite(prvek.duration) ? prvek.duration : kam.offsetSec;
         prvek.currentTime = Math.min(kam.offsetSec, Math.max(0, strop - 0.05));
-        if (prehrat) void prvek.play();
+        if (prehrat) void brana.current.pustit(aktivni, prvek);
         return;
       }
 
@@ -157,9 +174,13 @@ export function ContinuousPlayer({
     setPreskok(null);
     setCas(clips[dalsi].startsAt);
 
-    // Přednačtený prvek se rozjede hned. Uvolněný dostane při dalším
-    // renderu adresu toho po něm, takže je připravený na příští hranici.
-    void video(novy)?.play();
+    // Pořadí je dané: nejdřív se korektně dovře dojetý prvek, teprve
+    // pak se rozjíždí ten druhý. Zastavení počká na jeho rozehrané
+    // play(), takže se ta dvě volání nevyruší — a hlavně se tím nezruší
+    // rozjezd toho nového, což byl přesně ten stav, kdy obraz zůstal
+    // stát.
+    void brana.current.zastavit(aktivni, video(aktivni));
+    void brana.current.pustit(novy, video(novy));
 
     // Nutně ručně: dojíždějící soubor vyfiří `pause` TĚSNĚ PŘED `ended`
     // (tak to má HTML spec), takže si `hraje` právě přepnul na false.
@@ -178,7 +199,7 @@ export function ContinuousPlayer({
     }
     if (cekaPlay.current) {
       cekaPlay.current = false;
-      void prvek.play();
+      void brana.current.pustit(aktivni, prvek);
     }
   }
 
@@ -188,11 +209,24 @@ export function ContinuousPlayer({
     setCas(absoluteTime(clips[index], prvek.currentTime));
   }
 
+  /**
+   * Tlačítko dělá to, co je na něm napsané.
+   *
+   * Rozhoduje se podle `hraje`, tedy podle toho, co divák VIDÍ — ne
+   * podle `paused` prvku. Ty dva se totiž rozejdou: výměna zdroje
+   * vyfiří `pause` dřív, než se stihne rozjet nový soubor, takže ikona
+   * ukazuje „přehrát“, zatímco prvek se pořád tváří jako rozjetý.
+   * Kliknutí podle prvku pak zavolalo pause() na rozehrané play() —
+   * obě volání se vyrušila a navenek se nestalo nic.
+   *
+   * Zpátky do souladu to srovnají události `play`/`pause` níž.
+   */
   function prepnoutPrehravani() {
     const prvek = video(aktivni);
     if (!prvek) return;
-    if (prvek.paused) void prvek.play();
-    else prvek.pause();
+
+    if (hraje) void brana.current.zastavit(aktivni, prvek);
+    else void brana.current.pustit(aktivni, prvek);
   }
 
   if (clips.length === 0) {
