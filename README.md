@@ -536,6 +536,39 @@ HETZNER_S3_BUCKET       volitelné, výchozí sky-guard-zaznamy
 HETZNER_S3_REGION       volitelné, výchozí první část endpointu (fsn1)
 ```
 
+> `HETZNER_S3_ENDPOINT` a `NEXT_PUBLIC_SUPABASE_URL` musí být
+> v prostředí **buildu**, ne jen běhu: skládá se z nich `media-src`
+> v CSP (`next.config.ts` běží při sestavení). Když při buildu chybí,
+> použijí se volnější náhradní hodnoty a nikde to nezakřičí.
+
+### Bezpečnostní hlavičky
+
+Politika bydlí v `src/lib/csp.ts`, ne jako řetězec v konfiguraci —
+**aby šla otestovat**. Chybějící direktiva se totiž při buildu ani
+v testech aplikace nijak neprojeví; pozná se až v prohlížeči u klienta
+jako „video nejde“. Přesně tak tu od zavedení CSP chyběl `media-src`
+a video z dronu se nedalo přehrát, aniž by si toho kdokoli všiml —
+obrázky povolené byly, takže galerie vypadala funkčně.
+
+Odkud se smí načítat médium:
+
+| Zdroj | Proč |
+|---|---|
+| `'self'` | přehrávač odkazuje na `/api/media` |
+| Supabase | média z letů a záznamy z doby před přechodem |
+| Hetzner (oba tvary adresy) | záznamy ze stavebních kamer |
+
+Vlastní původ **nestačí**: `/api/media` odpovídá přesměrováním
+a prohlížeč kontroluje i jeho cíl. Proto tam cizí původy musí být,
+i když na ně kód nikde neodkazuje přímo.
+
+`'unsafe-eval'` je jen ve vývoji — `next dev` staví zdrojové mapy přes
+`eval`. V produkci ho nepotřebuje ani jeden chunk (ověřeno grepem přes
+`.next/static/chunks`), takže tam nemá co dělat. `'unsafe-inline'`
+u skriptů zůstává: Next si do stránky vkládá vlastní inline skripty
+a utáhnout to jde jedině nonce protaženým do všech skriptů, což je
+samostatná změna.
+
 ### Čtení: `/api/media`, ne podepsaná adresa
 
 Hetzner žádnou RLS nezná, takže se přístup ověřuje **v portálu, před
