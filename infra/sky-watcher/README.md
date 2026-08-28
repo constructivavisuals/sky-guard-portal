@@ -174,6 +174,35 @@ z hostitele ano, přidej službě `network_mode: host`.
 Postup na místě — co nastavit v kameře, co založit v portálu předem
 a jak ověřit, že záznam dorazil: **[MONTAZ.md](MONTAZ.md)**.
 
+## Když se záznam nepřehraje v prohlížeči
+
+```bash
+python3 infra/sky-watcher/diagnostika.py zaznam.mp4 --zdroj original.dav
+```
+
+Vezme hotové `.mp4` z úložiště a řekne, proč ho přehrávač odmítá:
+kodek, tag, profil, level, rozlišení, pozice `moov` a hlavně **kde leží
+parametry streamu** (VPS/SPS/PPS).
+
+Na tom posledním záleží víc, než se zdá. `-tag:v hvc1`, který remux
+u HEVC vynucuje, není jen přejmenování FourCC — ffmpeg při něm parametry
+z jednotlivých vzorků **vyhodí** a nechá je jen v hlavičce `hvcC`. Když
+je kamera mění za běhu (Dahua Smart Codec), ty změny se ztratí:
+
+| | parametry | důsledek |
+|---|---|---|
+| `hev1` | in-band, u každého vzorku | přehraje Chrome, **odmítne Safari/iOS** |
+| `hvc1` | jen v `hvcC` | vezme iOS, **Chrome spadne**, mění-li kamera parametry |
+
+Se `--zdroj` skript týž `.dav` přebalí i bez toho tagu a porovná — tím
+odliší vadu kamery od vady remuxu. Bez zdroje to nerozhodne a řekne to.
+
+Past při čtení výstupu: `dekóduje: ano` **není** důkaz, že to přehrávač
+vezme. Když parametry chybí, ffmpeg si drží poslední známé a dojede do
+konce; Chrome si postaví `VTDecompressionSession` jednou z `hvcC`
+a na první jinak kódovaný vzorek spadne — `PIPELINE_ERROR_DECODE`,
+VideoToolbox `-12909`. Rozhoduje řádek `parametry`, ne `dekóduje`.
+
 ## Test
 
 Celý řetěz proti **falešnému portálu**, bez VPS a bez Sky Guardu:
