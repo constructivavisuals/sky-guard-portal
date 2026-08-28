@@ -15,8 +15,7 @@ import {
 } from "@/lib/recordings/timeline.ts";
 import { formatBytes, formatDateTime, orDash } from "@/lib/format.ts";
 import {
-  RECORDING_BUCKET,
-  RECORDING_SIGNED_URL_TTL,
+  recordingMediaHref,
   recordingPlayback,
   type RecordingPlayback,
 } from "@/lib/recordings/storage.ts";
@@ -102,8 +101,6 @@ export default async function Page({
   let failed = false;
   let cameras: CameraOption[] = [];
   const pocty = new Map<DayString, number>();
-  /** Podepsané adresy k nahraným souborům, podle cesty. */
-  const odkazy = new Map<string, string>();
 
   try {
     const supabase = await createClient();
@@ -140,23 +137,13 @@ export default async function Page({
       rows = data ?? [];
       total = count ?? 0;
 
-      // Jedno volání na celou stránku, ne jedno na řádek. Podepisuje se
-      // klientem přihlášeného uživatele, takže o přístupu k souboru
-      // rozhoduje politika nad storage.objects, ne tenhle kód.
-      const cesty = rows
-        .filter((row) => recordingPlayback(row) === "ready" && row.storage_path)
-        .map((row) => row.storage_path as string);
-
-      if (cesty.length > 0) {
-        const { data: podepsane } = await supabase.storage
-          .from(RECORDING_BUCKET)
-          .createSignedUrls(cesty, RECORDING_SIGNED_URL_TTL);
-
-        for (const item of podepsane ?? []) {
-          if (item.path && item.signedUrl) odkazy.set(item.path, item.signedUrl);
-        }
-      }
+      // Adresy se tu UŽ NEPODEPISUJÍ. Video leží v Hetzneru, kde žádná
+      // RLS není, takže se na ně odkazuje přes /api/media — ten pod RLS
+      // ověří řádek a teprve pak podepíše. Bokem to ušetřilo hromadné
+      // podepisování celé stránky souborů, ze kterých si uživatel
+      // pustí většinou jeden.
     }
+
     // Kamery do filtru a počty do kalendáře. Obojí jen u vybrané
     // lokality; napříč lokalitami by to byl seznam bez konce.
     if (kalendar && selected) {
@@ -269,7 +256,10 @@ export default async function Page({
           >
             {rows.map((row) => {
               const stav = recordingPlayback(row);
-              const odkaz = row.storage_path ? odkazy.get(row.storage_path) : undefined;
+              const odkaz =
+                stav === "ready" && row.storage_path
+                  ? recordingMediaHref(row.storage_path)
+                  : undefined;
               const timeZone = row.cameras?.sites?.timezone;
 
               return (

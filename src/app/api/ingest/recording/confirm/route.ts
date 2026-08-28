@@ -1,11 +1,15 @@
 import type { NextRequest } from "next/server";
 
-import { relaySecrets } from "@/lib/env.ts";
+import { hetznerStorageConfig, relaySecrets } from "@/lib/env.ts";
 import { clientIp } from "@/lib/ingest/rate-limit.ts";
 import { parseRecordingConfirm } from "@/lib/ingest/recording-payload.ts";
 import { publicFailureReason } from "@/lib/ingest/signature.ts";
 import { verifyRelay } from "@/lib/ingest/verify-relay.ts";
-import { RECORDING_BUCKET } from "@/lib/recordings/storage.ts";
+import {
+  RECORDING_BUCKET,
+  isRecordingBackend,
+} from "@/lib/recordings/storage.ts";
+import { headObject } from "@/lib/storage/objects.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
 // POST /api/ingest/recording/confirm
@@ -20,6 +24,16 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 // když soubor nenajde, potvrzení odmítne a záznam zůstane nedokončený.
 // Relay to zkusí znovu — a když ne, je to vidět jako vjezd, u kterého
 // nikdy nedošlo video, ne jako přehrávač, co nic nepřehraje.
+//
+// U Hetzneru to platí dvojnásob: relay tam nahrává PŘÍMO, mimo portál,
+// takže tohle HEAD je jediné místo, kde se portál dozví, že soubor
+// doopravdy dorazil a jak je velký. Na té velikosti pak stojí strop.
+//
+// ═══ Nenalezeno vs. nedalo se zeptat ═══════════════════════════════
+// 404 z úložiště znamená „nedorazilo“ a potvrzení se odmítne (409).
+// Výpadek úložiště je něco jiného: vrací se 503, aby to relay zkusil
+// znovu. Kdyby se obojí slilo do 409, zahodil by relay hotový soubor
+// jen proto, že bylo úložiště chvíli nedostupné.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +51,7 @@ interface RecordingRow {
   id: string;
   storage_path: string | null;
   uploaded_at: string | null;
+  storage_backend: string | null;
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -87,7 +102,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const { data: recording, error } = await db
     .from("camera_recordings")
-    .select("id, storage_path, uploaded_at")
+    .select("id, storage_path, uploaded_at, storage_backend")
     .eq("id", parsed.payload.recordingId)
     .maybeSingle<RecordingRow>();
 
@@ -106,20 +121,26 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Tady se tvrzení mění v ověřený fakt.
-  const { data: info, error: infoError } = await db.storage
-    .from(RECORDING_BUCKET)
-    .info(recording.storage_path);
+  let velikost: number | null | undefined;
+  try {
+    velikost = await zmeritSoubor(db, recording);
+  } catch (caught) {
+    // Úložiště se neozvalo. Není to vada souboru — relay to má zkusit
+    // znovu, ne záznam odepsat.
+    console.error("Ověření souboru v úložišti selhalo", {
+      recording_id: recording.id,
+      message: caught instanceof Error ? caught.message : String(caught),
+    });
+    return jsonError(503, "storage_unavailable");
+  }
 
-  if (infoError || !info) {
+  if (velikost === undefined) {
     console.warn("Potvrzení bez souboru v úložišti", {
       recording_id: recording.id,
       storage_path: recording.storage_path,
-      message: infoError?.message,
     });
     return jsonError(409, "file_not_found");
   }
-
-  const velikost = typeof info.size === "number" ? info.size : null;
 
   const { error: updateError } = await db
     .from("camera_recordings")
@@ -146,4 +167,35 @@ export async function POST(request: NextRequest): Promise<Response> {
     { recording_id: recording.id, status: "ready", size_bytes: velikost },
     { status: 200 },
   );
+}
+
+/**
+ * Velikost nahraného souboru, nebo `undefined` když tam není.
+ *
+ * Trojí výsledek schválně: číslo (i null, když úložiště velikost
+ * neřeklo) = soubor je; `undefined` = není; výjimka = nešlo se zeptat.
+ * První dva se potvrzují a odmítají, třetí se opakuje.
+ */
+async function zmeritSoubor(
+  db: ReturnType<typeof supabaseAdmin>,
+  recording: RecordingRow,
+): Promise<number | null | undefined> {
+  const storagePath = recording.storage_path as string;
+  const backend = isRecordingBackend(recording.storage_backend)
+    ? recording.storage_backend
+    : "supabase";
+
+  if (backend === "hetzner") {
+    const info = await headObject(hetznerStorageConfig(), storagePath);
+    return info === null ? undefined : info.size;
+  }
+
+  const { data, error } = await db.storage.from(RECORDING_BUCKET).info(storagePath);
+  if (error || !data) {
+    // Supabase nerozlišuje „není“ od „nešlo“ jedním typem chyby.
+    // Nenalezeno je tu ale mnohem pravděpodobnější a chová se to jako
+    // dřív — u starých záznamů se stejně nic nového nenahrává.
+    return undefined;
+  }
+  return typeof data.size === "number" ? data.size : null;
 }

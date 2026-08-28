@@ -1,6 +1,6 @@
 import { after, type NextRequest } from "next/server";
 
-import { relaySecrets } from "@/lib/env.ts";
+import { hetznerStorageConfig, relaySecrets } from "@/lib/env.ts";
 import { clientIp, takeIngestToken } from "@/lib/ingest/rate-limit.ts";
 import {
   mayIssueUploadUrl,
@@ -8,12 +8,14 @@ import {
 } from "@/lib/ingest/recording-payload.ts";
 import { publicFailureReason } from "@/lib/ingest/signature.ts";
 import { verifyRelay } from "@/lib/ingest/verify-relay.ts";
+import { quotaMessage, quotaState } from "@/lib/recordings/quota.ts";
 import {
-  RECORDING_BUCKET,
+  DEFAULT_RECORDING_BACKEND,
   UPLOAD_URL_TTL_SECONDS,
   recordingPath,
   recordingPlayback,
 } from "@/lib/recordings/storage.ts";
+import { presignUrl } from "@/lib/storage/s3.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
 // POST /api/ingest/recording
@@ -28,10 +30,18 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 // průtok dat přes Vercel — soubor si úložiště umí převzít samo.
 //
 // ═══ Proč relay nemá klíč k úložišti ═══════════════════════════════
-// Supabase S3 klíč se nedá omezit na jeden bucket a obchází RLS, takže
-// by kompromitace VPS znamenala přístup k záznamům z dronu, ke snímkům
-// vjezdů i k logům všech klientů. Relay proto drží jediné tajemství:
-// RELAY_SECRET, kterým se podepisuje tady.
+// Ani u Hetzneru: S3 klíč platí na CELÝ bucket a žádnou RLS nezná,
+// takže by kompromitace VPS znamenala přístup k záznamům ze všech
+// lokalit. Relay proto drží jediné tajemství, RELAY_SECRET, kterým se
+// podepisuje tady, a nahrávací adresu dostane hotovou. Video jde do
+// Hetzneru přímo, mimo portál — relay i bucket stojí ve Falkensteinu,
+// takže je ten přenos zadarmo a nikam se neobjíždí.
+//
+// ═══ Strop na objem ════════════════════════════════════════════════
+// Hetzner tvrdý limit nenabízí. Když se strop lokality vyčerpá, příjem
+// se ZASTAVÍ (507) — jinak by zaseknutá retence tiše vyjela přes
+// rozpočet. Je to 5xx schválně: relay to nesmí brát jako vadu souboru
+// a soubor zahodit, má ho nechat ležet a zkusit to znovu.
 //
 // ═══ Relay není kamera ═════════════════════════════════════════════
 // Podepisuje se vlastním tajemstvím, ne klíčem kamery — mluví za víc
@@ -169,6 +179,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(409, "camera_not_ftp");
   }
 
+  // ── Strop na objem ─────────────────────────────────────────────
+  // Před vystavením adresy, ne po něm: adresa vystavená přes strop by
+  // se dala použít i potom, co se příjem „zastavil“.
+  const strop = await zkontrolovatStrop(db, camera.site_id);
+  if (strop?.exceeded) {
+    console.error("Příjem záznamů zastaven: vyčerpaný strop", {
+      site_id: camera.site_id,
+      pouzito: strop.usedBytes,
+      strop: strop.quotaBytes,
+    });
+    return jsonError(507, "storage_quota_exceeded");
+  }
+
   // ── Idempotence ────────────────────────────────────────────────
   const { data: existing } = await db
     .from("camera_recordings")
@@ -191,7 +214,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Nedokončený pokus: relay to zkouší znovu, dostane novou adresu
     // na tutéž cestu.
     if (existing.storage_path) {
-      const url = await podepsatNahrani(db, existing.storage_path);
+      const url = podepsatNahrani(existing.storage_path);
       if (!url) return jsonError(500, "upload_url_failed");
       return Response.json(
         { recording_id: existing.id, storage_path: existing.storage_path, ...url },
@@ -222,6 +245,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       event_type: payload.eventType,
       sd_file_path: payload.sdFilePath,
       storage_path: storagePath,
+      storage_backend: DEFAULT_RECORDING_BACKEND,
       // uploaded_at se vyplní až potvrzením. Do té doby je to záznam,
       // ke kterému soubor teprve poletí.
     })
@@ -241,7 +265,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(500, "insert_failed");
   }
 
-  const url = await podepsatNahrani(db, storagePath);
+  const url = podepsatNahrani(storagePath);
   if (!url) return jsonError(500, "upload_url_failed");
 
   // Kamera se ozvala. Tohle razítko nahrazuje celý hlídač výpadků
@@ -271,28 +295,73 @@ export async function POST(request: NextRequest): Promise<Response> {
   );
 }
 
-/** Jednorázová adresa pro nahrání. Platí dvě hodiny, viz storage.ts. */
-async function podepsatNahrani(
-  db: ReturnType<typeof supabaseAdmin>,
+/**
+ * Jednorázová adresa pro nahrání do Hetzneru.
+ *
+ * Podepisuje se JEN host (viz s3.ts) — relay posílá vlastní
+ * Content-Type a Content-Length a ty do podpisu nesmí, jinak by stačil
+ * rozdíl v hlavičce a úložiště by vrátilo 403 bez vysvětlení.
+ *
+ * Není async: podpis je čistý výpočet, nikam se nevolá. To je proti
+ * Supabase, kde se o adresu muselo požádat.
+ */
+function podepsatNahrani(
   storagePath: string,
-): Promise<{ upload_url: string; upload_token: string; expires_in: number } | null> {
-  const { data, error } = await db.storage
-    .from(RECORDING_BUCKET)
-    // upsert: relay smí opakovat nedokončený pokus na tutéž cestu.
-    // Hotový záznam se sem nedostane — zastaví ho mayIssueUploadUrl().
-    .createSignedUploadUrl(storagePath, { upsert: true });
-
-  if (error || !data) {
+): { upload_url: string; expires_in: number } | null {
+  try {
+    return {
+      upload_url: presignUrl(hetznerStorageConfig(), {
+        method: "PUT",
+        key: storagePath,
+        expiresIn: UPLOAD_URL_TTL_SECONDS,
+      }),
+      expires_in: UPLOAD_URL_TTL_SECONDS,
+    };
+  } catch (caught) {
     console.error("Podepsání nahrávací adresy selhalo", {
       storage_path: storagePath,
-      message: error?.message,
+      message: caught instanceof Error ? caught.message : String(caught),
+    });
+    return null;
+  }
+}
+
+/**
+ * Kolik lokalita zabírá a jestli je ještě pod stropem.
+ *
+ * Vrací null, když se to nedá zjistit — a to se bere jako „přijímej“.
+ * Fail-open je tu úmysl: strop je ochrana rozpočtu, kdežto zastavený
+ * příjem je díra v ostraze stavby. Chybějící sloupec nebo funkce
+ * (migrace 20260918120000 ještě neběžela) proto nesmí odstavit kamery;
+ * hlásí se to ale jako chyba, ne šeptem.
+ */
+async function zkontrolovatStrop(
+  db: ReturnType<typeof supabaseAdmin>,
+  siteId: string,
+): Promise<ReturnType<typeof quotaState> | null> {
+  const [{ data: site, error: siteError }, { data: pouzito, error: rpcError }] =
+    await Promise.all([
+      db
+        .from("sites")
+        .select("name, recording_quota_bytes")
+        .eq("id", siteId)
+        .maybeSingle<{ name: string; recording_quota_bytes: number | null }>(),
+      db.rpc("site_recording_bytes", { p_site_id: siteId }),
+    ]);
+
+  if (siteError || rpcError) {
+    console.error("Strop na záznamy se nepodařilo ověřit — přijímám dál", {
+      site_id: siteId,
+      message: siteError?.message ?? rpcError?.message,
     });
     return null;
   }
 
-  return {
-    upload_url: data.signedUrl,
-    upload_token: data.token,
-    expires_in: UPLOAD_URL_TTL_SECONDS,
-  };
+  const stav = quotaState(Number(pouzito ?? 0), site?.recording_quota_bytes);
+
+  if (stav.warning) {
+    console.warn(quotaMessage(site?.name ?? siteId, stav));
+  }
+
+  return stav;
 }

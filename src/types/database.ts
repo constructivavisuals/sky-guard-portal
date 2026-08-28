@@ -247,6 +247,13 @@ export type Site = {
   has_cameras: boolean;
   /** Lhůta pro video ze stavebních kamer. NENÍ to retention_days. */
   clip_retention_days: number;
+  /**
+   * Strop na objem videa v Hetzneru, v bajtech. Migrace 20260918120000.
+   *
+   * Hetzner tvrdý limit nenabízí, takže si ho hlídáme sami: po vyčerpání
+   * portál přestane přijímat záznamy a hlásí to varováním.
+   */
+  recording_quota_bytes: number;
   /** Po jaké době ticha se kamera bere za nehlásící. */
   offline_threshold_minutes: number;
 };
@@ -660,8 +667,16 @@ export type CameraRecording = {
   event_type: string | null;
   /** Cesta v FTP inboxu relaye. Klíč idempotence příjmu. */
   sd_file_path: string | null;
-  /** Cesta v bucketu `zaznamy`, ne adresa. */
+  /** Cesta v úložišti, ne adresa. Který bucket, říká storage_backend. */
   storage_path: string | null;
+  /**
+   * Kde soubor fyzicky leží. Migrace 20260918120000.
+   *
+   * Nové záznamy jdou do Hetzneru; `supabase` mají ty nahrané před
+   * přechodem, aby zůstaly přehratelné. Bez tohohle sloupce by se
+   * nedalo poznat, čím adresu podepsat.
+   */
+  storage_backend: RecordingBackend;
   size_bytes: number | null;
   uploaded_at: string | null;
   video_expired_at: string | null;
@@ -669,6 +684,10 @@ export type CameraRecording = {
 };
 
 export type CameraRecordingInsert = Insertable<CameraRecording, "camera_id" | "started_at">;
+
+/** Kde záznam leží. Musí sedět s CHECK v migraci 20260918120000. */
+export const RECORDING_BACKENDS = ["supabase", "hetzner"] as const;
+export type RecordingBackend = (typeof RECORDING_BACKENDS)[number];
 
 export const PLATE_SOURCES = ["camera", "model"] as const;
 export type PlateSource = (typeof PLATE_SOURCES)[number];
@@ -823,6 +842,7 @@ export type Database = {
         };
         Returns: { day: string; recordings: number }[];
       };
+      site_recording_bytes: { Args: { p_site_id: string }; Returns: number };
       flight_site_id: { Args: { p_flight_id: string }; Returns: string };
       flight_is_visible: { Args: { p_flight_id: string }; Returns: boolean };
       site_is_armed: {
@@ -1002,6 +1022,8 @@ export const NOTIFICATION_KINDS = [
   "dock_problem",
   /** Práce v after(), která nedoběhla. Migrace 20260912120000. */
   "processing_stuck",
+  /** Objem záznamů u stropu nebo přes něj. Migrace 20260918120000. */
+  "storage_quota",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -1012,6 +1034,7 @@ export const NOTIFICATION_KIND_LABELS: Record<NotificationKind, string> = {
   camera_silent: "Kamera mlčí",
   dock_problem: "Dok v nepořádku",
   processing_stuck: "Zpracování nedoběhlo",
+  storage_quota: "Úložiště záznamů",
 };
 
 export const NOTIFICATION_KIND_HINTS: Record<NotificationKind, string> = {
@@ -1022,6 +1045,8 @@ export const NOTIFICATION_KIND_HINTS: Record<NotificationKind, string> = {
   dock_problem: "Dron mimo dok, vybitá baterie nebo plné úložiště.",
   processing_stuck:
     "Detekce bez zásahu nebo vjezd bez přečtené značky — něco se nedopočítalo do konce.",
+  storage_quota:
+    "Video ze stavebních kamer se blíží stropu lokality, nebo ho vyčerpalo a další záznamy se nepřijímají.",
 };
 
 /** Sloupec předvoleb pro daný druh události. */
@@ -1032,6 +1057,7 @@ export const NOTIFICATION_KIND_COLUMNS: Record<NotificationKind, keyof Notificat
   camera_silent: "on_camera_silent",
   dock_problem: "on_dock_problem",
   processing_stuck: "on_processing_stuck",
+  storage_quota: "on_storage_quota",
 };
 
 /**
@@ -1120,6 +1146,8 @@ export type NotificationPrefs = {
   on_dock_problem: boolean;
   /** Migrace 20260912120000. */
   on_processing_stuck: boolean;
+  /** Migrace 20260918120000. */
+  on_storage_quota: boolean;
   /** `HH:MM:SS` v pásmu lokality. quiet_from > quiet_to = přes půlnoc. */
   quiet_from: string | null;
   quiet_to: string | null;
@@ -1142,6 +1170,7 @@ export const DEFAULT_NOTIFICATION_PREFS: Pick<
   | "on_camera_silent"
   | "on_dock_problem"
   | "on_processing_stuck"
+  | "on_storage_quota"
   | "quiet_from"
   | "quiet_to"
 > = {
@@ -1153,6 +1182,9 @@ export const DEFAULT_NOTIFICATION_PREFS: Pick<
   // Závada běhu, ne provozní stav — zapnuté, dokud si to někdo
   // sám nevypne.
   on_processing_stuck: true,
+  // Vyčerpaný strop zastaví příjem záznamů. To se člověk musí dozvědět
+  // dřív, než si toho všimne podle chybějícího videa.
+  on_storage_quota: true,
   quiet_from: null,
   quiet_to: null,
 };

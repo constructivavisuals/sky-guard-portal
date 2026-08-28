@@ -76,7 +76,9 @@ class FakePortal(BaseHTTPRequestHandler):
         if self.path == "/api/ingest/recording":
             prijato["announce"].append(payload)
             if chovani["announce_status"] != 200:
-                self._odpoved(chovani["announce_status"], {"error": "camera_not_ftp"})
+                chyba = ("storage_quota_exceeded"
+                         if chovani["announce_status"] == 507 else "camera_not_ftp")
+                self._odpoved(chovani["announce_status"], {"error": chyba})
                 return
             self._odpoved(201, {
                 "recording_id": "11111111-1111-1111-1111-111111111111",
@@ -222,7 +224,33 @@ def main() -> int:
         zkontroluj("lokál se přesto uklidí", not hotovy.exists())
         chovani["upload_url"] = True
 
-        # ── 6. Špatné tajemství neprojde ───────────────────────────
+        # ── 6. Vyčerpaný strop úložiště ────────────────────────────
+        #
+        # 507 NENÍ vada souboru. Kdyby ho watcher odsunul do failed jako
+        # odmítnutý požadavek, přišla by stavba o záznamy z celé doby,
+        # než se uvolní místo — a nikdo by je odtamtud nevrátil. Musí
+        # zůstat ležet v inboxu a počkat si.
+        prijato["announce"].clear()
+        prijato["upload"].clear()
+        chovani["announce_status"] = 507
+        pri_stropu = inbox / "cam-05" / "2026-08-27" / "001" / "dav" / "15.00.00-15.00.10[M][0@0][0].dav"
+        vyrob_dav(pri_stropu)
+        out = pust_watcher(inbox, failed, port)
+        zkontroluj("strop: záznam se neohlásí jako přijatý", len(prijato["upload"]) == 0)
+        zkontroluj("strop: soubor ZŮSTAL v inboxu", pri_stropu.exists())
+        zkontroluj("strop: a NEskončil ve failed",
+                   not (failed / "cam-05").exists())
+        zkontroluj("strop: hlásí se vlastní hláškou, ne jako výpadek",
+                   "STROP ÚLOŽIŠTĚ" in out.stdout, out.stdout[-300:])
+        chovani["announce_status"] = 200
+
+        # Jakmile se místo uvolní, tentýž soubor projde.
+        prijato["announce"].clear()
+        pust_watcher(inbox, failed, port)
+        zkontroluj("strop: po uvolnění místa projde", len(prijato["announce"]) == 1)
+        zkontroluj("strop: a z inboxu zmizí", not pri_stropu.exists())
+
+        # ── 7. Špatné tajemství neprojde ───────────────────────────
         prijato["announce"].clear()
         cizi = inbox / "cam-04" / "2026-08-27" / "001" / "dav" / "14.00.00-14.00.10[M][0@0][0].dav"
         vyrob_dav(cizi)

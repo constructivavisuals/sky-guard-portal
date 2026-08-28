@@ -7,6 +7,18 @@
 export const DEFAULT_RETENTION_DAYS = 90;
 
 /**
+ * Výchozí lhůta pro VIDEO ze stavebních kamer (sites.clip_retention_days).
+ *
+ * Kratší než retention_days schválně a je to ta dražší lhůta: devět
+ * kamer nahrává nepřetržitě, takže každý den navíc je zhruba 300 GB
+ * v Hetzneru. Snímky detekcí a vjezdů jedou dál na devadesáti dnech —
+ * jsou malé a jsou to důkazy.
+ *
+ * Musí sedět s DEFAULT v migraci 20260914120000.
+ */
+export const DEFAULT_CLIP_RETENTION_DAYS = 14;
+
+/**
  * Kolik souborů se smaže v jednom běhu.
  *
  * Strop je tu proto, že běh má konečný čas a mazání jde po dávkách;
@@ -35,12 +47,27 @@ export interface RetentionRow {
 export function retentionCutoff(
   retentionDays: number | null | undefined,
   now: Date = new Date(),
+  fallbackDays: number = DEFAULT_RETENTION_DAYS,
 ): Date {
   const dny =
     typeof retentionDays === "number" && Number.isFinite(retentionDays) && retentionDays > 0
       ? retentionDays
-      : DEFAULT_RETENTION_DAYS;
+      : fallbackDays;
   return new Date(now.getTime() - dny * 86_400_000);
+}
+
+/**
+ * Hranice pro video ze stavebních kamer.
+ *
+ * Vlastní funkce, ne jen jiné číslo v volání: splést si tuhle lhůtu
+ * s retention_days znamená buď smazat důkazy o 76 dní dřív, nebo držet
+ * v Hetzneru šestinásobek videa. Obojí se pozná až pozdě.
+ */
+export function clipRetentionCutoff(
+  clipRetentionDays: number | null | undefined,
+  now: Date = new Date(),
+): Date {
+  return retentionCutoff(clipRetentionDays, now, DEFAULT_CLIP_RETENTION_DAYS);
 }
 
 /**

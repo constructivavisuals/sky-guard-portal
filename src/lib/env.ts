@@ -87,6 +87,51 @@ export function relaySecrets(): string[] {
   return out;
 }
 
+export interface HetznerStorageConfig {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  accessKey: string;
+  secretKey: string;
+}
+
+/**
+ * Hetzner Object Storage — kde leží video ze stavebních kamer.
+ *
+ * ═══ Proč cizí úložiště, když bucket `zaznamy` existuje ════════════
+ * Devět kamer nahrává nepřetržitě, zhruba 300 GB denně; týden zpětně
+ * jsou přes 2 TB. Na Supabase Storage je to řádově dražší než 3 TB
+ * u Hetzneru, a relay stojí v témže datacentru (Falkenstein), takže
+ * nahrávání nic nestojí. Migrace 20260915180000 argumentovala proti
+ * druhému úložišti objemem, který tehdy nebyl znám — viz
+ * 20260918120000.
+ *
+ * ═══ Klíč je na PORTÁLU, ne na relayi ══════════════════════════════
+ * Klíč platí na celý bucket a nezná RLS. Relay ho nedostane: portál mu
+ * podepíše jednorázovou adresu a soubor jde do Hetzneru přímo. Tím se
+ * na kompromitované VPS nenajde nic, čím by šlo číst cizí záznamy.
+ */
+export function hetznerStorageConfig(): HetznerStorageConfig {
+  const endpoint = required("HETZNER_S3_ENDPOINT").replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  return {
+    endpoint,
+    // Region je první část endpointu (`fsn1.your-objectstorage.com`).
+    // Do podpisu musí sednout přesně, jinak úložiště vrátí 403 bez
+    // vysvětlení — proto se dá i přebít.
+    region: process.env.HETZNER_S3_REGION?.trim() || endpoint.split(".")[0],
+    bucket: process.env.HETZNER_S3_BUCKET?.trim() || "sky-guard-zaznamy",
+    accessKey: required("HETZNER_S3_ACCESS_KEY"),
+    secretKey: required("HETZNER_S3_SECRET_KEY"),
+  };
+}
+
+/** Je Hetzner nastavený? Chybějící klíče nemají shodit build ani UI. */
+export function hetznerConfigured(): boolean {
+  return Boolean(
+    process.env.HETZNER_S3_ACCESS_KEY && process.env.HETZNER_S3_SECRET_KEY,
+  );
+}
+
 export interface FlightHubConfig {
   host: string;
   projectUuid: string;

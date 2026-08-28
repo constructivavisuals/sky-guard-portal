@@ -20,10 +20,14 @@ portál. Postup je:
     2. nahrát na adresu, kterou portál vrátil (PUT, jednorázová)
     3. potvrdit            POST /api/ingest/recording/confirm
 
-Kdyby měl klíč k úložišti, byl by to klíč ke VŠEM bucketům všech
-klientů — Supabase S3 klíč se na jeden bucket omezit nedá. Takhle je
-na serveru jen tajemství, kterým jde založit záznam u kamery, která
-tam už je.
+Adresa vede do Hetzner Object Storage, ne do Supabase — video je
+příliš objemné (devět kamer, ~300 GB denně) a Hetzner stojí ve stejném
+datacentru, takže je nahrávání zadarmo.
+
+Klíč k úložišti tu ale NENÍ ani tak: S3 klíč platí na celý bucket
+a žádnou RLS nezná, takže by kompromitace téhle VPS znamenala přístup
+k záznamům ze všech lokalit. Na serveru je jen tajemství, kterým jde
+založit záznam u kamery, která tam už je.
 
 ═══ Bez závislostí ════════════════════════════════════════════════
 Jen standardní knihovna a ffmpeg. Žádné psycopg, žádné boto3, žádné
@@ -409,6 +413,21 @@ def main() -> int:
                     stability.forget(path)
                     pokusy.pop(klic, None)
                     quarantine(path)
+                elif exc.status == 507:
+                    # Lokalita vyčerpala strop na objem záznamů. Není to
+                    # vada souboru ani výpadek — portál schválně přestal
+                    # přijímat, aby v Hetzneru nerostla faktura. Soubor
+                    # zůstane ležet v inboxu; jakmile retence uvolní
+                    # místo, příští průchod ho vezme.
+                    #
+                    # Hlásí se jako VAROVÁNÍ a vlastní větou: „portál
+                    # nejde“ by poslalo technika hledat výpadek, který
+                    # není.
+                    log.warning(
+                        "STROP ÚLOŽIŠTĚ vyčerpán — záznamy se nepřijímají. "
+                        "Soubor zůstává v inboxu: %s", path,
+                    )
+                    break
                 else:
                     # Nedostupný portál není vada souboru. Necháme ho
                     # ležet a zkusíme to příště — fronta se tím nezasekne,

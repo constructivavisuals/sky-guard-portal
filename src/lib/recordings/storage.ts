@@ -1,11 +1,66 @@
 // Úložiště záznamů ze stavebních kamer.
 //
-// Bucket je privátní: na záznamu ze stavby jsou lidé při práci a cizí
-// pozemek. Adresa se podepisuje a podpis platí krátce. První složka
-// v cestě je UUID lokality, takže politika nad storage.objects pouští
-// čtení toutéž funkcí jako u řádků — viz migrace 20260915180000.
+// ═══ Video leží v HETZNERU, ne v Supabase ══════════════════════════
+// Devět kamer nahrává nepřetržitě, zhruba 300 GB denně; týden zpětně
+// jsou přes 2 TB a to Supabase Storage nezaplatí. Snímky detekcí
+// a vjezdů zůstávají tam, kde byly — jsou malé a autorizace nad nimi
+// stojí na RLS, kterou cizí S3 nemá.
+//
+// ═══ Čím se autorizace nahradila ═══════════════════════════════════
+// U Supabase pouštěla čtení politika nad `storage.objects`. Hetzner
+// žádnou RLS nezná: klíč platí na celý bucket. Adresa se proto
+// podepisuje AŽ po tom, co se pod RLS ověří, že přihlášený uživatel
+// na ten konkrétní řádek vidí — viz /api/media. Prefix v cestě určí
+// tabulku, existence řádku rozhodne, teprve pak se podepisuje.
+//
+// Vlastnit cestu tedy nestačí; kdo na lokalitu nevidí, dostane 404
+// i na cestu, kterou uhodl.
+/**
+ * Starý bucket v Supabase Storage.
+ *
+ * Nové záznamy sem už nejdou, ale ty nahrané před přechodem tu leží
+ * dál a musí zůstat přehratelné — proto se nesmaže ani konstanta, ani
+ * bucket. Kam který záznam patří, říká `camera_recordings
+ * .storage_backend`.
+ */
+import { RECORDING_BACKENDS, type RecordingBackend } from "../../types/database.ts";
 
 export const RECORDING_BUCKET = "zaznamy";
+
+/** Kam se ukládají nové záznamy. */
+export const DEFAULT_RECORDING_BACKEND: RecordingBackend = "hetzner";
+
+export function isRecordingBackend(value: unknown): value is RecordingBackend {
+  return (RECORDING_BACKENDS as readonly string[]).includes(value as string);
+}
+
+/**
+ * Výchozí strop na objem videa jedné lokality: 500 GB.
+ *
+ * Dekadických, ne GiB — Hetzner účtuje v TB po deseti mocninách
+ * a strop, který se s fakturou nedá porovnat, je k ničemu.
+ *
+ * ═══ Proč strop vůbec ══════════════════════════════════════════════
+ * Hetzner tvrdý limit nenabízí: bucket roste dál a přiteče faktura.
+ * Devět kamer udělá 300 GB denně, takže zaseknutá retence nebo kamera
+ * přepnutá do vyšší kvality vyjede přes rozpočet za pár dní. Strop je
+ * levnější než překvapení.
+ *
+ * Musí sedět s DEFAULT v migraci 20260918120000.
+ */
+export const DEFAULT_RECORDING_QUOTA_BYTES = 500_000_000_000;
+
+/**
+ * Adresa pro přehrání záznamu.
+ *
+ * Ne podepsaná adresa úložiště, ale cesta do portálu — teprve ten pod
+ * RLS ověří, že se uživatel smí dívat, a odkáže dál. Cesta se kóduje
+ * po segmentech, aby lomítka zůstala lomítky.
+ */
+export function recordingMediaHref(storagePath: string): string {
+  const cesta = storagePath.split("/").map(encodeURIComponent).join("/");
+  return `/api/media/zaznamy/${cesta}`;
+}
 
 /**
  * Jak dlouho platí podepsaná adresa záznamu.

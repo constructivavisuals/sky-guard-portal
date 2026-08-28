@@ -264,11 +264,14 @@ varuje; tady se rovnou zakládá pod jménem, které si to splést nemůže.
 
 ### Záznam přežije video
 
-Po uplynutí `clip_retention_days` se maže objekt v R2, ale řádek
+Po uplynutí `clip_retention_days` se maže soubor v Hetzneru, ale řádek
 v `camera_recordings` zůstává a vyplní se `video_expired_at`. V portálu
-je pak vidět, že se v ten čas něco dělo — jen to nejde přehrát. `r2_key`
-zůstává jako stopa, kde objekt byl, takže sám o sobě není podmínkou
-přehratelnosti.
+je pak vidět, že se v ten čas něco dělo — jen to nejde přehrát.
+`storage_path` zůstává jako stopa, kde soubor byl, takže sám o sobě
+není podmínkou přehratelnosti.
+
+R2 se nikdy nepoužilo; starší poznámky o `r2_key` v komentářích byly
+převzaté z Constructivy.
 
 Idempotence příjmu stojí **jen** na `sd_file_path`. Constructiva má
 vedle toho ještě unique `(camera_id, started_at)` z doby před FTP
@@ -421,11 +424,11 @@ Podrobnosti, nasazení a provozní tabulka jsou v `infra/sky-watcher/README.md`.
 
 ### Relay nemá přístup k úložišti ani k databázi
 
-Nabízelo by se dát relayi klíč a nechat ho zapisovat samotného.
-Supabase S3 klíč se ale **nedá omezit na jeden bucket a obchází RLS**,
-takže by kompromitace VPS znamenala přístup k záznamům z dronu,
-ke snímkům vjezdů i k logům všech klientů. Bucketově omezený token,
-jaký má constructiva u R2, tu prostě neexistuje.
+Nabízelo by se dát relayi klíč a nechat ho zapisovat samotného. Ani
+u Hetzneru to nejde: **S3 klíč platí na celý bucket a žádnou RLS
+nezná**, takže by kompromitace VPS znamenala přístup k záznamům ze
+všech lokalit. U Supabase to bylo ještě horší — týž klíč by otevřel
+i záznamy z dronu, snímky vjezdů a logy všech klientů.
 
 Relay proto drží jediné tajemství — klíč, kterým podepisuje ingest:
 
@@ -442,9 +445,87 @@ Relay proto drží jediné tajemství — klíč, kterým podepisuje ingest:
 přehratelné — od `video_expired_at` („bylo a už není“) se to musí
 rozlišit, jinak z toho nikdo nepozná, jestli čekat, nebo ne.
 
-Úklid po lhůtě dělá `/api/cron/retence`, který už dnes maže ze Supabase
-Storage. Kamerové záznamy jsou pro něj jen čtvrtý druh souboru — žádný
-další kontejner na VPS, žádná další servisní role.
+Úklid po lhůtě dělá `/api/cron/retence`. U kamerových záznamů je to ale
+vlastní větev, ne čtvrtý druh v téže tabulce: jede podle
+`clip_retention_days` (ne `retention_days`), maže z Hetzneru (ne ze
+Supabase) a `storage_path` nechává být.
+
+> Do migrace 20260918120000 se video ze stavebních kamer **nemazalo
+> vůbec**. Sloupec `video_expired_at` existoval od 20260915120000, ale
+> nikdo ho nikdy nevyplňoval — retence pokrývala jen média letů,
+> detekce a vjezdy.
+
+### Video leží v Hetzneru, snímky v Supabase
+
+Devět kamer nahrává nepřetržitě, zhruba **300 GB denně**; týden zpětně,
+který klient chce, jsou přes 2 TB. To Supabase Storage nezaplatí — 3 TB
+u Hetzneru stojí kolem 26 $ měsíčně a relay stojí v témže datacentru
+(Falkenstein), takže je nahrávání zdarma.
+
+Stěhovalo se **jen video**. Snímky detekcí a vjezdů zůstávají v Supabase
+Storage: jsou malé a autorizace nad nimi stojí na politikách nad
+`storage.objects`, které fungují.
+
+| | kde leží | čím se autorizuje |
+|---|---|---|
+| video z kamer | Hetzner, bucket `sky-guard-zaznamy` | portál pod RLS, pak podpis — `/api/media` |
+| snímky detekcí a vjezdů | Supabase Storage | politika nad `storage.objects` |
+| média z letů | Supabase Storage | politika nad `storage.objects` |
+| záznamy z doby před přechodem | Supabase, bucket `zaznamy` | politika nad `storage.objects` |
+
+Kam který záznam patří, říká `camera_recordings.storage_backend`. Bucket
+`zaznamy` se neruší — historie v něm leží dál a musí zůstat přehratelná.
+
+Proměnné prostředí:
+
+```
+HETZNER_S3_ACCESS_KEY   povinné
+HETZNER_S3_SECRET_KEY   povinné
+HETZNER_S3_ENDPOINT     povinné, např. fsn1.your-objectstorage.com
+HETZNER_S3_BUCKET       volitelné, výchozí sky-guard-zaznamy
+HETZNER_S3_REGION       volitelné, výchozí první část endpointu (fsn1)
+```
+
+### Čtení: `/api/media`, ne podepsaná adresa
+
+Hetzner žádnou RLS nezná, takže se přístup ověřuje **v portálu, před
+podpisem**. Pořadí se nesmí prohodit:
+
+```
+GET /api/media/zaznamy/<storage_path>
+      │
+      1. prefix `zaznamy` určí tabulku (camera_recordings)
+      2. řádek se dohledá POD RLS, klientem přihlášeného uživatele
+      3. teprve pak se podepíše adresa a vrátí 302
+```
+
+Vlastnit cestu tedy nestačí. Krok 2 je celá ochrana: řádek, na který
+uživatel nevidí, RLS nevrátí a odpověď je **404 — táž jako u cesty,
+která neexistuje**. Kdo nemá přístup, nepozná ani to, jestli soubor je.
+
+Přesměrovává se schválně: minutový úsek má desítky MB a serverless
+funkce nemá téct videem. Range requesty si přebere prohlížeč sám, takže
+přetáčení funguje.
+
+### Strop na objem
+
+Hetzner tvrdý limit nenabízí — bucket roste dál a přiteče faktura. Při
+300 GB denně vyjede zaseknutá retence přes rozpočet za pár dní, takže si
+strop hlídáme sami: `sites.recording_quota_bytes`, výchozí **500 GB**
+(dekadických, aby se to dalo porovnat s fakturou).
+
+Po vyčerpání portál na ohlášení odpoví **507** a relay přestane
+přijímat. Je to 5xx schválně: relay to nesmí brát jako vadu souboru
+a odsunout ho do `failed/` — soubor zůstane ležet v inboxu a jakmile
+retence uvolní místo, příští průchod ho vezme.
+
+Objem se sčítá z `size_bytes` funkcí `site_recording_bytes()`, ne
+výpisem bucketu (2 TB objektů se vypisují pomalu a platí se za to).
+Sčítá se jen to, co místo doopravdy zabírá: potvrzené a ještě nesmazané.
+Zdrojem je velikost, kterou portál po nahrání **změřil** v úložišti, ne
+tvrzení relaye.
+
+Od 85 % chodí varování `storage_quota` (push, s odstupem jako ostatní).
 
 ## Co kamera umí
 

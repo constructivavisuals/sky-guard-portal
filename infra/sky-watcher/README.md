@@ -37,10 +37,16 @@ Přístup k databázi ani k úložišti. Drží jediné tajemství — `RELAY_SE
 3. POST /api/ingest/recording/confirm  → portál si velikost ověří sám
 ```
 
-Kdyby měl klíč k úložišti, byl by to klíč ke **všem** bucketům všech
-klientů: Supabase S3 klíč se na jeden bucket omezit nedá a obchází RLS.
-Takhle je na serveru jen tajemství, kterým jde založit záznam u kamery,
-která už v portálu je.
+Adresa vede do **Hetzner Object Storage** (bucket `sky-guard-zaznamy`,
+Falkenstein), ne do Supabase: video je příliš objemné — devět kamer
+nepřetržitě je zhruba 300 GB denně. Relay stojí v témže datacentru,
+takže je ten přenos zadarmo a nikam se neobjíždí.
+
+Klíč k úložišti tu ale **není ani tak**: S3 klíč platí na celý bucket
+a žádnou RLS nezná, takže by kompromitace téhle VPS znamenala přístup
+k záznamům ze všech lokalit. Na serveru je jen tajemství, kterým jde
+založit záznam u kamery, která už v portálu je — podpis pod adresou
+dělá portál.
 
 Taky nemá **žádnou závislost mimo standardní knihovnu a ffmpeg**. Žádné
 psycopg, boto3 ani requests — čím míň se na cizím serveru instaluje, tím
@@ -76,11 +82,20 @@ Chování při potížích:
 | nečitelná cesta | rovnou do `failed/` — opakováním se nespraví |
 | portál odmítl (4xx) | do `failed/`, je to vada požadavku |
 | portál nedostupný (5xx, síť) | **nechá ležet** a zkusí příště |
+| vyčerpaný strop úložiště (507) | **nechá ležet**, hlásí `STROP ÚLOŽIŠTĚ` |
 | remux selhal | zkusí 3× a pak do `failed/` |
 | záznam už portál má | jen uklidí lokál |
 
 Soubor se nikdy nemaže kvůli chybě — neprošlý záznam je pořád záznam
 z kamery a někdo se na něj má podívat.
+
+**507 není vada souboru.** Lokalita vyčerpala strop na objem videa
+(`sites.recording_quota_bytes`, výchozí 500 GB) a portál schválně
+přestal přijímat, aby v Hetzneru nerostla faktura — Hetzner tvrdý limit
+nenabízí. Soubory zůstávají v inboxu a jakmile retence uvolní místo,
+příští průchod je vezme. Kdyby šly do `failed/`, přišla by stavba
+o záznamy z celé doby, než se místo uvolní, a nikdo by je odtamtud
+nevrátil.
 
 Po každém průchodu, i prázdném, jde ping na `HEALTHCHECK_URL`. Hlídá se
 ticho, tedy že watcher žije — ne že zrovna něco přišlo.

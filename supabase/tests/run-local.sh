@@ -72,6 +72,9 @@ run_test_file patrols.sql
 echo "== počty záznamů po dnech =="
 run_test_file recording_day_counts.sql
 
+echo "== přechod záznamů do Hetzneru =="
+run_test_file zaznamy_hetzner.sql
+
 echo "== kamerový modul =="
 run_test_file camera_module.sql
 

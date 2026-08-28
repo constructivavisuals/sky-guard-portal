@@ -4,7 +4,9 @@ import { describe, it } from "node:test";
 import {
   arrivalAnonymization,
   batches,
+  clipRetentionCutoff,
   cutoffDateISO,
+  DEFAULT_CLIP_RETENTION_DAYS,
   DEFAULT_RETENTION_DAYS,
   expiredPaths,
   passageAnonymization,
@@ -136,5 +138,39 @@ describe("cutoffDateISO", () => {
     // Ohlášení nemá čas, jen datum, takže se lhůta musí porovnat taky
     // datem — jinak by textové porovnání nikdy nesedělo.
     assert.match(cutoffDateISO(retentionCutoff(90, new Date("2026-08-27T00:00:00Z"))), /^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("clipRetentionCutoff", () => {
+  it("bere clip_retention_days, ne retention_days", () => {
+    const now = new Date("2026-08-28T12:00:00Z");
+    const cutoff = clipRetentionCutoff(14, now);
+    assert.equal(cutoff.toISOString(), "2026-08-14T12:00:00.000Z");
+  });
+
+  it("nenastavená lhůta padá na 14 dní, ne na 90", () => {
+    // Kdyby padala na DEFAULT_RETENTION_DAYS, drželo by se v Hetzneru
+    // šestinásobek videa — u 300 GB denně je to 27 TB navíc.
+    const now = new Date("2026-08-28T12:00:00Z");
+    assert.equal(
+      clipRetentionCutoff(null, now).toISOString(),
+      "2026-08-14T12:00:00.000Z",
+    );
+    assert.equal(DEFAULT_CLIP_RETENTION_DAYS, 14);
+    assert.notEqual(
+      clipRetentionCutoff(null, now).getTime(),
+      retentionCutoff(null, now).getTime(),
+    );
+  });
+
+  it("nesmyslná lhůta nemaže všechno hned", () => {
+    const now = new Date("2026-08-28T12:00:00Z");
+    for (const dny of [0, -3]) {
+      assert.ok(clipRetentionCutoff(dny, now) < now);
+      assert.equal(
+        clipRetentionCutoff(dny, now).toISOString(),
+        "2026-08-14T12:00:00.000Z",
+      );
+    }
   });
 });

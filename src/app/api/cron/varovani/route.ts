@@ -14,6 +14,7 @@ import {
 import { checkDockReadiness } from "@/lib/dispatch/dock-readiness.ts";
 import { getDockState } from "@/lib/dispatch/flighthub.ts";
 import { warningCooldownElapsed } from "@/lib/push/rules.ts";
+import { quotaMessage, quotaState } from "@/lib/recordings/quota.ts";
 import { notify } from "@/lib/push/send.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 import { isSiteArmed, type IsoWeekday } from "@/types/database.ts";
@@ -39,6 +40,8 @@ interface SiteRow {
   id: string;
   name: string;
   dock_sn: string | null;
+  /** Strop na objem videa. Migrace 20260918120000. */
+  recording_quota_bytes: number | null;
   /** Kvůli vyhodnocení ostrého režimu u detekcí bez zásahu. */
   timezone: string;
   armed_from: string;
@@ -80,7 +83,10 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const { data: sites, error } = await db
     .from("sites")
-    .select("id, name, dock_sn, timezone, armed_from, armed_to, armed_days")
+    .select(
+      "id, name, dock_sn, recording_quota_bytes, timezone, armed_from, " +
+        "armed_to, armed_days",
+    )
     .returns<SiteRow[]>();
 
   if (error) {
@@ -95,6 +101,8 @@ export async function GET(request: NextRequest): Promise<Response> {
     dockWarnings: 0,
     /** Detekce bez zásahu a vjezdy bez přečtené značky. */
     stuckWarnings: 0,
+    /** Objem záznamů u stropu nebo přes něj. */
+    quotaWarnings: 0,
     /** Nalezeno, ale neposláno kvůli odstupu od minula. */
     withinCooldown: 0,
     failed: 0,
@@ -117,7 +125,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
       /** Poslat, jen když od minula uplynul odstup. */
       const poslat = async (
-        kind: "camera_silent" | "dock_problem" | "processing_stuck",
+        kind: "camera_silent" | "dock_problem" | "processing_stuck" | "storage_quota",
         target: string,
         zprava: { title: string; body: string; url: string },
       ) => {
@@ -235,6 +243,39 @@ export async function GET(request: NextRequest): Promise<Response> {
           url: "/prehled",
         });
         if (posláno) report.stuckWarnings += 1;
+      }
+
+      // ── Strop na objem záznamů ─────────────────────────────────
+      //
+      // Hetzner tvrdý limit nenabízí, takže je tohle jediné místo, kde
+      // se člověk o blížícím se stropu dozví dřív, než portál přestane
+      // přijímat. Při 300 GB denně je mezi „85 %“ a „plno“ jen pár dní.
+      //
+      // Odstup se drží na jednom cíli, ne na procentech: jinak by každý
+      // běh po překročení další desítky poslal novou notifikaci.
+      const { data: objem, error: objemError } = await db.rpc(
+        "site_recording_bytes",
+        { p_site_id: site.id },
+      );
+
+      if (objemError) {
+        // Migrace ještě neběžela. Není to důvod shodit ostatní varování.
+        console.warn("Objem záznamů se nepodařilo zjistit", {
+          site_id: site.id,
+          message: objemError.message,
+        });
+      } else {
+        const stav = quotaState(Number(objem ?? 0), site.recording_quota_bytes);
+        if (stav.exceeded || stav.warning) {
+          const posláno = await poslat("storage_quota", "recordings", {
+            title: stav.exceeded
+              ? `Úložiště záznamů je plné — ${site.name}`
+              : `Úložiště záznamů se plní — ${site.name}`,
+            body: quotaMessage(site.name, stav),
+            url: `/arealy/${site.id}`,
+          });
+          if (posláno) report.quotaWarnings += 1;
+        }
       }
 
       // ── Dok ────────────────────────────────────────────────────

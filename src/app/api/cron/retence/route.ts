@@ -1,13 +1,17 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
+import { hetznerStorageConfig } from "@/lib/env.ts";
 import { recordCronRun } from "@/lib/cron/record.ts";
 import { DETECTION_BUCKET } from "@/lib/detections/storage.ts";
 import { FLIGHT_BUCKET } from "@/lib/flights/storage.ts";
 import { PASSAGE_BUCKET } from "@/lib/plates/storage.ts";
+import { RECORDING_BUCKET, isRecordingBackend } from "@/lib/recordings/storage.ts";
+import { deleteObjects } from "@/lib/storage/objects.ts";
 import {
   arrivalAnonymization,
   batches,
+  clipRetentionCutoff,
   cutoffDateISO,
   expiredPaths,
   MAX_ANONYMIZE_PER_RUN,
@@ -32,6 +36,22 @@ import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 //
 // Bez tohohle běhu rostlo úložiště donekonečna: jeden let z dronu jsou
 // desítky megabajtů a hlídka létá každou hodinu.
+//
+// ═══ Záznamy z kamer jsou jiný případ ══════════════════════════════
+// Tři věci se u nich liší a žádná není kosmetická:
+//
+//   1. Jede se podle sites.clip_retention_days (14 dní), ne
+//      retention_days (90). Splést je znamená buď mazat o 76 dní dřív,
+//      nebo držet šestinásobek videa.
+//   2. Soubor leží v HETZNERU, ne v Supabase Storage. Maže se přes S3;
+//      záznamy nahrané před přechodem mají storage_backend='supabase'
+//      a mažou se postaru.
+//   3. storage_path se NEVYNULUJE — u záznamů je to stopa, kde soubor
+//      byl. Že video není, se pozná podle video_expired_at.
+//
+// Tohle je zároveň PRVNÍ běh, který video ze stavebních kamer vůbec
+// maže: sloupec video_expired_at existoval od migrace 20260915120000,
+// ale nikdo ho nikdy nevyplňoval.
 // ═══════════════════════════════════════════════════════════════════
 
 export const runtime = "nodejs";
@@ -43,6 +63,8 @@ interface SiteRow {
   id: string;
   name: string;
   retention_days: number | null;
+  /** Lhůta pro VIDEO. Jiná a kratší než retention_days. */
+  clip_retention_days: number | null;
 }
 
 /** Jeden druh souboru: odkud ho vzít, kde leží a jak se pak uklidí. */
@@ -84,7 +106,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const { data: sites, error } = await db
     .from("sites")
-    .select("id, name, retention_days")
+    .select("id, name, retention_days, clip_retention_days")
     .returns<SiteRow[]>();
 
   if (error) {
@@ -97,7 +119,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const report = {
     sites: sites?.length ?? 0,
-    deleted: { media: 0, detections: 0, passages: 0 },
+    deleted: { media: 0, detections: 0, passages: 0, recordings: 0 },
     /** Řádky, ze kterých po lhůtě zmizel osobní údaj. */
     anonymized: { passages: 0, arrivals: 0, ips: 0 },
     /** Smazaná vědra rate limitu — klíč nese IP adresu. */
@@ -128,6 +150,21 @@ export async function GET(request: NextRequest): Promise<Response> {
         console.error("Úklid úložiště selhal", {
           site_id: site.id,
           druh: druh.key,
+          message: caught instanceof Error ? caught.message : String(caught),
+        });
+      }
+    }
+
+    // Video z kamer: vlastní lhůta, vlastní úložiště, vlastní úklid.
+    if (zbyva > 0) {
+      try {
+        const smazano = await uklidZaznamy(db, site, now, zbyva);
+        report.deleted.recordings += smazano;
+        zbyva -= smazano;
+      } catch (caught) {
+        report.failed += 1;
+        console.error("Úklid záznamů selhal", {
+          site_id: site.id,
           message: caught instanceof Error ? caught.message : String(caught),
         });
       }
@@ -229,6 +266,109 @@ async function uklidit(
     smazano,
     starsi_nez: cutoff.toISOString(),
   });
+
+  return smazano;
+}
+
+interface ZaznamRow {
+  id: string;
+  storage_path: string | null;
+  storage_backend: string | null;
+}
+
+/**
+ * Smaže video ze stavebních kamer po uplynutí clip_retention_days.
+ *
+ * Pořadí je dané a nesmí se prohodit: nejdřív soubor, teprve pak
+ * razítko. Kdyby se video_expired_at zapsalo dřív a mazání selhalo,
+ * soubor by v Hetzneru zůstal navždy, počítal by se do stropu a nikdo
+ * by o něm nevěděl — a v portálu by přitom svítilo „video už není“.
+ *
+ * Označí se proto jen to, co úložiště potvrdí jako smazané.
+ */
+async function uklidZaznamy(
+  db: ReturnType<typeof supabaseAdmin>,
+  site: SiteRow,
+  now: Date,
+  limit: number,
+): Promise<number> {
+  const cutoff = clipRetentionCutoff(site.clip_retention_days, now);
+
+  // Záznam nezná lokalitu přímo, visí na kameře — proto vnořený filtr.
+  const { data, error } = await db
+    .from("camera_recordings")
+    .select("id, storage_path, storage_backend, cameras!inner(site_id)")
+    .eq("cameras.site_id", site.id)
+    .not("storage_path", "is", null)
+    .not("uploaded_at", "is", null)
+    .is("video_expired_at", null)
+    .lt("started_at", cutoff.toISOString())
+    .limit(limit)
+    .returns<ZaznamRow[]>();
+
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) return 0;
+
+  // Rozdělit podle úložiště: staré záznamy leží ještě v Supabase.
+  const podleBackendu = new Map<string, ZaznamRow[]>();
+  for (const row of data) {
+    const backend = isRecordingBackend(row.storage_backend)
+      ? row.storage_backend
+      : "supabase";
+    const seznam = podleBackendu.get(backend) ?? [];
+    seznam.push(row);
+    podleBackendu.set(backend, seznam);
+  }
+
+  let smazano = 0;
+
+  for (const [backend, radky] of podleBackendu) {
+    for (const davka of batches(radky)) {
+      const cesty = davka.map((row) => row.storage_path as string);
+      let hotove: string[];
+
+      if (backend === "hetzner") {
+        const vysledek = await deleteObjects(hetznerStorageConfig(), cesty);
+        if (vysledek.failed.length > 0) {
+          console.error("Část záznamů se nepodařilo smazat", {
+            site_id: site.id,
+            neuspesnych: vysledek.failed.length,
+          });
+        }
+        hotove = vysledek.deleted;
+      } else {
+        const { error: removeError } = await db.storage
+          .from(RECORDING_BUCKET)
+          .remove(cesty);
+        if (removeError) throw new Error(`mazání: ${removeError.message}`);
+        hotove = cesty;
+      }
+
+      if (hotove.length === 0) continue;
+
+      const hotoveSet = new Set(hotove);
+      const ids = davka
+        .filter((row) => hotoveSet.has(row.storage_path as string))
+        .map((row) => row.id);
+
+      // storage_path zůstává schválně — je to stopa, kde soubor byl.
+      const { error: updateError } = await db
+        .from("camera_recordings")
+        .update({ video_expired_at: now.toISOString() })
+        .in("id", ids);
+      if (updateError) throw new Error(`razítko: ${updateError.message}`);
+
+      smazano += ids.length;
+    }
+  }
+
+  if (smazano > 0) {
+    console.info("Úklid záznamů z kamer", {
+      site: site.name,
+      smazano,
+      starsi_nez: cutoff.toISOString(),
+    });
+  }
 
   return smazano;
 }
