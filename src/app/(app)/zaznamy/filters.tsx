@@ -21,39 +21,94 @@ export interface CameraOption {
 }
 
 /** Adresa seznamu s upravenými parametry. Prázdné se vynechají. */
+const AKTIVNI = "bg-[var(--surface-3)] text-[var(--text)]";
+const KLIDNY = "text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]";
+
 export function zaznamyHref(params: {
   kamera?: string | null;
   den?: string | null;
   mesic?: string | null;
+  pohled?: Pohled | null;
 }): string {
   const usp = new URLSearchParams();
   if (params.kamera) usp.set("kamera", params.kamera);
   if (params.den) usp.set("den", params.den);
   if (params.mesic) usp.set("mesic", params.mesic);
+  // Výchozí pohled se do adresy nepíše — odkaz na den má zůstat krátký
+  // a sdílený odkaz nemá nikoho zamknout v diagnostice.
+  if (params.pohled === "soubory") usp.set("pohled", "soubory");
   const query = usp.toString();
   return query ? `/zaznamy?${query}` : "/zaznamy";
 }
 
-const AKTIVNI = "bg-[var(--surface-3)] text-[var(--text)]";
-const KLIDNY = "text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]";
+/**
+ * Jak se den ukazuje.
+ *
+ * `osa` je pro klienta: souvislý den, soubory neviditelné. `soubory`
+ * je pro nás: po montáži se podle seznamu ověřuje, že řetěz kamera →
+ * relay → portál → úložiště šlape, a tam je potřeba vidět každý kus
+ * zvlášť i s velikostí a stavem.
+ */
+export type Pohled = "osa" | "soubory";
+
+export function jePohled(value: unknown): value is Pohled {
+  return value === "osa" || value === "soubory";
+}
+
+export function ViewSwitch({
+  pohled,
+  kamera,
+  den,
+  mesic,
+}: {
+  pohled: Pohled;
+  kamera: string | null;
+  den: DayString | null;
+  mesic: MonthString | null;
+}) {
+  const volby: { key: Pohled; label: string }[] = [
+    { key: "osa", label: "Souvislý den" },
+    { key: "soubory", label: "Jednotlivé soubory" },
+  ];
+
+  return (
+    <div className="flex gap-1" role="group" aria-label="Zobrazení dne">
+      {volby.map((volba) => (
+        <Link
+          key={volba.key}
+          href={zaznamyHref({ kamera, den, mesic, pohled: volba.key })}
+          aria-current={pohled === volba.key ? "true" : undefined}
+          className={`rounded-[var(--radius-pill)] px-3 py-1 text-xs transition ${
+            pohled === volba.key ? AKTIVNI : KLIDNY
+          }`}
+        >
+          {volba.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export function CameraFilter({
   cameras,
   active,
   den,
   mesic,
+  pohled,
 }: {
   cameras: readonly CameraOption[];
   active: string | null;
   den: DayString | null;
   mesic: MonthString | null;
+  /** Přepnutí kamery nemá vyhodit z diagnostického pohledu. */
+  pohled?: Pohled;
 }) {
   if (cameras.length < 2) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1">
       <Link
-        href={zaznamyHref({ den, mesic })}
+        href={zaznamyHref({ den, mesic, pohled })}
         className={`rounded-[var(--radius-pill)] px-3 py-1 text-xs transition ${
           active === null ? AKTIVNI : KLIDNY
         }`}
@@ -63,7 +118,7 @@ export function CameraFilter({
       {cameras.map((camera) => (
         <Link
           key={camera.id}
-          href={zaznamyHref({ kamera: camera.id, den, mesic })}
+          href={zaznamyHref({ kamera: camera.id, den, mesic, pohled })}
           className={`rounded-[var(--radius-pill)] px-3 py-1 text-xs transition ${
             active === camera.id ? AKTIVNI : KLIDNY
           }`}

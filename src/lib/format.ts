@@ -41,6 +41,33 @@ export function formatDateTime(
   }).format(date);
 }
 
+/**
+ * `08:03:07` v pásmu lokality.
+ *
+ * Pro čas záznamu nad přehrávačem. Sekundy tu na rozdíl od okna
+ * střežení POTŘEBUJEME: klient hledá okamžik, ne dobu, a minutová
+ * přesnost by z osmiminutového souboru udělala osm stejných časů.
+ *
+ * Datum se nepřidává schválně — nad přehrávačem už den je a dvakrát
+ * by jen zabíral místo.
+ */
+export function formatClock(
+  value: Date | number | string | null,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): string {
+  if (value === null) return "—:—:—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—:—:—";
+
+  return new Intl.DateTimeFormat("cs-CZ", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
 /** `18:00:00` → `18:00`; sekundy v okně střežení nikoho nezajímají. */
 export function formatTimeOfDay(value: string | null): string {
   if (!value) return "—";

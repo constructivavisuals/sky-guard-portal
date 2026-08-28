@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   formatArmedDays,
   formatArmedWindow,
+  formatClock,
   formatConditions,
   formatBytes,
   formatConfidence,
@@ -268,5 +269,35 @@ describe("formatBytes", () => {
     assert.equal(formatBytes(null), "—");
     assert.equal(formatBytes(undefined), "—");
     assert.equal(formatBytes(Number.NaN), "—");
+  });
+});
+
+describe("formatClock", () => {
+  it("ukazuje čas v pásmu lokality, ne v UTC", () => {
+    // 08:00 UTC je v srpnu v Praze 10:00. Kdyby se čas nad přehrávačem
+    // bral v UTC, klient by hledal dění o dvě hodiny vedle.
+    assert.equal(formatClock("2026-08-27T08:00:00Z", "Europe/Prague"), "10:00:00");
+  });
+
+  it("drží sekundy — bez nich má osmiminutový soubor osm stejných časů", () => {
+    assert.equal(formatClock("2026-08-27T08:03:07Z", "Europe/Prague"), "10:03:07");
+  });
+
+  it("je čtyřiadvacetihodinový i v české lokalizaci", () => {
+    assert.equal(formatClock("2026-08-27T22:30:00Z", "UTC"), "22:30:00");
+    // Půlnoc jako 00, ne 24.
+    assert.equal(formatClock("2026-08-27T00:00:00Z", "UTC"), "00:00:00");
+  });
+
+  it("bere Date, číslo i řetězec", () => {
+    const ms = Date.parse("2026-08-27T08:00:00Z");
+    assert.equal(formatClock(ms, "UTC"), "08:00:00");
+    assert.equal(formatClock(new Date(ms), "UTC"), "08:00:00");
+  });
+
+  it("z prázdné a nečitelné hodnoty nedělá nulový čas", () => {
+    // "00:00:00" by vypadalo jako půlnoc, ne jako chybějící údaj.
+    assert.equal(formatClock(null), "—:—:—");
+    assert.equal(formatClock("nesmysl"), "—:—:—");
   });
 });

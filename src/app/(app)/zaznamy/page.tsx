@@ -22,17 +22,35 @@ import {
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
-import { CameraFilter, RecordingCalendar, zaznamyHref, type CameraOption } from "./filters.tsx";
+import {
+  CameraFilter,
+  RecordingCalendar,
+  ViewSwitch,
+  jePohled,
+  zaznamyHref,
+  type CameraOption,
+  type Pohled,
+} from "./filters.tsx";
+import { ContinuousPlayer } from "./player.tsx";
 import { DayTimeline } from "./timeline.tsx";
 
 export const metadata: Metadata = { title: "Záznamy" };
 
 // Záznamy ze stavebních kamer.
 //
-// Zatím jen seznam — je to obrazovka, na které se po montáži ověřuje,
-// že řetěz kamera → relay → portál → úložiště opravdu šlape. Osa dne
-// a přehrávač v detailu přijdou později; tohle je to, co k ověření
-// stačí a bez čeho by se muselo do SQL Editoru.
+// ═══ Dva pohledy na týž den ════════════════════════════════════════
+// Výchozí je SOUVISLÝ DEN: osa přes 24 hodin, kliknutí kamkoli otevře
+// ten čas a na konci souboru se navazuje samo. Klient nemá vidět, že
+// kamera nahrává po osmiminutových kusech — to je detail toho, jak se
+// data vozí, ne nic, co by mu k něčemu bylo.
+//
+// Druhý pohled je SEZNAM SOUBORŮ. Ten zůstává, protože po montáži se
+// podle něj ověřuje, že řetěz kamera → relay → portál → úložiště
+// opravdu šlape: velikost, stav, kdy co dorazilo. Bez něj by se muselo
+// do SQL Editoru.
+//
+// Přepínač je v adrese (`?pohled=soubory`), ne ve stavu komponenty —
+// odkaz na konkrétní pohled se dá poslat kolegovi.
 
 interface RecordingRow {
   id: string;
@@ -74,9 +92,10 @@ export default async function Page({
     kamera?: string;
     den?: string;
     mesic?: string;
+    pohled?: string;
   }>;
 }) {
-  const { strana, kamera, den, mesic } = await searchParams;
+  const { strana, kamera, den, mesic, pohled } = await searchParams;
   const page = pageFromParam(strana);
   const { from, to } = pageRange(page);
   const { selected, selectedRow } = await getSiteSelection();
@@ -95,6 +114,12 @@ export default async function Page({
     : (vybranyDen ? monthOf(vybranyDen) : (dnes ? monthOf(dnes) : "2026-01"));
 
   const rozsah = vybranyDen && timeZone ? dayRange(vybranyDen, timeZone) : null;
+
+  // Výchozí je souvislý den — klient nemá vidět, že kamera nahrává po
+  // osmiminutových kusech. Seznam souborů zůstává o jedno kliknutí dál
+  // pro diagnostiku po montáži.
+  const zobrazeni: Pohled = jePohled(pohled) ? pohled : "osa";
+  const prehravac = Boolean(rozsah && vybranyDen && zobrazeni === "osa");
 
   let rows: RecordingRow[] = [];
   let total = 0;
@@ -199,6 +224,7 @@ export default async function Page({
               active={kameraId}
               den={vybranyDen}
               mesic={mesicKalendare}
+              pohled={zobrazeni}
             />
             <div className="lg:w-[19rem] lg:shrink-0">
               <RecordingCalendar
@@ -231,16 +257,40 @@ export default async function Page({
         />
       ) : (
         <>
-          {rozsah && vybranyDen ? (
-            <DayTimeline
+          {vybranyDen ? (
+            <div className="px-5 pt-4 sm:px-6">
+              <ViewSwitch
+                pohled={zobrazeni}
+                kamera={kameraId}
+                den={vybranyDen}
+                mesic={mesicKalendare}
+              />
+            </div>
+          ) : null}
+
+          {prehravac && rozsah && vybranyDen ? (
+            <ContinuousPlayer
+              // Jiný den nebo jiná kamera = jiný playlist. Bez klíče by
+              // si komponenta nesla index a čas z předchozího dne
+              // a otevřela by se uprostřed nesouvisejícího záznamu.
+              key={`${vybranyDen}-${kameraId ?? "vse"}`}
               day={vybranyDen}
               rows={rows}
               range={rozsah}
               timeZone={timeZone}
             />
-          ) : null}
+          ) : (
+            <>
+              {rozsah && vybranyDen ? (
+                <DayTimeline
+                  day={vybranyDen}
+                  rows={rows}
+                  range={rozsah}
+                  timeZone={timeZone}
+                />
+              ) : null}
 
-          <DataTable
+              <DataTable
             caption="Záznamy ze stavebních kamer, nejnovější první"
             head={
               <>
@@ -308,11 +358,13 @@ export default async function Page({
                 </Tr>
               );
             })}
-          </DataTable>
+              </DataTable>
 
-          {/* Den je konečný, takže se nestránkuje. */}
-          {vybranyDen ? null : (
-            <Pagination page={page} total={total} basePath="/zaznamy" />
+              {/* Den je konečný, takže se nestránkuje. */}
+              {vybranyDen ? null : (
+                <Pagination page={page} total={total} basePath="/zaznamy" />
+              )}
+            </>
           )}
         </>
       )}

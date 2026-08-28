@@ -364,6 +364,56 @@ lokalit“ by se míchaly dny z různých pásem, což by mlčky lhalo, takže
 zůstane prostý seznam. Den bez záznamů není odkaz: prázdná osa nikomu
 nic neřekne.
 
+### Souvislý den, ne seznam souborů
+
+Kamera nahrává po **osmiminutových kusech**. To je detail toho, jak se
+data vozí — klient chce vidět den, ne dvě stě řádků. Výchozí pohled na
+den je proto souvislý přehrávač:
+
+- osa je **posuvník přes celých 24 hodin**; kliknutím se vybírá ČAS, ne
+  soubor pod kurzorem,
+- na konci souboru se **navazuje samo**, bez cuknutí,
+- posun po ose během přehrávání skočí do správného souboru **a na
+  správnou pozici v něm**,
+- nad obrazem je **skutečný čas záznamu**, ne pozice v souboru.
+
+Seznam souborů zůstává na `?pohled=soubory` — po montáži se podle něj
+ověřuje, co dorazilo, jak je to velké a v jakém je to stavu. Přepínač je
+v adrese, ne ve stavu komponenty, aby šel odkaz na konkrétní pohled
+poslat kolegovi.
+
+**Dva prvky `<video>`, ne jeden.** S jedním by se na každé hranici
+přepsal `src`, prohlížeč by znovu navazoval spojení a najížděl dekodér —
+každých osm minut viditelné cuknutí. Proto se střídají: v jednom se
+hraje, do druhého se mezitím načítá další, na `ended` se jen prohodí,
+který je vidět. Skrytý se schovává **průhledností, ne `display: none`** —
+takový prvek prohlížeč nemusí přednačítat a celé zdvojení by bylo
+k ničemu.
+
+Nativní `controls` se nepoužívají: jejich lišta ukazuje pozici *v
+souboru* (0:00–8:00), tedy přesně ten detail, který se má schovat.
+
+Překlad mezi časem dne a pozicí v souboru je v
+`lib/recordings/playback.ts`, bez Reactu a bez DOM. Aritmetika kolem
+hranic souborů a mezer mezi nimi je přesně to, na čem se dá tiše ujet
+o minuty, a v prohlížeči se to ladí mizerně. Pravidla:
+
+| Kam klik padne | Kam se skočí |
+|---|---|
+| doprostřed záznamu | ten záznam, přesný offset |
+| do mezery | **další** záznam vpřed, od začátku |
+| za poslední záznam | poslední, na jeho konci |
+
+Vpřed schválně: kdo klikne do prázdna, čeká nejbližší další dění, ne
+skok zpátky do už viděného úseku. Že se posunulo, přehrávač napíše —
+bez toho vypadá skok o dvě hodiny jako vada, ne jako „v tu dobu se
+nenatáčelo“.
+
+**Souvislé přehrávání jde jen po jedné kameře.** Dvě kamery natáčejí
+týž čas současně, takže „co běželo ve tři“ nemá jednu odpověď a segmenty
+na ose se překrývají. Když den obsahuje víc kamer, přehrávač se
+nerozjede a odkáže na filtr kamer nad sebou.
+
 ### Rozhraní, která se ověřují sama
 
 `/api/ingest/*`, `/api/relay/*`, `/api/cron/*` a `/api/sync/*` session
