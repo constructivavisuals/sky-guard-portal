@@ -4,12 +4,14 @@ import { describe, it } from "node:test";
 import {
   contentSecurityPolicy,
   hetznerOrigin,
+  liveOrigin,
   supabaseConnectOrigin,
   supabaseOrigin,
 } from "./csp.ts";
 
 const PROJEKT = "https://ateldjcffovdiexzmkii.supabase.co";
 const HETZNER = "fsn1.your-objectstorage.com";
+const ZIVY = "https://kamery.sky-guard.cz";
 
 /** Vytáhne jednu direktivu z hotové politiky. */
 function direktiva(csp: string, jmeno: string): string | null {
@@ -147,5 +149,39 @@ describe("politika jako celek", () => {
         assert.ok(cast.includes(" "), `direktiva bez hodnoty: ${cast}`);
       }
     }
+  });
+});
+
+describe("živý obraz", () => {
+  const csp = contentSecurityPolicy({
+    supabaseUrl: PROJEKT,
+    hetznerEndpoint: HETZNER,
+    liveBaseUrl: ZIVY,
+  });
+
+  it("pouští websocket na relay", () => {
+    assert.match(direktiva(csp, "connect-src")!, /wss:\/\/kamery\.sky-guard\.cz/);
+  });
+
+  it("pouští blob: v media-src kvůli MediaSource", () => {
+    // Živý obraz neteče z adresy — skládá se v prohlížeči a do <video>
+    // se dostane jako blob. Bez toho se websocket připojí, ale obraz
+    // se nerozjede, a vypadá to jako vada kamery.
+    assert.match(direktiva(csp, "media-src")!, /blob:/);
+  });
+
+  it("nenastavený živý obraz nepouští nic navíc", () => {
+    // Náhradní hodnota „jakýkoli websocket“ by zrušila půlku smyslu
+    // CSP. Nenastavený živý obraz se stejně nikam nepřipojuje.
+    const bez = contentSecurityPolicy({ supabaseUrl: PROJEKT });
+    assert.equal(direktiva(bez, "connect-src"), `connect-src 'self' ${supabaseConnectOrigin(PROJEKT)}`);
+    assert.equal(liveOrigin(undefined), "");
+    assert.equal(liveOrigin("tohle není adresa"), "");
+  });
+
+  it("http základ dá ws:, ne wss:", () => {
+    // Testovací prostředí bez certifikátu. Přepsat to ručně
+    // v komponentě by se rozešlo právě tady.
+    assert.equal(liveOrigin("http://100.72.12.109:8080"), "ws://100.72.12.109:8080");
   });
 });

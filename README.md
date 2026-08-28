@@ -364,6 +364,65 @@ lokalit“ by se míchaly dny z různých pásem, což by mlčky lhalo, takže
 zůstane prostý seznam. Den bez záznamů není odkaz: prázdná osa nikomu
 nic neřekne.
 
+### Živý obraz
+
+`/zive` ukazuje, co kamera vidí právě teď. Prohlížeč se připojuje
+**přímo na relay**, ne přes portál: serverless funkce minutové spojení
+neudrží a video by teklo přes Vercel — u devíti kamer v HD je to řádově
+jiná faktura než přenos z relaye.
+
+Pak ale musí někdo rozhodnout o přístupu, protože relay o přihlášených
+uživatelích nic neví. Pořadí je stejné jako u `/api/media` a nesmí se
+prohodit:
+
+```
+GET /api/kamery/<id>/zivy?kvalita=sub
+      │
+      1. kamera se dohledá POD RLS, klientem uživatele
+      2. teprve pak se vydá lístek, a jen na TU kameru (platí 2 min)
+      3. relay lístek ověří a pustí proud
+```
+
+Kdo na lokalitu nevidí, dostane **404** — stejnou odpověď jako na
+kameru, která neexistuje. Uhodnutým UUID se tedy nedá zjistit ani to,
+jestli kamera je. Prohlížeč přitom nikdy nedostane adresu kamery v LAN
+ani heslo; ta zůstávají na relayi.
+
+Lístek se podepisuje `LIVE_STREAM_SECRET`, což je **jiné tajemství než
+`RELAY_SECRET`**. Tím druhým mluví relay k portálu a zakládá jím
+záznamy; kdyby to byla táž hodnota, znamenal by uniklý lístek
+z prohlížeče i možnost zakládat záznamy jménem relaye. Že obě strany
+počítají podpis stejně, hlídá `npm run hranice-listek`.
+
+**MSE po websocketu, ne WebRTC.** WebRTC by mělo menší zpoždění
+(desetiny vteřiny proti zhruba vteřině), ale platí se za to ICE, UDP
+porty a průchod NATem diváka. Na dva tři diváky, kteří se občas
+podívají, jestli na place někdo je, to zpoždění nehraje roli — a MSE
+jede přes týž TCP jako zbytek portálu, takže projde i ze sítě, kde je
+UDP zavřené.
+
+Přehrávač je vlastní (`zive/live-view.tsx`, ~200 řádků). go2rtc svůj
+nabízí, jenže načíst skript z relaye by znamenalo pustit v CSP cizí
+`script-src` a tím rozvolnit to, co portál chrání.
+
+Obraz se skládá v prohlížeči přes MediaSource, takže do `<video>` jde
+jako `blob:` — proto to musí být v `media-src`. Websocket na relay musí
+být v `connect-src`. Obojí se skládá z `LIVE_STREAM_BASE_URL`, která
+proto musí být i v prostředí **buildu**.
+
+Ukazuje se **jedna kamera, ne mřížka**: devět proudů naráz je devět
+dekodérů v prohlížeči a to položí i slušný notebook. Výchozí je
+**vedlejší** proud — hlavní je v plném rozlišení a přes LTE na stavbě se
+nerozjede.
+
+Zvuk je vypnutý, dokud si ho někdo nezapne. Ne kvůli slušnosti:
+prohlížeče samy nepustí video se zvukem, dokud uživatel na stránku
+neklikne, a čekat na to by znamenalo, že se obraz nerozjede vůbec.
+Nahrává se z něj nic — je to živý poslech.
+
+Provoz na relayi (go2rtc, dveřník, Caddy) popisuje
+[infra/sky-watcher/README.md](infra/sky-watcher/README.md).
+
 ### Souvislý den, ne seznam souborů
 
 Kamera nahrává po **osmiminutových kusech**. To je detail toho, jak se

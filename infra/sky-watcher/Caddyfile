@@ -1,0 +1,49 @@
+# Vstupní bod živého obrazu.
+#
+# ═══ Proč tu Caddy je ══════════════════════════════════════════════
+# Kvůli dvěma věcem, které go2rtc dělat nemá:
+#
+#   1. TLS. Portál běží pod HTTPS a prohlížeč z něj nepustí spojení na
+#      nešifrovanou adresu. Caddy si certifikát vyřídí sám.
+#   2. Dveřník. Ptá se sky-live, jestli lístek platí, a teprve pak
+#      pustí dál.
+#
+# ═══ Administrace go2rtc NESMÍ ven ═════════════════════════════════
+# go2rtc má na `/` webové rozhraní, kterým jde přidat proud
+# z LIBOVOLNÉ adresy — tedy i z vnitřní sítě stavby. Proto se sem
+# nepouští cesty, jen ty tři, které přehrávač potřebuje. Výchozí je
+# odmítnutí, ne propuštění: kdyby se seznam někdy rozšiřoval, chyba
+# bude v tom, že něco nejde, ne v tom, že jde všechno.
+
+{$LIVE_HOSTNAME} {
+	# Jen to, co potřebuje přehrávač v portálu.
+	#
+	#   /api/ws        obraz (MSE po websocketu)
+	#   /api/webrtc    kdyby se někdy přešlo na WebRTC
+	#   /api/frame.jpeg náhled jednoho snímku
+	@proud path /api/ws /api/webrtc /api/frame.jpeg
+
+	handle @proud {
+		# Lístek ověřuje sky-live. Odpověď 200 pustí, cokoli jiného ne.
+		# Adresa i s parametry mu jde v X-Forwarded-Uri.
+		forward_auth sky-live:8089 {
+			uri /auth
+		}
+		reverse_proxy go2rtc:1984
+	}
+
+	# Hlídači zvenčí, ať se pozná živá služba od zaseklé.
+	handle /zdravi {
+		reverse_proxy sky-live:8089
+	}
+
+	# Všechno ostatní včetně administrace go2rtc.
+	handle {
+		respond "not found" 404
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

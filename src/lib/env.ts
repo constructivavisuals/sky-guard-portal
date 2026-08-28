@@ -132,6 +132,39 @@ export function hetznerConfigured(): boolean {
   );
 }
 
+export interface LiveStreamConfig {
+  /** Základ adresy relaye, např. `https://kamery.sky-guard.cz`. */
+  baseUrl: string;
+  /** Tajemství, kterým se podepisují lístky na živý obraz. */
+  secret: string;
+}
+
+/**
+ * Živý obraz ze stavebních kamer.
+ *
+ * ═══ Proč VLASTNÍ tajemství, a ne RELAY_SECRET ═════════════════════
+ * RELAY_SECRET je klíč, kterým relay mluví k portálu — zakládá jím
+ * záznamy. LIVE_STREAM_SECRET je opačný směr: portál jím podepisuje
+ * lístek pro relay. Kdyby to byla táž hodnota, znamenal by uniklý
+ * lístek z prohlížeče i možnost zakládat záznamy jménem relaye.
+ *
+ * ═══ Adresa se čte i při BUILDU ════════════════════════════════════
+ * Skládá se z ní `connect-src` v CSP (viz lib/csp.ts). Když při buildu
+ * chybí, prohlížeč spojení na relay zablokuje a vypadá to jako vada
+ * kamery.
+ */
+export function liveStreamConfig(): LiveStreamConfig {
+  return {
+    baseUrl: required("LIVE_STREAM_BASE_URL").replace(/\/+$/, ""),
+    secret: required("LIVE_STREAM_SECRET"),
+  };
+}
+
+/** Je živý obraz nastavený? Chybějící údaje nemají shodit stránku. */
+export function liveStreamConfigured(): boolean {
+  return Boolean(process.env.LIVE_STREAM_BASE_URL && process.env.LIVE_STREAM_SECRET);
+}
+
 export interface FlightHubConfig {
   host: string;
   projectUuid: string;

@@ -42,6 +42,7 @@ export const NAV_NEEDS = {
   "/lety": "drone",
   "/hlidky": "drone",
   "/arealy": null,
+  "/zive": "cameras",
   "/zaznamy": "cameras",
   "/brana": "cameras",
   "/reporty": null,

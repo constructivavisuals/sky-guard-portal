@@ -25,6 +25,8 @@ export interface CspOptions {
   supabaseUrl?: string;
   /** `HETZNER_S3_ENDPOINT`, např. `fsn1.your-objectstorage.com`. */
   hetznerEndpoint?: string;
+  /** `LIVE_STREAM_BASE_URL`, např. `https://kamery.sky-guard.cz`. */
+  liveBaseUrl?: string;
   /**
    * Vývojový režim.
    *
@@ -88,10 +90,31 @@ export function hetznerOrigin(endpoint?: string): string {
   return `https://${raw} https://*.${raw}`;
 }
 
+/**
+ * Odkud si prohlížeč smí říct o živý obraz.
+ *
+ * Websocket, ne https: obraz teče přes `wss://`. Bez proměnné se
+ * nevrací nic — na rozdíl od úložiště tu není rozumná náhradní
+ * hodnota a pustit „jakýkoli websocket“ by zrušilo půlku smyslu CSP.
+ * Nenastavený živý obraz se stejně nikam nepřipojuje.
+ */
+export function liveOrigin(baseUrl?: string): string {
+  const raw = baseUrl?.trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    const ws = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${ws}//${url.host}`;
+  } catch {
+    return "";
+  }
+}
+
 export function contentSecurityPolicy(options: CspOptions = {}): string {
   const supabase = supabaseOrigin(options.supabaseUrl);
   const supabaseConnect = supabaseConnectOrigin(options.supabaseUrl);
   const hetzner = hetznerOrigin(options.hetznerEndpoint);
+  const live = liveOrigin(options.liveBaseUrl);
 
   // Next si do stránky vkládá vlastní inline skripty (streamování,
   // hydratace), takže bez 'unsafe-inline' by se portál nespustil.
@@ -110,9 +133,15 @@ export function contentSecurityPolicy(options: CspOptions = {}): string {
     `img-src 'self' data: blob: ${supabase}`,
     // Video: z letů a starých záznamů Supabase, z kamer Hetzner.
     // Vlastní původ kvůli /api/media, cizí kvůli jeho přesměrování.
-    `media-src 'self' ${supabase} ${hetzner}`,
+    //
+    // `blob:` kvůli ŽIVÉMU obrazu: ten neteče z adresy, ale skládá se
+    // v prohlížeči přes MediaSource, a ta se do <video> dostane jako
+    // blob. Bez toho se živý obraz nerozjede, přestože se websocket
+    // připojí — a vypadá to jako vada kamery.
+    `media-src 'self' blob: ${supabase} ${hetzner}`,
     "font-src 'self' data:",
-    `connect-src 'self' ${supabaseConnect}`,
+    // Živý obraz teče přes websocket přímo z relaye, ne přes portál.
+    `connect-src ${["'self'", supabaseConnect, live].filter(Boolean).join(" ")}`,
     // Servisní worker a manifest jsou naše. Výslovně, i když by je
     // pokryl fallback — aby je nerozvolnilo pozdější uvolnění
     // script-src nebo default-src.

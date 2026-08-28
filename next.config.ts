@@ -14,13 +14,15 @@ import { contentSecurityPolicy } from "./src/lib/csp.ts";
 //
 // ═══ Proměnné se čtou při BUILDU ═══════════════════════════════════
 // Hlavička se skládá tady, tedy v době sestavení, ne za běhu.
-// NEXT_PUBLIC_SUPABASE_URL a HETZNER_S3_ENDPOINT proto musí být
+// NEXT_PUBLIC_SUPABASE_URL, HETZNER_S3_ENDPOINT a LIVE_STREAM_BASE_URL
+// proto musí být
 // v prostředí BUILDU, ne jen běhu — jinak se použijí volnější
 // náhradní hodnoty a nikde to nezakřičí.
 
 const csp = contentSecurityPolicy({
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
   hetznerEndpoint: process.env.HETZNER_S3_ENDPOINT,
+  liveBaseUrl: process.env.LIVE_STREAM_BASE_URL,
   dev: process.env.NODE_ENV === "development",
 });
 

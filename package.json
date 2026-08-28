@@ -13,7 +13,8 @@
     "kamera-klic": "node --experimental-strip-types scripts/kamera-klic.mjs",
     "vapid": "node scripts/vapid.mjs",
     "hranice": "node scripts/hranice-klient-server.mjs",
-    "relay-podpis": "node scripts/relay-podpis.mjs"
+    "relay-podpis": "node scripts/relay-podpis.mjs",
+    "hranice-listek": "node --experimental-strip-types scripts/hranice-listek.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

@@ -8,10 +8,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-# Jeden obraz, dvě služby: watcher přebírá soubory z FTP, events visí
-# na spojení ke kamerám. Sdílí portal.py, takže se podpis nemůže
-# rozejít mezi nimi.
-COPY watcher.py events.py portal.py /app/
+# Jeden obraz, tři služby: watcher přebírá soubory z FTP, events visí
+# na spojení ke kamerám a live ověřuje lístky na živý obraz. Sdílí
+# portal.py, takže se podpis nemůže rozejít mezi nimi.
+COPY watcher.py events.py live.py portal.py /app/
 
 # Nepouštět jako root: kontejner sahá na sdílený inbox a jediné, co
 # potřebuje, je číst a mazat vlastní soubory.

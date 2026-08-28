@@ -218,6 +218,102 @@ konce; Chrome si postaví `VTDecompressionSession` jednou z `hvcC`
 a na první jinak kódovaný vzorek spadne — `PIPELINE_ERROR_DECODE`,
 VideoToolbox `-12909`. Rozhoduje řádek `parametry`, ne `dekóduje`.
 
+## Živý obraz
+
+Tři služby, protože každá dělá něco jiného a padat mají zvlášť:
+
+```
+prohlížeč ──wss──► Caddy ──ptá se──► sky-live   (platí lístek?)
+                     │
+                     └──pustí──────► go2rtc ──RTSP──► kamera v LAN
+```
+
+| Služba | Co dělá |
+|---|---|
+| `go2rtc` | bere RTSP z kamer a servíruje ho po websocketu jako fMP4 |
+| `sky-live` | ověřuje lístky a skládá go2rtc konfigurák podle portálu |
+| `caddy` | TLS a dveřník — pustí tři cesty, zbytek odmítne |
+
+### Kdo rozhoduje o přístupu
+
+Prohlížeč se připojuje **přímo sem**, ne přes portál: serverless funkce
+minutové spojení neudrží a video by teklo přes Vercel. Relay ale
+o přihlášených uživatelích nic neví, takže:
+
+1. portál pod RLS ověří, že uživatel na kameru vidí,
+2. vydá **lístek platný dvě minuty, jen na tu jednu kameru**,
+3. `sky-live` ho ověří a Caddy teprve pak pustí dál.
+
+Lístek je HMAC nad `<jméno proudu>.<vyprší>`, podepsaný
+`LIVE_STREAM_SECRET`. Jméno proudu je v podpisu schválně — bez něj by
+lístek na vlastní kameru otevřel i kameru na cizí stavbě.
+
+> `LIVE_STREAM_SECRET` je **vlastní tajemství, ne `RELAY_SECRET`**.
+> Tím druhým mluví relay k portálu a zakládá jím záznamy; kdyby to byla
+> táž hodnota, znamenal by uniklý lístek z prohlížeče i možnost
+> zakládat záznamy jménem relaye.
+
+Že obě strany počítají podpis stejně, hlídá `npm run hranice-listek` —
+porovná TypeScript v portálu s Pythonem tady, včetně případů, které
+mají selhat.
+
+### Administrace go2rtc nesmí ven
+
+go2rtc má na `/` rozhraní, kterým jde přidat proud z **libovolné**
+adresy — tedy i z vnitřní sítě stavby. Port se proto nepublikuje a Caddy
+pouští jen `/api/ws`, `/api/webrtc` a `/api/frame.jpeg`. Výchozí je
+odmítnutí: kdyby se seznam někdy rozšiřoval, chyba bude v tom, že něco
+nejde, ne v tom, že jde všechno.
+
+### Konfigurák se generuje, needituje
+
+`sky-live` si každých pět minut stáhne `/api/relay/cameras` a poskládá
+`live-config/go2rtc.yaml`. **Zapisuje a restartuje jen při změně** —
+restart shodí divákům obraz a dělat to každých pět minut kvůli
+konfiguráku, který je pořád stejný, by z živého obrazu udělalo blikající
+obraz.
+
+Hesla ke kamerám v portálu nejsou; berou se z `.env` tady a do RTSP
+adresy jdou **zakódovaná** (Dahua hesla běžně obsahují `@` a `/`).
+
+### Nastavení v `.env`
+
+```
+LIVE_STREAM_SECRET   povinné, shodné s portálem
+LIVE_HOSTNAME        kamery.sky-guard.cz (pro Caddy a jeho certifikát)
+CAMERA_USERNAME      admin
+CAMERA_PASSWORD      heslo ke kamerám, pro všechny stejné
+RTSP_MAIN_PATH       nepovinné, výchozí /cam/realmonitor?channel=1&subtype=0
+RTSP_SUB_PATH        nepovinné, výchozí /cam/realmonitor?channel=1&subtype=1
+RTSP_PORT            nepovinné, výchozí 554
+```
+
+Cesty jde přenastavit z prostředí schválně: **ověřené na místě zatím
+nejsou** a doladění nemá vyžadovat nasazení nové verze. Jednotlivá
+kamera je může přebít sloupci `rtsp_main_path` / `rtsp_sub_path`
+v portálu.
+
+Adresář na konfigurák musí být zapisovatelný pro uživatele v kontejneru:
+
+```bash
+mkdir -p live-config && sudo chown 10001 live-config
+```
+
+### Než bude doména
+
+Portál běží pod HTTPS a **z HTTPS stránky nejde otevřít nešifrované
+spojení** — na `http://100.72.12.109` se tedy prohlížeč nepřipojí, ať
+je CSP nastavená jakkoli. Dokud `kamery.sky-guard.cz` nemíří na relay,
+jsou dvě cesty:
+
+- **Tailscale** — relay v tunelu už je, takže `tailscale cert` vydá
+  platný certifikát na `<stroj>.<tailnet>.ts.net` a `LIVE_HOSTNAME` se
+  nastaví na něj. Funguje to jen pro toho, kdo je v tailnetu, což na
+  ověření stačí; klient bude potřebovat doménu.
+- **Vlastní obraz mimo portál** — otevřít go2rtc přímo na relayi přes
+  SSH tunel a jen se podívat, že RTSP cesty sedí. Na doladění cest je
+  to nejrychlejší.
+
 ## Test
 
 Celý řetěz proti **falešnému portálu**, bez VPS a bez Sky Guardu:
@@ -225,6 +321,7 @@ Celý řetěz proti **falešnému portálu**, bez VPS a bez Sky Guardu:
 ```bash
 python3 infra/sky-watcher/test/test_watcher.py
 python3 infra/sky-watcher/test/test_events.py
+python3 infra/sky-watcher/test/test_live.py
 ```
 
 Vyrobí syntetické `.dav`, postaví portál na localhostu a ověří vznik
@@ -239,6 +336,12 @@ Druhý test staví **falešnou kameru** — multipart proud s řádky `Code=`,
 konfigurace, čtení proudu, filtr kódů, snímek, odeslání detekce. Ověřuje
 i to, na čem by naivní parser spadl: kamera posílá `data=` jako JSON na
 víc řádků. Nepotřebuje ffmpeg ani síť.
+
+Třetí staví **falešný portál a falešného dveřníka**: ověří, že se
+z kamer poskládá konfigurák se správnými adresami, že se heslo do
+adresy dostane zakódované, a hlavně že brána odmítne lístek na jinou
+kameru, propadlý lístek i podvržený podpis. Nepotřebuje ffmpeg, go2rtc
+ani síť.
 
 Bez ffmpegu se test watcheru **přeskočí** (návratový kód 2), ne aby vypadal jako
 selhání kódu. Na macOS s Homebrew bývá příčinou upgrade x265 bez

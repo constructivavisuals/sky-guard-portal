@@ -33,3 +33,56 @@ services:
     command: /app/events.py
     # Bez svazků: k FTP inboxu ani k úložišti tahle služba nemá co mít.
     # Mluví jen s kamerami v LAN a s portálem.
+
+  # ── Živý obraz ───────────────────────────────────────────────────
+  #
+  # Tři služby, protože každá dělá něco jiného a padat mají zvlášť:
+  # go2rtc sahá na kamery, sky-live rozhoduje o přístupu a Caddy drží
+  # TLS. Kdyby to byl jeden proces, znamenal by pád převodu obrazu
+  # i to, že nikdo neověří lístek.
+
+  # Převod RTSP na něco, co umí prohlížeč.
+  #
+  # Port se NEPUBLIKUJE: go2rtc má webové rozhraní, kterým jde přidat
+  # proud z libovolné adresy. Ven se chodí jedině přes Caddy, který
+  # pustí tři cesty a zbytek odmítne.
+  go2rtc:
+    image: alexxit/go2rtc:1.9.9
+    container_name: sky-go2rtc
+    restart: unless-stopped
+    volumes:
+      # Konfigurák sem skládá sky-live podle seznamu kamer z portálu.
+      - ./live-config:/config
+
+  # Ověřování lístků a generování konfigurace go2rtc.
+  sky-live:
+    build: .
+    container_name: sky-live
+    restart: unless-stopped
+    env_file: .env
+    command: /app/live.py
+    volumes:
+      - ./live-config:/config
+    environment:
+      GO2RTC_CONFIG: /config/go2rtc.yaml
+      GO2RTC_API: http://go2rtc:1984
+
+  # TLS a dveřník před go2rtc.
+  caddy:
+    image: caddy:2-alpine
+    container_name: sky-caddy
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Vydané certifikáty musí přežít restart, jinak si je Caddy
+      # vyžádá znovu a Let's Encrypt má na to týdenní strop.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:
