@@ -257,16 +257,82 @@ VideoToolbox `-12909`. Rozhoduje řádek `parametry`, ne `dekóduje`.
 Tři služby, protože každá dělá něco jiného a padat mají zvlášť:
 
 ```
-prohlížeč ──wss──► Caddy ──ptá se──► sky-live   (platí lístek?)
-                     │
-                     └──pustí──────► go2rtc ──RTSP──► kamera v LAN
+prohlížeč ──wss──► Caddy CONSTRUCTIVY  (TLS, :443)
+                        │  sky-guard-edge
+                        ▼
+                   sky-caddy ──ptá se──► sky-live   (platí lístek?)
+                        │
+                        └──pustí────────► go2rtc ──RTSP──► kamera
 ```
 
 | Služba | Co dělá |
 |---|---|
 | `go2rtc` | bere RTSP z kamer a servíruje ho po websocketu jako fMP4 |
 | `sky-live` | ověřuje lístky a skládá go2rtc konfigurák podle portálu |
-| `caddy` | TLS a dveřník — pustí tři cesty, zbytek odmítne |
+| `caddy` | dveřník — pustí tři cesty, zbytek odmítne |
+
+### Porty 80 a 443 nám nepatří
+
+Má je Caddy Constructivy (`/opt/cam-relay`), který obsluhuje
+`cam.constructiva.cz`. Dva Caddy o tytéž porty soupeřit nemůžou, takže
+ten náš poslouchá jen uvnitř sítě kontejnerů a veřejnou adresu mu
+předává ten první.
+
+Rozdělení práce je schválně takhle, a ne obráceně:
+
+| | co drží |
+|---|---|
+| Caddy Constructivy | TLS, certifikát, jeden blok „pošli to dál“ |
+| `sky-caddy` | **kdo smí a kam** — allowlist cest a ověření lístku |
+
+Bezpečnostní rozhodnutí tím zůstávají v tomhle repozitáři. Kdyby
+allowlist bydlel v konfiguraci Constructivy, měnil by se v repozitáři,
+který o Sky Guardu nic neví — a při jeho příštím nasazení by se změna
+ztratila, **aniž by to někdo poznal**.
+
+Propojení je jediná sdílená síť, `sky-guard-edge`. Je na ní **jen
+dveřník**: go2rtc na ní není, takže se na jeho administraci nedá dostat
+ani z kontejnerů Constructivy.
+
+### Co potřebuje repozitář Constructivy
+
+Dvě věci, obojí **v jejím repozitáři**, ne ručně na serveru — ruční
+úprava by se při příštím nasazení přepsala a živý obraz by tiše přestal
+fungovat.
+
+1. Blok do Caddyfile — hotový k vložení je v
+   [`constructiva-kamery.caddy`](constructiva-kamery.caddy):
+
+   ```
+   kamery.sky-guard.cz {
+       reverse_proxy sky-caddy:80
+   }
+   ```
+
+2. Její Caddy musí na naši síť vidět:
+
+   ```yaml
+   services:
+     caddy:
+       networks: [default, sky-guard-edge]
+   networks:
+     sky-guard-edge:
+       external: true
+   ```
+
+Ten blok je schválně hloupý a **nikdy se nebude měnit**: žádná pravidla,
+žádné cesty, žádná tajemství. Když Sky Guard přidá kameru nebo změní
+ověřování, tohle zůstane, jak je.
+
+Síť zakládá compose Sky Guardu, takže se musí spustit dřív. Když
+neběží, Caddy Constructivy nenaběhne s `network sky-guard-edge not
+found` — hlasitě, ne tiše.
+
+Ověření z VPS, bez veřejné adresy:
+
+```bash
+curl -i -H 'Host: kamery.sky-guard.cz' http://127.0.0.1:8880/zdravi
+```
 
 ### Kdo rozhoduje o přístupu
 
@@ -314,7 +380,8 @@ adresy jdou **zakódovaná** (Dahua hesla běžně obsahují `@` a `/`).
 
 ```
 LIVE_STREAM_SECRET   povinné, shodné s portálem
-LIVE_HOSTNAME        kamery.sky-guard.cz (pro Caddy a jeho certifikát)
+LIVE_HOSTNAME        jen pro samostatný běh (viz Caddyfile); za Caddy
+                     Constructivy se nepoužívá
 CAMERA_USERNAME      admin
 CAMERA_PASSWORD      heslo ke kamerám, pro všechny stejné
 RTSP_MAIN_PATH       nepovinné, výchozí /cam/realmonitor?channel=1&subtype=0
@@ -337,16 +404,13 @@ mkdir -p live-config && sudo chown 10001 live-config
 
 Portál běží pod HTTPS a **z HTTPS stránky nejde otevřít nešifrované
 spojení** — na `http://100.72.12.109` se tedy prohlížeč nepřipojí, ať
-je CSP nastavená jakkoli. Dokud `kamery.sky-guard.cz` nemíří na relay,
-jsou dvě cesty:
+je CSP nastavená jakkoli. Dokud `kamery.sky-guard.cz` nemíří na VPS:
 
-- **Tailscale** — relay v tunelu už je, takže `tailscale cert` vydá
-  platný certifikát na `<stroj>.<tailnet>.ts.net` a `LIVE_HOSTNAME` se
-  nastaví na něj. Funguje to jen pro toho, kdo je v tailnetu, což na
-  ověření stačí; klient bude potřebovat doménu.
-- **Vlastní obraz mimo portál** — otevřít go2rtc přímo na relayi přes
-  SSH tunel a jen se podívat, že RTSP cesty sedí. Na doladění cest je
-  to nejrychlejší.
+- **Na doladění RTSP cest** stačí SSH tunel na `127.0.0.1:8880`
+  a `curl` s hlavičkou `Host:`. Portál do toho tahat nemusíš.
+- **Na zkoušku celého řetězu** je potřeba doména — bez ní nemá Caddy
+  Constructivy podle čeho ten provoz rozeznat, protože se rozhoduje
+  právě podle jména v požadavku.
 
 ## Test
 

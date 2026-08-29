@@ -67,22 +67,32 @@ services:
       GO2RTC_CONFIG: /config/go2rtc.yaml
       GO2RTC_API: http://go2rtc:1984
 
-  # TLS a dveřník před go2rtc.
+  # Dveřník před go2rtc. TLS ani porty NEVLASTNÍ — viz Caddyfile.
   caddy:
     image: caddy:2-alpine
     container_name: sky-caddy
     restart: unless-stopped
     env_file: .env
+    # Bez publikovaných 80 a 443: ty má Caddy Constructivy. Na smyčku
+    # se publikuje jen kvůli tomu, aby šlo z VPS ověřit, že tenhle
+    # kontejner odpovídá, aniž by se muselo přes veřejnou adresu:
+    #
+    #   curl -i -H 'Host: kamery.sky-guard.cz' http://127.0.0.1:8880/zdravi
+    #
+    # Zvenčí je to nedostupné — 127.0.0.1 se neroutuje.
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:8880:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Vydané certifikáty musí přežít restart, jinak si je Caddy
-      # vyžádá znovu a Let's Encrypt má na to týdenní strop.
-      - caddy-data:/data
-      - caddy-config:/config
+    networks:
+      - default
+      # Sem dosáhne Caddy Constructivy. Certifikáty se tu nedrží —
+      # TLS končí u něj.
+      - edge
 
-volumes:
-  caddy-data:
-  caddy-config:
+networks:
+  # Jediné místo, kde se ty dva systémy potkávají. Pevné jméno
+  # schválně: compose Constructivy ho uvádí jako `external`, takže se
+  # nesmí odvozovat od jména projektu.
+  edge:
+    name: sky-guard-edge

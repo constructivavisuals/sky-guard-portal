@@ -1,0 +1,40 @@
+# ═══════════════════════════════════════════════════════════════════
+# PRO REPOZITÁŘ CONSTRUCTIVY — přidat do jejího Caddyfile.
+#
+# Sky Guard potřebuje na téže VPS obsluhovat kamery.sky-guard.cz, ale
+# porty 80 a 443 vlastní Caddy Constructivy. Tenhle blok mu tu adresu
+# jen předá dál; všechno ostatní — kdo smí, na které cesty a s jakým
+# lístkem — si řeší Sky Guard u sebe.
+#
+# ═══ Tenhle blok se nikdy nebude měnit ═════════════════════════════
+# Je schválně hloupý: žádná pravidla, žádné cesty, žádná tajemství.
+# Když Sky Guard přidá kameru, změní ověřování nebo přejde na jiný
+# protokol, tohle zůstane, jak je. Kdyby tu byl allowlist cest, měnil
+# by se v repozitáři, který o Sky Guardu nic neví.
+#
+# ═══ Co k tomu patří v docker-compose.yml ══════════════════════════
+# Caddy Constructivy musí na síť Sky Guardu vidět:
+#
+#     services:
+#       caddy:                        # nebo jak se ta služba jmenuje
+#         networks:
+#           - default
+#           - sky-guard-edge
+#
+#     networks:
+#       sky-guard-edge:
+#         external: true
+#
+# Síť zakládá compose Sky Guardu (/opt/sky-watcher), takže se musí
+# spustit dřív. Když neběží, Caddy Constructivy nenaběhne s chybou
+# „network sky-guard-edge not found“ — hlasitě, ne tiše.
+#
+# ═══ DNS ═══════════════════════════════════════════════════════════
+# kamery.sky-guard.cz musí ukazovat na tutéž adresu jako
+# cam.constructiva.cz. Certifikát si vyřídí Caddy Constructivy sám,
+# jako pro kteroukoli jinou svou doménu.
+# ═══════════════════════════════════════════════════════════════════
+
+kamery.sky-guard.cz {
+	reverse_proxy sky-caddy:80
+}

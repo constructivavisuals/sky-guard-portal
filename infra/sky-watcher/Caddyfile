@@ -1,12 +1,20 @@
-# Vstupní bod živého obrazu.
+# Dveřník před go2rtc.
 #
-# ═══ Proč tu Caddy je ══════════════════════════════════════════════
-# Kvůli dvěma věcem, které go2rtc dělat nemá:
+# ═══ NEVLASTNÍ porty 80 a 443 ══════════════════════════════════════
+# Na VPS je má Caddy Constructivy (/opt/cam-relay), který obsluhuje
+# cam.constructiva.cz. Dva Caddy o tytéž porty soupeřit nemůžou, takže
+# tenhle poslouchá jen uvnitř sítě kontejnerů a veřejnou adresu mu
+# předává ten první.
 #
-#   1. TLS. Portál běží pod HTTPS a prohlížeč z něj nepustí spojení na
-#      nešifrovanou adresu. Caddy si certifikát vyřídí sám.
-#   2. Dveřník. Ptá se sky-live, jestli lístek platí, a teprve pak
-#      pustí dál.
+# Rozdělení práce je schválně takhle, a ne obráceně:
+#
+#   Caddy Constructivy   TLS, certifikát, jeden blok „pošli to dál“
+#   tenhle Caddy         KDO SMÍ a KAM — allowlist cest a lístky
+#
+# Bezpečnostní rozhodnutí tím zůstávají v tomhle repozitáři. Kdyby
+# allowlist bydlel v konfiguraci Constructivy, měnil by se v repozitáři,
+# který o Sky Guardu nic neví — a při jeho příštím nasazení by se změna
+# ztratila, aniž by to někdo poznal.
 #
 # ═══ Administrace go2rtc NESMÍ ven ═════════════════════════════════
 # go2rtc má na `/` webové rozhraní, kterým jde přidat proud
@@ -14,12 +22,25 @@
 # nepouští cesty, jen ty tři, které přehrávač potřebuje. Výchozí je
 # odmítnutí, ne propuštění: kdyby se seznam někdy rozšiřoval, chyba
 # bude v tom, že něco nejde, ne v tom, že jde všechno.
+#
+# ═══ Kdyby Sky Guard někdy dostal vlastní stroj ════════════════════
+# Pak se `:80` níž vymění za `{$LIVE_HOSTNAME}`, v compose se vrátí
+# publikované porty 80 a 443 a svazky na certifikáty. Caddy si o
+# certifikát požádá sám. Nic jiného se měnit nemusí.
 
-{$LIVE_HOSTNAME} {
+{
+	# Za cizím proxy je vzdálená adresa jeho, ne divákova. Bez tohohle
+	# by v logu byla u každého požadavku adresa souseda z docker sítě.
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
 	# Jen to, co potřebuje přehrávač v portálu.
 	#
-	#   /api/ws        obraz (MSE po websocketu)
-	#   /api/webrtc    kdyby se někdy přešlo na WebRTC
+	#   /api/ws         obraz (MSE po websocketu)
+	#   /api/webrtc     kdyby se někdy přešlo na WebRTC
 	#   /api/frame.jpeg náhled jednoho snímku
 	@proud path /api/ws /api/webrtc /api/frame.jpeg
 
