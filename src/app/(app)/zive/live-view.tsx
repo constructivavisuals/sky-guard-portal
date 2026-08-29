@@ -57,6 +57,16 @@ const KODEKY = [
  */
 const MAX_ZPOZDENI_SEC = 5;
 
+/**
+ * Jak dlouho se čeká na první obraz, než se to prohlásí za ticho.
+ *
+ * Navázaný websocket, po kterém nic neteče, vypadá zvenčí stejně jako
+ * pomalé připojení — a bez téhle hlídky zůstane na obraze „připojuje
+ * se“ libovolně dlouho. Deset vteřin je s rezervou víc, než kolik
+ * trvá rozjezd i u hlavního proudu.
+ */
+const TICHO_LIMIT_MS = 10_000;
+
 type Stav = "pripojuje" | "hraje" | "chyba";
 
 interface Odpoved {
@@ -85,6 +95,8 @@ export function LiveView({
   /** Aby se po odpojení komponenty nepokoušelo o další spojení. */
   const bezi = useRef(true);
   const casovac = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Hlídka na spojení, které se naváže a mlčí. */
+  const hlidka = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Poslední verze `pripojit`.
    *
@@ -141,15 +153,12 @@ export function LiveView({
     const prvek = video.current;
     if (!prvek) return;
 
-    const ms = new MediaSource();
-    // Obraz se do <video> dostává jako blob, ne z adresy — proto
-    // `media-src blob:` v CSP.
-    prvek.src = URL.createObjectURL(ms);
-
     const ws = new WebSocket(konfigurace.url);
     ws.binaryType = "arraybuffer";
     socket.current = ws;
 
+    let ms: MediaSource | null = null;
+    let adresaBlobu: string | null = null;
     let sb: SourceBuffer | null = null;
     const fronta: ArrayBuffer[] = [];
 
@@ -182,19 +191,67 @@ export function LiveView({
       }
     }
 
-    ms.addEventListener("sourceopen", () => {
-      // Relayi se řekne, co umíme; on vybere, co pošle, a co nesedí,
-      // překóduje.
-      const podporovane = KODEKY.filter((kodek) =>
-        MediaSource.isTypeSupported(`video/mp4; codecs="${kodek}"`),
+    // ── Pořadí, ve kterém se to musí odehrát ──────────────────────
+    //
+    // Nejdřív SE OTEVŘE SOCKET, teprve pak vzniká MediaSource. Obráceně
+    // to nejde, i když se to tak nabízí: `sourceopen` je lokální
+    // událost a vyfiří okamžitě, kdežto websocket potřebuje kolo po
+    // síti. Odeslání kodeků z `sourceopen` by tedy proběhlo ještě ve
+    // stavu CONNECTING, `send()` by vyhodil InvalidStateError —
+    // a go2rtc by se nikdy nedozvěděl, co má poslat.
+    //
+    // Navenek to vypadá jako zdravé spojení: websocket se naváže
+    // (status 101), drží, a neteče přes něj nic. Takhle to má
+    // i referenční klient go2rtc.
+    ws.addEventListener("open", () => {
+      pokus.current = 0;
+
+      ms = new MediaSource();
+      adresaBlobu = URL.createObjectURL(ms);
+      // Obraz se do <video> dostává jako blob, ne z adresy — proto
+      // `media-src blob:` v CSP.
+      prvek.src = adresaBlobu;
+
+      ms.addEventListener(
+        "sourceopen",
+        () => {
+          if (adresaBlobu) {
+            // Video si zdroj drží samo; adresa už jen zabírá paměť.
+            URL.revokeObjectURL(adresaBlobu);
+            adresaBlobu = null;
+          }
+          // Relayi se řekne, co umíme; on vybere, co pošle, a co
+          // nesedí, překóduje.
+          const podporovane = KODEKY.filter((kodek) =>
+            MediaSource.isTypeSupported(`video/mp4; codecs="${kodek}"`),
+          );
+          if (ws.readyState !== WebSocket.OPEN) return;
+          ws.send(JSON.stringify({ type: "mse", value: podporovane.join(",") }));
+
+          // Hlídka: mlčící spojení vypadá stejně jako pomalé. Bez ní
+          // zůstane na obraze „připojuje se“ i tehdy, když už je
+          // jasné, že nic nepřijde.
+          hlidka.current = setTimeout(() => {
+            if (fronta.length === 0 && !sb) {
+              setStav("chyba");
+              setDuvod("Kamera se ozvala, ale neposílá obraz.");
+            }
+          }, TICHO_LIMIT_MS);
+        },
+        { once: true },
       );
-      ws.send(JSON.stringify({ type: "mse", value: podporovane.join(",") }));
-    }, { once: true });
+    });
 
     ws.addEventListener("message", (event) => {
+      // Cokoli od relaye znamená, že spojení není hluché.
+      if (hlidka.current) {
+        clearTimeout(hlidka.current);
+        hlidka.current = null;
+      }
+
       if (typeof event.data === "string") {
         const zprava = JSON.parse(event.data);
-        if (zprava.type !== "mse") return;
+        if (zprava.type !== "mse" || !ms) return;
         try {
           sb = ms.addSourceBuffer(zprava.value);
           // `segments`: fragmenty nesou vlastní čas a nemají se řadit
@@ -210,10 +267,6 @@ export function LiveView({
 
       fronta.push(event.data as ArrayBuffer);
       odbavit();
-    });
-
-    ws.addEventListener("open", () => {
-      pokus.current = 0;
     });
 
     ws.addEventListener("close", () => {
@@ -245,6 +298,7 @@ export function LiveView({
       bezi.current = false;
       clearTimeout(start);
       if (casovac.current) clearTimeout(casovac.current);
+      if (hlidka.current) clearTimeout(hlidka.current);
       socket.current?.close();
       socket.current = null;
     };

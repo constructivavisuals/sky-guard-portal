@@ -393,6 +393,37 @@ lístek nezastavil dřív.
 > volnější (platí pro celé go2rtc, ne jen pro cesty, které pouští
 > dveřník), tak jen když je potřeba.
 
+### Websocket se naváže, ale nic neteče
+
+Status 101 a `size: 0` znamená, že si klient s go2rtc nerozuměl
+v prvním kroku. Protokol je jednoduchý a **záleží na pořadí**:
+
+```
+1. otevře se websocket                    (klient → /api/ws?src=…)
+2. TEPRVE PAK vzniká MediaSource
+3. na `sourceopen` klient pošle kodeky     {"type":"mse","value":"avc1…"}
+4. go2rtc odpoví MIME typem                {"type":"mse","value":"video/mp4; codecs=…"}
+5. a pak už tečou binární fragmenty
+```
+
+Body 1 a 2 se nesmí prohodit. `sourceopen` je lokální událost a vyfiří
+okamžitě, kdežto websocket potřebuje kolo po síti — odeslání kodeků
+z `sourceopen` by tedy proběhlo ještě ve stavu `CONNECTING`, `send()`
+by vyhodil `InvalidStateError` a go2rtc by se nikdy nedozvěděl, co má
+poslat. **Navenek to vypadá jako zdravé spojení**, jen přes něj nic
+neteče.
+
+Kde se to hledá:
+
+```bash
+# obraz z kamery vůbec — obchází celý MSE
+curl -s -o /dev/null -w '%{http_code} %{size_download}\n' \
+  'http://127.0.0.1:8880/api/frame.jpeg?src=<SERIAL>_sub&token=<lístek>'
+```
+
+Když tohle vrátí JPEG o desítkách kB, RTSP i přihlášení ke kameře jsou
+v pořádku a chyba je na websocketu, ne u kamery.
+
 ### Změna nezabrala? Nejdřív ověř, že vůbec dorazila
 
 Skoro pokaždé jde o to, že nová hodnota **není v běžícím kontejneru** —
