@@ -217,31 +217,45 @@ parametry streamu** (VPS/SPS/PPS).
 
 **Kamery nahrávají H.265** kvůli objemu (H.264 by ho zdvojnásobil
 a upload na Klanečné je na hraně). U H.265 se ale musí rozhodnout, kam
-v MP4 přijdou parametry streamu — a ani jedna obvyklá možnost nevyhoví
-oběma stranám. `-tag:v hvc1` totiž není přejmenování FourCC: ffmpeg při
-něm parametry z jednotlivých vzorků **vyhodí**.
+v MP4 přijdou parametry streamu — a `-tag:v hvc1` je ze vzorků
+**vyhodí**, nechá jen ty první v `hvcC`. Mění-li je kamera za běhu, ty
+změny se ztratí.
 
 | `HEVC_TAG` | co vznikne | Chrome | Safari/iOS |
 |---|---|---|---|
-| `hvc1-inband` *(výchozí)* | kód `hvc1`, parametry ve vzorcích | ? | ? |
-| `hvc1` | kód `hvc1`, parametry jen v `hvcC` | **ne** | ano |
-| prázdné | kód `hev1`, parametry ve vzorcích | ano | **ne** |
+| `hvc1` *(výchozí)* | parametry jen v `hvcC` | ano\* | ano |
+| prázdné | `hev1`, parametry ve vzorcích | ano | **ne** |
+| `hvc1-inband` | `hvc1` + parametry ve vzorcích | **rozpadlý obraz** | — |
 
-Výchozí `hvc1-inband` skládá obojí: přebalí se bez tagu, takže
-parametry zůstanou u každého vzorku, a pak se přepíše jen čtyřznakový
-kód. Dekodér tak dostane víc než u kterékoli čisté varianty — z `hvcC`
-i z obrazu.
+\* Za podmínky, že se parametry **nemění**. Proto je **vypnutý Smart
+Codec povinný**, ne doporučený — viz [MONTAZ.md](MONTAZ.md). Je to
+jediná kombinace, která je zároveň podle specifikace a projde na obojím.
 
-> **Je to mimo specifikaci a zatím NEOVĚŘENÉ.** ISO/IEC 14496-15 říká,
-> že u `hvc1` parametry ve vzorcích být nemají, a přísný přehrávač to
-> odmítnout může. Otazníky v tabulce zmizí, až to projde skutečným
-> Safari a Chrome. Kdyby neprošlo, záložní plán je přepnout kamery na
-> **H.264** — ten přehraje každý prohlížeč, `avc1` je jeho obvyklý kód
-> a ffmpeg u něj parametry ve vzorcích nechává, takže celá tahle úvaha
-> u něj nevzniká.
+### Co se u HEVC zkusilo a nefunguje
+
+Ať se to nevymýšlí znovu:
+
+| Pokus | Výsledek |
+|---|---|
+| `hev1` | Chrome ano, **Safari a iOS ne** |
+| `hvc1-inband` (přepis FourCC po remuxu) | na syntetických vzorcích prošlo, na **reálném záznamu rozpadlý obraz** — je to mimo ISO/IEC 14496-15 a takhle to vypadá |
+| `-bsf:v hevc_mp4toannexb` | **žádný účinek** |
+
+Ten filtr převádí z `hvcC` do Annex-B — jenže `.dav` už Annex-B je,
+takže se neuplatní. ffmpeg to i řekne:
+
+```
+[hevc_mp4toannexb] The input looks like it is Annex B already
+```
+
+Výstup vyšel **bajt po bajtu shodně** jako bez něj. A i se vstupem
+v MP4, kde se filtr uplatní, muxer parametry u `hvc1` stejně vyhodí:
+ve vzorcích zůstalo VPS=0, SPS=0. Verze ffmpegu na tom nic nemění
+(v obrazu relaye je 5.1.x z Debianu bookworm, tedy dávno po opravě
+z roku 2019).
 
 **Relay nikdy nepřekódovává** — devět kamer nepřetržitě by z VPS
-udělalo překódovací farmu a obraz by se tím i zhoršil.
+udělalo překódovací farmu.
 
 Se `--zdroj` skript týž `.dav` přebalí i bez toho tagu a porovná — tím
 odliší vadu kamery od vady remuxu. Bez zdroje to nerozhodne a řekne to.

@@ -162,21 +162,21 @@ parametry streamu, a ani jedna obvyklá možnost nevyhoví oběma stranám:
 | `hev1` — parametry u každého vzorku | ano | **ne** |
 | `hvc1` — jen v hlavičce `hvcC` | **ne** | ano |
 
-Relay proto skládá **třetí variantu**: přebalí soubor bez tagu (takže
-parametry zůstanou u každého vzorku) a pak přepíše jen čtyřznakový kód
-stopy na `hvc1`. Dekodér tak dostane víc než u kterékoli čisté varianty.
-Nastavuje se to proměnnou `HEVC_TAG` na relayi, ne v kameře.
+Relay proto zapisuje `hvc1` — jediný kód, který bere Safari i iPhone.
+Ztratit se přitom nemá co, **pokud kamera parametry nemění**. Odtud ta
+podmínka níž.
 
-> **Tahle varianta je mimo specifikaci** a ověřuje se. Kdyby se
-> ukázalo, že ji některý přehrávač odmítá, záložní plán je přepnout
-> kamery na **H.264** — ten přehraje každý prohlížeč a celá tahle úvaha
-> u něj nevzniká. Než k tomu dojde, ptej se, co zrovna platí.
+> Kdyby se ukázalo, že ani to nestačí, záložní plán je přepnout kamery
+> na **H.264** — ten přehraje každý prohlížeč a celá tahle úvaha u něj
+> nevzniká, za cenu zhruba dvojnásobného objemu. Než k tomu dojde,
+> ptej se, co zrovna platí.
 
-**Proč vypnout Smart Codec.** To je funkce, kvůli které kamera mění
-parametry kódování za běhu. Přesně na tom se lámalo přehrávání v Chrome
-a dokud není třetí varianta ověřená, není důvod to riziko podstupovat.
-Až ověřená bude, dá se Smart Codec zapnout zpátky a ušetřit další
-objem — je to jedna z prvních věcí, kterou pak zkusit.
+**Vypnutý Smart Codec je PODMÍNKA, ne doporučení.** Je to funkce, kvůli
+které kamera mění parametry kódování za běhu — a při zápisu do MP4 se
+ty změny ztrácejí. S nimi je záznam v Chrome nepřehratelný, bez nich
+funguje všude. Obejít se to nedá: zkoušelo se to a nepovedlo (viz
+README relaye). Když tuhle položku přeskočíš, záznamy z té kamery
+budou vadné a pozná se to až u klienta.
 
 Záznamy pořízené dřív, kdy se vynucoval `hvc1`, se opravit nedají:
 parametry se při přebalení ztratily a v souboru nejsou. Odejdou lhůtou

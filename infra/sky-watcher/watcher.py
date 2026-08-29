@@ -82,18 +82,28 @@ ORPHAN_IDX_TTL_SEC = int(os.environ.get("ORPHAN_IDX_TTL_SEC", "600"))
 
 ONCE = os.environ.get("WATCHER_ONCE", "0") == "1"
 
-# Jak se u HEVC naloží s čtyřznakovým kódem. Tři možnosti:
+# Jak se u HEVC naloží s čtyřznakovým kódem.
 #
-#   hvc1-inband  (výchozí)  přebalí se BEZ tagu, takže parametry
-#                           zůstanou u každého vzorku, a pak se přepíše
-#                           jen FourCC na `hvc1`
-#   hvc1                    ffmpeg vynutí tag sám — parametry ze vzorků
-#                           VYHODÍ (staré chování, láme Chrome)
-#   ""                      nevynucovat nic, tedy `hev1` (láme Safari)
+#   hvc1  (výchozí)  ffmpeg vynutí tag; parametry skončí jen v `hvcC`
+#   ""               nevynucovat nic, tedy `hev1` (láme Safari a iOS)
+#   hvc1-inband      NEPOUŽÍVAT, viz níž
 #
-# Je to proměnná schválně: která varianta obstojí, se pozná až na
-# skutečných přehrávačích, ne při psaní.
-HEVC_MODE = os.environ.get("HEVC_TAG", "hvc1-inband").strip()
+# ═══ Proč `hvc1`, když právě ten stripuje parametry ════════════════
+# Protože stripovat je co ztratit jen tehdy, když se parametry MĚNÍ —
+# a to dělá Dahua Smart Codec. S vypnutým Smart Codecem má klip jednu
+# sadu, `hvcC` popisuje celý stream a nic se neztrácí. Je to jediná
+# kombinace, která je zároveň podle specifikace a projde na obojím.
+#
+# Vypnutí Smart Codecu je tedy podmínka, ne doporučení — viz MONTAZ.md.
+#
+# ═══ hvc1-inband: vyzkoušeno, NEFUNGUJE ════════════════════════════
+# Přebalení bez tagu a následný přepis FourCC. Na syntetických vzorcích
+# prošlo, na reálném záznamu z kamery dalo ROZPADLÝ OBRAZ: `hvc1`
+# dekodéru říká, že parametry jsou jen v hlavičce, a ten pak NAL
+# jednotky s parametry ve vzorcích nečeká. Je to mimo specifikaci
+# (ISO/IEC 14496-15) a takhle to vypadá. Zůstává jen jako zápis toho,
+# co se zkusilo, ať se to nevymýšlí znovu.
+HEVC_MODE = os.environ.get("HEVC_TAG", "hvc1").strip()
 
 log = logging.getLogger("sky-watcher")
 

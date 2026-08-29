@@ -152,10 +152,12 @@ def test_tag_args(zkontroluj) -> None:
     os.environ.pop("HEVC_TAG", None)
     importlib.reload(watcher)
 
-    zkontroluj("výchozí režim je hvc1-inband",
-               watcher.HEVC_MODE == "hvc1-inband", watcher.HEVC_MODE)
-    zkontroluj("a ffmpegu se u něj tag NEŘÍKÁ — jinak by parametry vyhodil",
-               watcher.tag_args("hevc") == [])
+    # Výchozí je `hvc1`: se stripováním parametrů se nic neztrácí,
+    # pokud se parametry nemění — tedy s vypnutým Smart Codecem.
+    zkontroluj("výchozí režim je hvc1",
+               watcher.HEVC_MODE == "hvc1", watcher.HEVC_MODE)
+    zkontroluj("a u HEVC se ten tag ffmpegu předá",
+               watcher.tag_args("hevc") == ["-tag:v", "hvc1"])
     zkontroluj("H.264 dostane avc1",
                watcher.tag_args("h264") == ["-tag:v", "avc1"])
     zkontroluj("i když ho ffprobe pojmenuje avc1",
@@ -165,10 +167,6 @@ def test_tag_args(zkontroluj) -> None:
     zkontroluj("prázdný HEVC_TAG nechá čisté hev1",
                watcher.tag_args("hevc") == [] and watcher.HEVC_MODE == "")
 
-    os.environ["HEVC_TAG"] = "hvc1"
-    importlib.reload(watcher)
-    zkontroluj("HEVC_TAG=hvc1 se u HEVC uplatní",
-               watcher.tag_args("hevc") == ["-tag:v", "hvc1"])
     zkontroluj("HEVC_TAG se na H.264 NEpřelije",
                watcher.tag_args("h264") == ["-tag:v", "avc1"])
 
