@@ -215,28 +215,33 @@ Vezme hotové `.mp4` z úložiště a řekne, proč ho přehrávač odmítá:
 kodek, tag, profil, level, rozlišení, pozice `moov` a hlavně **kde leží
 parametry streamu** (VPS/SPS/PPS).
 
-**Kamery nahrávají H.264** (viz [MONTAZ.md](MONTAZ.md)) a tím je tenhle
-problém vyřešený u zdroje: `avc1` je jeho obvyklý kód, přehraje ho každý
-prohlížeč a ffmpeg u něj nechává parametry i ve vzorcích — ověřeno.
+**Kamery nahrávají H.265** kvůli objemu (H.264 by ho zdvojnásobil
+a upload na Klanečné je na hraně). U H.265 se ale musí rozhodnout, kam
+v MP4 přijdou parametry streamu — a ani jedna obvyklá možnost nevyhoví
+oběma stranám. `-tag:v hvc1` totiž není přejmenování FourCC: ffmpeg při
+něm parametry z jednotlivých vzorků **vyhodí**.
 
-Historie, kvůli které to tu stojí za popsání: u **H.265** se muselo
-vybrat, kam parametry přijdou, a ani jedna možnost nevyhověla oběma
-stranám. `-tag:v hvc1` není přejmenování FourCC — ffmpeg při něm
-parametry z jednotlivých vzorků **vyhodí** a nechá je jen v `hvcC`.
-Mění-li kamera parametry za běhu (Smart Codec), ty změny se ztratí.
-
-| | parametry | Chrome | Safari/iOS |
+| `HEVC_TAG` | co vznikne | Chrome | Safari/iOS |
 |---|---|---|---|
-| `hev1` | in-band, u každého vzorku | ano | **ne** |
-| `hvc1` | jen v `hvcC` | **ne** | ano |
+| `hvc1-inband` *(výchozí)* | kód `hvc1`, parametry ve vzorcích | ? | ? |
+| `hvc1` | kód `hvc1`, parametry jen v `hvcC` | **ne** | ano |
+| prázdné | kód `hev1`, parametry ve vzorcích | ano | **ne** |
 
-Klient se dívá z obojího, takže se vybrat nedalo. Řešením bylo přepnout
-kamery na H.264, ne hledat lepší tag.
+Výchozí `hvc1-inband` skládá obojí: přebalí se bez tagu, takže
+parametry zůstanou u každého vzorku, a pak se přepíše jen čtyřznakový
+kód. Dekodér tak dostane víc než u kterékoli čisté varianty — z `hvcC`
+i z obrazu.
 
-Watcher u HEVC tag **nevynucuje** (píše `hev1`), protože z SD karet ještě
-můžou přijít staré soubory. `HEVC_TAG=hvc1` je páka pro materiál, kde
-záleží víc na iPhonu. **Relay nikdy nepřekódovává** — devět kamer
-nepřetržitě by z VPS udělalo překódovací farmu.
+> **Je to mimo specifikaci a zatím NEOVĚŘENÉ.** ISO/IEC 14496-15 říká,
+> že u `hvc1` parametry ve vzorcích být nemají, a přísný přehrávač to
+> odmítnout může. Otazníky v tabulce zmizí, až to projde skutečným
+> Safari a Chrome. Kdyby neprošlo, záložní plán je přepnout kamery na
+> **H.264** — ten přehraje každý prohlížeč, `avc1` je jeho obvyklý kód
+> a ffmpeg u něj parametry ve vzorcích nechává, takže celá tahle úvaha
+> u něj nevzniká.
+
+**Relay nikdy nepřekódovává** — devět kamer nepřetržitě by z VPS
+udělalo překódovací farmu a obraz by se tím i zhoršil.
 
 Se `--zdroj` skript týž `.dav` přebalí i bez toho tagu a porovná — tím
 odliší vadu kamery od vady remuxu. Bez zdroje to nerozhodne a řekne to.

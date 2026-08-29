@@ -106,8 +106,11 @@ def main() -> int:
                    not re.search(r"\*[^*\n]+\*", bez_kodu))
         zkontroluj("ani řádek tabulky",
                    not re.search(r"^\|", bez_kodu, flags=re.M))
+        # Ne na přesné znění nadpisu — to se mění podle toho, co zrovna
+        # platí. Kontroluje se, že sekce v PDF vůbec je: je to nastavení,
+        # které se na místě dělá jednou a zpětně se ověřuje mizerně.
         zkontroluj("sekce o kodeku je uvnitř",
-                   "<h3>Kodek: H.264, ne H.265</h3>" in vysledek)
+                   re.search(r"<h3>Kodek:[^<]*</h3>", vysledek) is not None)
 
     if chyby:
         print(f"\nSELHALO {len(chyby)} kontrol")

@@ -273,14 +273,14 @@ není podmínkou přehratelnosti.
 R2 se nikdy nepoužilo; starší poznámky o `r2_key` v komentářích byly
 převzaté z Constructivy.
 
-### Kamery nahrávají H.264
+### Kamery nahrávají H.265, a co z toho plyne
 
-Ne H.265, a je to rozhodnutí, ne náhoda. Relay soubor jen **přebaluje,
-nepřekódovává** — co kamera natočí, to klient vidí, takže se kodek musí
-vyřešit v kameře.
+Kvůli objemu: H.264 by datový tok zhruba zdvojnásobil a upload na
+Klanečné je na hraně. Relay soubor jen **přebaluje, nepřekódovává** —
+co kamera natočí, to klient vidí.
 
-U H.265 se v MP4 musí rozhodnout, kam se zapíšou parametry streamu
-(VPS/SPS/PPS), a ani jedna možnost nevyhoví oběma stranám:
+U H.265 se ale musí v MP4 rozhodnout, kam se zapíšou parametry streamu
+(VPS/SPS/PPS), a ani jedna obvyklá možnost nevyhoví oběma stranám:
 
 | | Chrome / desktop | Safari / iPhone |
 |---|---|---|
@@ -288,177 +288,27 @@ U H.265 se v MP4 musí rozhodnout, kam se zapíšou parametry streamu
 | `hvc1` — jen v hlavičce `hvcC` | **ne** | ano |
 
 `-tag:v hvc1` totiž není přejmenování FourCC: ffmpeg při něm parametry
-ze vzorků **vyhodí**. Mění-li kamera parametry za běhu (Dahua Smart
-Codec), ty změny se ztratí a Chrome — který si postaví dekodér jednou
-z `hvcC` — spadne na `PIPELINE_ERROR_DECODE` (VideoToolbox `-12909`).
+ze vzorků **vyhodí**. Mění-li kamera parametry za běhu (Smart Codec),
+ty změny se ztratí a Chrome — který si postaví dekodér jednou z `hvcC` —
+spadne na `PIPELINE_ERROR_DECODE` (VideoToolbox `-12909`).
 
-Klient se dívá z desktopu i z iPhonu, takže se vybrat nedalo. H.264 tu
-volbu ruší: `avc1` přehraje každý prohlížeč a ffmpeg u něj nechává
-parametry i ve vzorcích, takže se nemá co ztratit. Platí se za to
-zhruba dvojnásobným datovým tokem — což je důvod hlídat strop na
-lokalitu (`recording_quota_bytes`).
+Watcher proto skládá **třetí variantu** (`HEVC_TAG=hvc1-inband`,
+výchozí): přebalí bez tagu, takže parametry zůstanou u každého vzorku,
+a pak přepíše jen čtyřznakový kód na `hvc1`. Dekodér tak dostane víc
+než u kterékoli čisté varianty.
 
-Nastavení kamery včetně **vypnutého Smart Codecu** popisuje
-[MONTAZ.md](infra/sky-watcher/MONTAZ.md). Watcher HEVC větev drží dál
-pro staré soubory z SD karet.
+> **Mimo specifikaci a zatím neověřené.** ISO/IEC 14496-15 říká, že
+> u `hvc1` parametry ve vzorcích být nemají. Ověřuje se to na skutečném
+> Safari a Chrome; kdyby neprošlo, záložní plán je přepnout kamery na
+> **H.264**, u kterého celá tahle úvaha nevzniká — za cenu dvojnásobného
+> objemu. Přepíná se to proměnnou na relayi, ne v kódu.
 
-**Záznamy pořízené v H.265 se opravit nedají.** Parametry, které `hvc1`
-při remuxu vyhodil, v souboru nejsou a není odkud je vzít — ověřeno
-měřením: nedoplní je ani `ffmpeg -c copy -tag:v hev1`, ani přepsání
-FourCC. `npm run pretaguj` umí jen přepsat ten kód, což pomůže pouze
-tehdy, když souboru vadil samotný kód. Jinak zbývá počkat, až odejdou
-lhůtou (`clip_retention_days`, 14 dní), nebo je znovu stáhnout z SD
-karty kamery.
-
-Idempotence příjmu stojí **jen** na `sd_file_path`. Constructiva má
-vedle toho ještě unique `(camera_id, started_at)` z doby před FTP
-příjmem a její README ho popisuje jako past: dvojice main + sub stream
-má stejný čas začátku a druhý stream se zahodí. Tady ten index záměrně
-není.
-
-### Příjem záznamů: `/api/ingest/recording`
-
-Dva požadavky na jeden soubor. Obojí podepsané **RELAY_SECRET**, ne
-klíčem kamery: relay je prostředník za víc kamer naráz a kameru
-pojmenuje sériovým číslem v těle. Rotace funguje stejně jako
-u `INGEST_SECRET` — po dobu přepojení se ověřuje i proti
-`RELAY_SECRET_PREVIOUS` a relay na starém tajemství se zaloguje.
-
-```
-POST /api/ingest/recording          → ohlášení, vrací nahrávací adresu
-PUT  <upload_url>                   → soubor jde přímo do úložiště
-POST /api/ingest/recording/confirm  → potvrzení, vyplní uploaded_at
-```
-
-Ohlášení dohledá kameru podle `serial_number`, ověří idempotenci na
-`sd_file_path`, založí řádek se `storage_path` a vrátí jednorázovou
-adresu (platí 2 h). Kamera musí být vedená jako `ingest_mode = 'ftp'`
-— kamera, která se umí podepsat sama, si relay mluvit za sebe nenechá,
-jinak by se relayovým tajemstvím dal podvrhnout záznam kterékoli
-kamery v portálu.
-
-Tři věci, které stojí za pozornost:
-
-* **Čas není omezený tolerancí podpisu.** U detekce ano, protože se
-  hlásí, když se stane. Záznam se nahrává až po dotočení a po výpadku
-  sítě leží ve frontě klidně den — meze jsou proto měsíc dozadu
-  a pár minut dopředu.
-* **Na hotový záznam se adresa nevystaví.** Ohlášení se dá zopakovat
-  (relay to dělá po neúspěšném nahrání), ale jen dokud soubor
-  nedorazil. Jinak by z odchyceného požadavku šlo přepsat existující
-  soubor.
-* **Velikost se měří, netvrdí.** Potvrzení se nezeptá relaye, jak je
-  soubor velký — zeptá se úložiště. Když soubor nenajde, potvrzení
-  odmítne a záznam zůstane nedokončený. `uploaded_at` má znamenat
-  „soubor tam je“, ne „někdo to tvrdil“.
-
-#### Vyzkoušení curlem
-
-Podpis počítá `npm run relay-podpis`; vypíše hotový příkaz. Ruční HMAC
-je otrava a překlep v něm vypadá jako zamítnutý podpis.
-
-```bash
-export RELAY_SECRET=…              # totéž, co má portál
-export PORTAL_HOST=https://portal.sky-guard.cz
-export CAMERA_SERIAL=BK024AAPAGB5592
-
-# 1. ohlášení — vrátí recording_id a upload_url
-eval "$(npm run --silent relay-podpis)"
-
-# 2. nahrání souboru na vrácenou adresu
-curl -X PUT "<upload_url>" -H 'Content-Type: video/mp4' --data-binary @klip.mp4
-
-# 3. potvrzení
-eval "$(npm run --silent relay-podpis potvrzeni <recording_id>)"
-```
-
-Bez souboru v úložišti vrátí krok 3 **409 `file_not_found`** — a to je
-správně, ne chyba testu.
-
-### Seznam záznamů, kalendář a osa dne
-
-`/zaznamy` je obrazovka, na které se po montáži ověřuje, že řetěz
-kamera → relay → portál → úložiště šlape. Filtr kamery a dne jsou
-**odkazy, ne tlačítka** — filtr je součástí adresy, takže jde poslat
-i otevřít v nové kartě, a celá ta část je serverová bez řádku
-JavaScriptu v prohlížeči.
-
-**Den je den lokality**, ne prohlížeče a ne UTC. Kdo se dívá na stavbu
-z dovolené, musí vidět tentýž čtvrtek jako mistr na place — a v UTC by
-se každý letní večer po 22:00 přelil do dalšího dne. Platí to na obou
-stranách: `lib/recordings/timeline.ts` počítá hranice dne přes
-`zonedTimeToUtc` (takže říjnový den vyjde jako 25 hodin, ne jako 24
-posunutých) a RPC `camera_recording_day_counts` používá
-`AT TIME ZONE s.timezone`.
-
-To RPC je **záměrně bez `SECURITY DEFINER`** — běží právy volajícího,
-takže se uplatní RLS a na cizí lokalitu vrátí prázdno. S ním by stačilo
-uhodnout UUID lokality a šlo by zjistit, kdy se natáčelo na cizí
-stavbě.
-
-Kalendář a osa se ukazují jen u **jedné vybrané lokality**. U „všech
-lokalit“ by se míchaly dny z různých pásem, což by mlčky lhalo, takže
-zůstane prostý seznam. Den bez záznamů není odkaz: prázdná osa nikomu
-nic neřekne.
-
-### Živý obraz
-
-`/zive` ukazuje, co kamera vidí právě teď. Prohlížeč se připojuje
-**přímo na relay**, ne přes portál: serverless funkce minutové spojení
-neudrží a video by teklo přes Vercel — u devíti kamer v HD je to řádově
-jiná faktura než přenos z relaye.
-
-Pak ale musí někdo rozhodnout o přístupu, protože relay o přihlášených
-uživatelích nic neví. Pořadí je stejné jako u `/api/media` a nesmí se
-prohodit:
-
-```
-GET /api/kamery/<id>/zivy?kvalita=sub
-      │
-      1. kamera se dohledá POD RLS, klientem uživatele
-      2. teprve pak se vydá lístek, a jen na TU kameru (platí 2 min)
-      3. relay lístek ověří a pustí proud
-```
-
-Kdo na lokalitu nevidí, dostane **404** — stejnou odpověď jako na
-kameru, která neexistuje. Uhodnutým UUID se tedy nedá zjistit ani to,
-jestli kamera je. Prohlížeč přitom nikdy nedostane adresu kamery v LAN
-ani heslo; ta zůstávají na relayi.
-
-Lístek se podepisuje `LIVE_STREAM_SECRET`, což je **jiné tajemství než
-`RELAY_SECRET`**. Tím druhým mluví relay k portálu a zakládá jím
-záznamy; kdyby to byla táž hodnota, znamenal by uniklý lístek
-z prohlížeče i možnost zakládat záznamy jménem relaye. Že obě strany
-počítají podpis stejně, hlídá `npm run hranice-listek`.
-
-**MSE po websocketu, ne WebRTC.** WebRTC by mělo menší zpoždění
-(desetiny vteřiny proti zhruba vteřině), ale platí se za to ICE, UDP
-porty a průchod NATem diváka. Na dva tři diváky, kteří se občas
-podívají, jestli na place někdo je, to zpoždění nehraje roli — a MSE
-jede přes týž TCP jako zbytek portálu, takže projde i ze sítě, kde je
-UDP zavřené.
-
-Přehrávač je vlastní (`zive/live-view.tsx`, ~200 řádků). go2rtc svůj
-nabízí, jenže načíst skript z relaye by znamenalo pustit v CSP cizí
-`script-src` a tím rozvolnit to, co portál chrání.
-
-Obraz se skládá v prohlížeči přes MediaSource, takže do `<video>` jde
-jako `blob:` — proto to musí být v `media-src`. Websocket na relay musí
-být v `connect-src`. Obojí se skládá z `LIVE_STREAM_BASE_URL`, která
-proto musí být i v prostředí **buildu**.
-
-Ukazuje se **jedna kamera, ne mřížka**: devět proudů naráz je devět
-dekodérů v prohlížeči a to položí i slušný notebook. Výchozí je
-**vedlejší** proud — hlavní je v plném rozlišení a přes LTE na stavbě se
-nerozjede.
-
-Zvuk je vypnutý, dokud si ho někdo nezapne. Ne kvůli slušnosti:
-prohlížeče samy nepustí video se zvukem, dokud uživatel na stránku
-neklikne, a čekat na to by znamenalo, že se obraz nerozjede vůbec.
-Nahrává se z něj nic — je to živý poslech.
-
-Provoz na relayi (go2rtc, dveřník, Caddy) popisuje
-[infra/sky-watcher/README.md](infra/sky-watcher/README.md).
+Nastavení kamery popisuje
+[MONTAZ.md](infra/sky-watcher/MONTAZ.md). **Záznamy pořízené v době,
+kdy se vynucoval `hvc1`, se opravit nedají** — parametry se při
+přebalení ztratily a v souboru nejsou; ověřeno měřením. `npm run
+pretaguj` umí jen přepsat ten kód. Odejdou lhůtou
+(`clip_retention_days`, 14 dní).
 
 ### Souvislý den, ne seznam souborů
 

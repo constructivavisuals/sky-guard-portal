@@ -152,13 +152,18 @@ def test_tag_args(zkontroluj) -> None:
     os.environ.pop("HEVC_TAG", None)
     importlib.reload(watcher)
 
+    zkontroluj("výchozí režim je hvc1-inband",
+               watcher.HEVC_MODE == "hvc1-inband", watcher.HEVC_MODE)
+    zkontroluj("a ffmpegu se u něj tag NEŘÍKÁ — jinak by parametry vyhodil",
+               watcher.tag_args("hevc") == [])
     zkontroluj("H.264 dostane avc1",
                watcher.tag_args("h264") == ["-tag:v", "avc1"])
     zkontroluj("i když ho ffprobe pojmenuje avc1",
                watcher.tag_args("avc1") == ["-tag:v", "avc1"])
-    zkontroluj("u HEVC se výchozím stavem tag NEvynucuje",
-               watcher.tag_args("hevc") == [])
-    zkontroluj("ani u h265", watcher.tag_args("h265") == [])
+    os.environ["HEVC_TAG"] = ""
+    importlib.reload(watcher)
+    zkontroluj("prázdný HEVC_TAG nechá čisté hev1",
+               watcher.tag_args("hevc") == [] and watcher.HEVC_MODE == "")
 
     os.environ["HEVC_TAG"] = "hvc1"
     importlib.reload(watcher)
@@ -166,6 +171,39 @@ def test_tag_args(zkontroluj) -> None:
                watcher.tag_args("hevc") == ["-tag:v", "hvc1"])
     zkontroluj("HEVC_TAG se na H.264 NEpřelije",
                watcher.tag_args("h264") == ["-tag:v", "avc1"])
+
+    # ── Přepis čtyřznakového kódu ──────────────────────────────
+    import tempfile
+    from pathlib import Path as _Path
+
+    def vzorek_stsd(kod: str) -> bytes:
+        return (b"\x00\x00\x00\x28stsd" + b"\x00" * 4 + b"\x00\x00\x00\x01"
+                + b"\x00\x00\x00\x18" + kod.encode() + b"\x00" * 16)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        soubor = _Path(tmp) / "x.mp4"
+
+        soubor.write_bytes(vzorek_stsd("hev1"))
+        zkontroluj("hev1 se přepíše na hvc1",
+                   watcher.prepis_fourcc(soubor, "hev1", "hvc1")
+                   and watcher.najdi_fourcc(soubor.read_bytes())[1] == "hvc1")
+
+        # Co už hvc1 je, se nepřepisuje — a hlavně se to nemá tvářit
+        # jako by se přepsalo.
+        zkontroluj("co není hev1, se nechá být",
+                   watcher.prepis_fourcc(soubor, "hev1", "hvc1") is False)
+
+        # Řetězec `hvc1` v datech obrazu se přepsat NESMÍ.
+        soubor.write_bytes(b"hev1 nekde v datech " + vzorek_stsd("hev1"))
+        watcher.prepis_fourcc(soubor, "hev1", "hvc1")
+        obsah = soubor.read_bytes()
+        zkontroluj("přepíše se jen kód v stsd, ne výskyt v datech",
+                   obsah.startswith(b"hev1 nekde v datech ")
+                   and watcher.najdi_fourcc(obsah)[1] == "hvc1", str(obsah[:30]))
+
+        soubor.write_bytes(b"tady zadny box neni")
+        zkontroluj("soubor bez stsd nespadne",
+                   watcher.prepis_fourcc(soubor, "hev1", "hvc1") is False)
 
     zkontroluj("neznámý kodek tag nedostane naslepo",
                watcher.tag_args(None) == []
