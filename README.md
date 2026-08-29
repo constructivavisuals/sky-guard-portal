@@ -273,33 +273,42 @@ není podmínkou přehratelnosti.
 R2 se nikdy nepoužilo; starší poznámky o `r2_key` v komentářích byly
 převzaté z Constructivy.
 
-### Čtyřznakový kód u HEVC
+### Kamery nahrávají H.264
 
-Kamery nahrávají H.265 a u něj se musí rozhodnout, jak se do MP4 zapíší
-parametry streamu (VPS/SPS/PPS). `-tag:v hvc1` je **nezapíše do vzorků**
-— nechá je jen v hlavičce `hvcC`. Když kamera parametry za běhu mění,
-ty změny se tím ztratí a Chrome, který si postaví dekodér jednou
-z `hvcC`, spadne na `PIPELINE_ERROR_DECODE` (VideoToolbox `-12909`).
+Ne H.265, a je to rozhodnutí, ne náhoda. Relay soubor jen **přebaluje,
+nepřekódovává** — co kamera natočí, to klient vidí, takže se kodek musí
+vyřešit v kameře.
 
-Watcher proto tag **nevynucuje** a píše `hev1`, kde parametry zůstávají
-u každého vzorku. Je to ale **výměna, ne oprava**:
+U H.265 se v MP4 musí rozhodnout, kam se zapíšou parametry streamu
+(VPS/SPS/PPS), a ani jedna možnost nevyhoví oběma stranám:
 
-| | Chrome / desktop | Safari / iOS |
+| | Chrome / desktop | Safari / iPhone |
 |---|---|---|
-| `hev1` (dnes) | ano | **ne** |
-| `hvc1` (`HEVC_TAG=hvc1`) | ne, mění-li kamera parametry | ano |
+| `hev1` — parametry u každého vzorku | ano | **ne** |
+| `hvc1` — jen v hlavičce `hvcC` | **ne** | ano |
 
-S H.265 nejde vyhovět oběma. Ruší to teprve H.264 — přehraje ho každý
-prohlížeč a tag se neřeší vůbec; platí se za to překódováním místo
-přebalení, tedy CPU na relayi.
+`-tag:v hvc1` totiž není přejmenování FourCC: ffmpeg při něm parametry
+ze vzorků **vyhodí**. Mění-li kamera parametry za běhu (Dahua Smart
+Codec), ty změny se ztratí a Chrome — který si postaví dekodér jednou
+z `hvcC` — spadne na `PIPELINE_ERROR_DECODE` (VideoToolbox `-12909`).
 
-**Už nahrané soubory se opravit nedají.** Parametry, které `hvc1` při
-remuxu vyhodil, v souboru nejsou a není odkud je vzít — ověřeno měřením:
-ani `ffmpeg -c copy -tag:v hev1`, ani přepsání FourCC je do vzorků
-nedoplní. `npm run pretaguj` umí jen přepsat ten kód, což pomůže pouze
-tehdy, když souboru vadil samotný kód. Jinak zbývá počkat, až záznamy
-odejdou lhůtou (`clip_retention_days`, 14 dní), nebo je znovu stáhnout
-z SD karty kamery.
+Klient se dívá z desktopu i z iPhonu, takže se vybrat nedalo. H.264 tu
+volbu ruší: `avc1` přehraje každý prohlížeč a ffmpeg u něj nechává
+parametry i ve vzorcích, takže se nemá co ztratit. Platí se za to
+zhruba dvojnásobným datovým tokem — což je důvod hlídat strop na
+lokalitu (`recording_quota_bytes`).
+
+Nastavení kamery včetně **vypnutého Smart Codecu** popisuje
+[MONTAZ.md](infra/sky-watcher/MONTAZ.md). Watcher HEVC větev drží dál
+pro staré soubory z SD karet.
+
+**Záznamy pořízené v H.265 se opravit nedají.** Parametry, které `hvc1`
+při remuxu vyhodil, v souboru nejsou a není odkud je vzít — ověřeno
+měřením: nedoplní je ani `ffmpeg -c copy -tag:v hev1`, ani přepsání
+FourCC. `npm run pretaguj` umí jen přepsat ten kód, což pomůže pouze
+tehdy, když souboru vadil samotný kód. Jinak zbývá počkat, až odejdou
+lhůtou (`clip_retention_days`, 14 dní), nebo je znovu stáhnout z SD
+karty kamery.
 
 Idempotence příjmu stojí **jen** na `sd_file_path`. Constructiva má
 vedle toho ještě unique `(camera_id, started_at)` z doby před FTP

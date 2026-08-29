@@ -199,22 +199,28 @@ Vezme hotové `.mp4` z úložiště a řekne, proč ho přehrávač odmítá:
 kodek, tag, profil, level, rozlišení, pozice `moov` a hlavně **kde leží
 parametry streamu** (VPS/SPS/PPS).
 
-Na tom posledním záleží víc, než se zdá. `-tag:v hvc1` není jen
-přejmenování FourCC — ffmpeg při něm parametry z jednotlivých vzorků
-**vyhodí** a nechá je jen v hlavičce `hvcC`. Když je kamera mění za
-běhu, ty změny se ztratí:
+**Kamery nahrávají H.264** (viz [MONTAZ.md](MONTAZ.md)) a tím je tenhle
+problém vyřešený u zdroje: `avc1` je jeho obvyklý kód, přehraje ho každý
+prohlížeč a ffmpeg u něj nechává parametry i ve vzorcích — ověřeno.
 
-| | parametry | důsledek |
-|---|---|---|
-| `hev1` (dnes výchozí) | in-band, u každého vzorku | přehraje Chrome, **odmítne Safari/iOS** |
-| `hvc1` (`HEVC_TAG=hvc1`) | jen v `hvcC` | vezme iOS, **Chrome spadne**, mění-li kamera parametry |
+Historie, kvůli které to tu stojí za popsání: u **H.265** se muselo
+vybrat, kam parametry přijdou, a ani jedna možnost nevyhověla oběma
+stranám. `-tag:v hvc1` není přejmenování FourCC — ffmpeg při něm
+parametry z jednotlivých vzorků **vyhodí** a nechá je jen v `hvcC`.
+Mění-li kamera parametry za běhu (Smart Codec), ty změny se ztratí.
 
-**Watcher od té doby tag NEVYNUCUJE** — píše `hev1`. Je to výměna, ne
-čistá oprava: spravilo to desktop na úkor iPhonu. Zpátky se to přepne
-`HEVC_TAG=hvc1` v `.env`, bez nasazování nové verze.
+| | parametry | Chrome | Safari/iOS |
+|---|---|---|---|
+| `hev1` | in-band, u každého vzorku | ano | **ne** |
+| `hvc1` | jen v `hvcC` | **ne** | ano |
 
-Tuhle výměnu ruší jedině H.264: přehraje ho každý prohlížeč a žádný tag
-se neřeší. Stojí to překódování místo přebalení, tedy CPU na relayi.
+Klient se dívá z obojího, takže se vybrat nedalo. Řešením bylo přepnout
+kamery na H.264, ne hledat lepší tag.
+
+Watcher u HEVC tag **nevynucuje** (píše `hev1`), protože z SD karet ještě
+můžou přijít staré soubory. `HEVC_TAG=hvc1` je páka pro materiál, kde
+záleží víc na iPhonu. **Relay nikdy nepřekódovává** — devět kamer
+nepřetržitě by z VPS udělalo překódovací farmu.
 
 Se `--zdroj` skript týž `.dav` přebalí i bez toho tagu a porovná — tím
 odliší vadu kamery od vady remuxu. Bez zdroje to nerozhodne a řekne to.

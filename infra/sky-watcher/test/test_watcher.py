@@ -138,12 +138,12 @@ def pust_watcher(inbox: Path, failed: Path, port: int) -> subprocess.CompletedPr
 
 def test_tag_args(zkontroluj) -> None:
     """
-    Vynucení čtyřznakového kódu u HEVC.
+    Čtyřznakový kód video stopy.
 
-    Výchozí je NEvynucovat: `-tag:v hvc1` vyhazuje parametry streamu
-    ze vzorků a Chrome pak spadne na PIPELINE_ERROR_DECODE. Zpátky se
-    to dá zapnout proměnnou, protože `hev1` zase neumí Safari a iOS —
-    je to výměna, ne čistá oprava.
+    H.264 je normální případ — kamery se na něj nastavují (MONTAZ.md)
+    a dostane `avc1`. HEVC větev zůstává kvůli starým souborům z SD
+    karet a tag se u ní NEvynucuje: `hvc1` vyhazuje parametry streamu
+    ze vzorků a Chrome pak spadne na PIPELINE_ERROR_DECODE.
     """
     import importlib
 
@@ -151,17 +151,26 @@ def test_tag_args(zkontroluj) -> None:
 
     os.environ.pop("HEVC_TAG", None)
     importlib.reload(watcher)
-    zkontroluj("výchozí stav tag NEvynucuje", watcher.tag_args("hevc") == [])
+
+    zkontroluj("H.264 dostane avc1",
+               watcher.tag_args("h264") == ["-tag:v", "avc1"])
+    zkontroluj("i když ho ffprobe pojmenuje avc1",
+               watcher.tag_args("avc1") == ["-tag:v", "avc1"])
+    zkontroluj("u HEVC se výchozím stavem tag NEvynucuje",
+               watcher.tag_args("hevc") == [])
     zkontroluj("ani u h265", watcher.tag_args("h265") == [])
 
     os.environ["HEVC_TAG"] = "hvc1"
     importlib.reload(watcher)
     zkontroluj("HEVC_TAG=hvc1 se u HEVC uplatní",
                watcher.tag_args("hevc") == ["-tag:v", "hvc1"])
-    zkontroluj("na H.264 se tag neaplikuje nikdy",
-               watcher.tag_args("h264") == [])
-    zkontroluj("neznámý kodek tag nedostane",
-               watcher.tag_args(None) == [] and watcher.tag_args("") == [])
+    zkontroluj("HEVC_TAG se na H.264 NEpřelije",
+               watcher.tag_args("h264") == ["-tag:v", "avc1"])
+
+    zkontroluj("neznámý kodek tag nedostane naslepo",
+               watcher.tag_args(None) == []
+               and watcher.tag_args("") == []
+               and watcher.tag_args("mjpeg") == [])
 
     if puvodni is None:
         os.environ.pop("HEVC_TAG", None)

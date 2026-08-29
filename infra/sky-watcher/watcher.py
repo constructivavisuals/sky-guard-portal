@@ -236,18 +236,35 @@ def probe_video_codec(src: Path) -> str | None:
 
 def tag_args(codec: str | None) -> list[str]:
     """
-    Argumenty ffmpegu pro vynucení čtyřznakového kódu.
+    Argumenty ffmpegu pro čtyřznakový kód video stopy.
 
-    Prázdný seznam znamená „nevynucovat nic“, což je výchozí stav —
-    ffmpeg pak u HEVC zapíše `hev1` a parametry nechá u každého vzorku.
-    Na jiný kodek než HEVC se tag neaplikuje nikdy: u H.264 by nedával
-    smysl a ffmpeg by ho odmítl.
+    ═══ H.264 je NORMÁLNÍ případ ══════════════════════════════════
+    Kamery se nastavují na H.264 (viz MONTAZ.md) a `avc1` je jeho
+    obvyklý kód. Uvádí se výslovně, i když ho ffmpeg vybere sám —
+    ověřeno, že výstup je s ním i bez něj bajt po bajtu totožný.
+    Není to tedy nastavení, ale ZÁPIS ZÁMĚRU: kdyby se výchozí chování
+    ffmpegu někdy změnilo, tohle drží.
+
+    U H.264 ffmpeg parametry (SPS/PPS) nechává i ve vzorcích, ne jen
+    v `avcC` — ověřeno. Tím u něj nevzniká to, co lámalo HEVC.
+
+    ═══ HEVC zůstává kvůli STARÝM souborům ════════════════════════
+    Kamery na něj už nenahrávají, ale relay může dostat záznam z SD
+    karty pořízený dřív, a ten se musí přebalit stejně jako dřív.
+    Výchozí je nevynucovat nic (`hev1`, parametry u každého vzorku);
+    `HEVC_TAG=hvc1` vrátí chování pro Safari.
     """
-    if not HEVC_TAG:
-        return []
-    if (codec or "").lower() not in {"hevc", "h265"}:
-        return []
-    return ["-tag:v", HEVC_TAG]
+    kodek = (codec or "").lower()
+
+    if kodek in {"h264", "avc1"}:
+        return ["-tag:v", "avc1"]
+
+    if kodek in {"hevc", "h265"}:
+        return ["-tag:v", HEVC_TAG] if HEVC_TAG else []
+
+    # Neznámý nebo nepřečtený kodek: ffmpeg si vybere sám. Vnutit tag
+    # naslepo by remux shodilo u něčeho, co jsme nečekali.
+    return []
 
 
 def remux_to_mp4(src: Path, dst: Path) -> None:
@@ -256,7 +273,14 @@ def remux_to_mp4(src: Path, dst: Path) -> None:
 
     `-c copy`: obraz se nepřepočítává, jen se přebalí.
 
-    ═══ Proč se `hvc1` UŽ NEVYNUCUJE ══════════════════════════════
+    ═══ Kamery nahrávají H.264 ════════════════════════════════════
+    A to je celé řešení toho, co následuje: H.264 přehraje každý
+    prohlížeč, kód `avc1` je jeho obvyklý a parametry streamu zůstávají
+    i ve vzorcích. Žádná výměna mezi platformami se neřeší.
+
+    HEVC větev zůstává kvůli starým souborům z SD karet.
+
+    ═══ Proč se u HEVC `hvc1` NEVYNUCUJE ══════════════════════════
     Vynucovalo se, protože `hev1` neumí přehrát Safari ani iOS. Jenže
     `-tag:v hvc1` není přejmenování čtyřznakového kódu: ffmpeg při něm
     parametry streamu (VPS/SPS/PPS) ze VZORKŮ VYHODÍ a nechá je jen
@@ -270,14 +294,15 @@ def remux_to_mp4(src: Path, dst: Path) -> None:
     Bez toho tagu zůstanou parametry u každého vzorku a stream se
     popisuje sám.
 
-    ═══ Je to VÝMĚNA, ne čistá oprava ═════════════════════════════
-    `hev1` odmítá Safari a iOS. Tahle změna tedy spravuje desktop na
-    úkor iPhonu — a zpátky se to vrátí nastavením HEVC_TAG=hvc1, bez
-    nasazování nové verze.
+    ═══ U HEVC se vybrat nedá ═════════════════════════════════════
+    `hev1` odmítá Safari a iOS, `hvc1` láme Chrome. Obojím se jedna
+    strana ztratí, a proto se kamery přepnuly na H.264 — tady se to
+    řešit nedá. `HEVC_TAG=hvc1` je jen páka pro starý materiál, kde
+    záleží víc na iPhonu.
 
-    Skutečné řešení, které tuhle výměnu ruší, je H.264: přehraje ho
-    každý prohlížeč a žádný tag se řešit nemusí. Stojí to překódování
-    místo přebalení, tedy CPU na relayi.
+    Relay NIKDY nepřekódovává. Devět kamer nepřetržitě by z VPS udělalo
+    překódovací farmu a obraz by se tím i zhoršil; co kamera natočí, to
+    klient vidí.
 
     `+faststart` dá moov dopředu, aby šlo přehrávat od začátku stahování.
     """

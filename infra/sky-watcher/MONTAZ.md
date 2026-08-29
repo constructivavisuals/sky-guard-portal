@@ -143,9 +143,49 @@ Pak *Nastavení → Úložiště → Plán* nebo *Rozvrh nahrávání*:
 - Ujisti se, že cíl je **FTP**, ne jen SD karta. Některé firmwary mají
   cíl zvlášť pro záznam a zvlášť pro snímky.
 
-**Vedlejší stream, ne hlavní.** Nativní rozlišení Dahuy (4480×2512
-v HEVC) je nad hardwarovým dekodérem iPhonů — video se uloží, ale na
-telefonu se nepřehraje. Nastav pro FTP záznam `sub stream`.
+**Vedlejší stream, ne hlavní.** Nativní rozlišení Dahuy (4480×2512) je
+nad hardwarovým dekodérem iPhonů — video se uloží, ale na telefonu se
+nepřehraje. Nastav pro FTP záznam `sub stream`.
+
+### Kodek: H.264, ne H.265
+
+*Nastavení → Kamera → Video → Kódování* (Encode):
+
+| Položka | Hodnota |
+|---|---|
+| Komprese | **H.264** (ne H.265 / HEVC) |
+| Smart Codec (H.264+/H.265+) | **vypnuto** |
+| Profil | Main nebo High |
+
+Obojí je povinné a obojí se ověřuje těžko zpětně — proto to nastav
+hned a raději si to vyfoť.
+
+**Proč H.264.** Relay soubor jen přebaluje, nepřekódovává: co kamera
+natočí, to klient vidí. U H.265 se přitom musí v MP4 rozhodnout, kam se
+zapíšou parametry streamu, a ani jedna možnost nevyhoví oběma stranám:
+
+| | Chrome / desktop | Safari / iPhone |
+|---|---|---|
+| `hev1` | ano | **ne** |
+| `hvc1` | **ne** | ano |
+
+Klient se dívá z obojího, takže se vybrat nedá. H.264 tuhle volbu ruší:
+přehraje ho každý prohlížeč a parametry v souboru zůstávají na obou
+místech, takže se nemá co ztratit.
+
+**Proč vypnout Smart Codec.** To je ta funkce, kvůli které kamera mění
+parametry kódování za běhu. U H.265 to byla přímá příčina toho, že
+záznam v Chrome spadl (`PIPELINE_ERROR_DECODE`), a i u H.264 je to
+zbytečné riziko. Úspora místa nestojí za nepřehratelný důkaz.
+
+> Za H.264 se platí zhruba dvojnásobným datovým tokem oproti H.265.
+> Při 14denní lhůtě a stropu na lokalitu (`recording_quota_bytes`,
+> výchozí 500 GB) to stojí za pohled do *Areály → lokalita* po pár
+> dnech provozu.
+
+Záznamy pořízené **před** přepnutím zůstanou v H.265 a jednu z těch
+dvou platforem neobslouží. Opravit je nejde — parametry, které se při
+přebalení ztratily, v souboru nejsou. Odejdou lhůtou (14 dní).
 
 ### Detekce člověka (SMD)
 
@@ -264,8 +304,10 @@ Co číst z výsledku:
 - **`size_bytes`** sedí řádově na délku záznamu (desítky sekund =
   jednotky MB). Nula nebo pár kB znamená rozbitý remux.
 
-Samotný soubor si stáhneš v *Storage → zaznamy* v Supabase; cesta je
-`storage_path`.
+Samotný soubor leží v **Hetzner Object Storage**, bucket
+`sky-guard-zaznamy`, pod cestou ze `storage_path`. Starší záznamy
+(`storage_backend = 'supabase'`) jsou ještě v Supabase Storage
+v bucketu `zaznamy`.
 
 ---
 
