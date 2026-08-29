@@ -76,3 +76,33 @@ describe("prepisFourcc", () => {
     assert.throws(() => prepisFourcc(buf, nalez, "hevc1"), /4 znaky/);
   });
 });
+
+describe("víc stop v souboru", () => {
+  /** Zvuková stopa první, obrazová druhá — pořadí není zaručené. */
+  function dveStopy(): Buffer {
+    return Buffer.concat([vzorek("mp4a"), vzorek("hev1")]);
+  }
+
+  it("bez očekávaného kódu vrátí první stopu", () => {
+    assert.equal(najdiFourcc(dveStopy())?.kod, "mp4a");
+  });
+
+  it("s očekávaným kódem najde tu SPRÁVNOU stopu", () => {
+    // Bez tohohle se u záznamu se zvukem trefil zvuk, přepis se tiše
+    // neprovedl a soubor zůstal, jak byl.
+    const nalez = najdiFourcc(dveStopy(), "hev1");
+    assert.equal(nalez?.kod, "hev1");
+    assert.equal(nalez?.offset, 60);
+  });
+
+  it("přepíše se jen obrazová stopa, zvuková zůstane", () => {
+    const buf = dveStopy();
+    prepisFourcc(buf, najdiFourcc(buf, "hev1")!, "hvc1");
+    assert.equal(najdiFourcc(buf)?.kod, "mp4a", "zvuk se nesmí přepsat");
+    assert.equal(najdiFourcc(buf, "hvc1")?.kod, "hvc1");
+  });
+
+  it("kód, který v souboru není, vrátí null", () => {
+    assert.equal(najdiFourcc(dveStopy(), "avc1"), null);
+  });
+});

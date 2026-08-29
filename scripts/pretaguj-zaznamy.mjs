@@ -55,8 +55,10 @@ async function prepis(cfg, klic) {
   if (!odpoved.ok) throw new Error(`stažení ${odpoved.status}`);
   const data = Buffer.from(await odpoved.arrayBuffer());
 
-  const nalez = najdiFourcc(data);
-  if (!nalez || nalez.kod !== "hvc1") return false;
+  // Cíleně stopu s `hvc1`, ne první stsd v souboru: u záznamu se
+  // zvukem může být první zvukový a přepis by se tiše neprovedl.
+  const nalez = najdiFourcc(data, "hvc1");
+  if (!nalez) return false;
   prepisFourcc(data, nalez, "hev1");
 
   const nahrani = presignUrl(cfg, { method: "PUT", key: klic, expiresIn: 600 });

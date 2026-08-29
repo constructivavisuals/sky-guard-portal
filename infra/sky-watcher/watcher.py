@@ -276,9 +276,9 @@ def tag_args(codec: str | None) -> list[str]:
     return []
 
 
-def najdi_fourcc(data: bytes) -> tuple[int, str] | None:
+def najdi_fourcc(data: bytes, ocekavany: str | None = None) -> tuple[int, str] | None:
     """
-    Kde v souboru leží čtyřznakový kód video stopy a jaký je.
+    Kde v souboru leží čtyřznakový kód stopy a jaký je.
 
     Parsuje se box `stsd`, NEHLEDÁ se řetězec `hvc1` v souboru: ten se
     může objevit i v datech obrazu a přepsat ho jinde by soubor rozbilo
@@ -287,14 +287,25 @@ def najdi_fourcc(data: bytes) -> tuple[int, str] | None:
     Tvar boxu: velikost(4) typ(4) verze+příznaky(4) počet(4), pak první
     položka velikost(4) typ(4). Kód je tedy 16 bajtů za „stsd“.
 
-    Musí sedět s najdiFourcc() v src/lib/storage/mp4.ts, které totéž
-    dělá nad soubory už nahranými v Hetzneru.
+    ═══ Boxů stsd je v souboru VÍC ════════════════════════════════
+    Jeden na stopu. Když kamera nahrává i zvuk, je v souboru druhý
+    s kódem `mp4a` — a nezaručeně až za obrazovým. Brát první nalezený
+    znamenalo, že se u záznamu se zvukem první v pořadí trefil zvuk,
+    přepis se neprovedl a soubor tiše zůstal, jak byl.
+
+    Proto `ocekavany`: prohledají se VŠECHNY a vrátí se ten, který
+    sedí. Bez něj se vrací první, což se hodí jen na zprávu o stavu.
     """
-    i = data.find(b"stsd")
-    if i < 0 or i + 20 > len(data):
-        return None
-    offset = i + 16
-    return offset, data[offset:offset + 4].decode("latin-1", "replace")
+    i = 0
+    while True:
+        i = data.find(b"stsd", i)
+        if i < 0 or i + 20 > len(data):
+            return None
+        offset = i + 16
+        kod = data[offset:offset + 4].decode("latin-1", "replace")
+        if ocekavany is None or kod == ocekavany:
+            return offset, kod
+        i += 4
 
 
 def prepis_fourcc(cesta: Path, z: str, na: str) -> bool:
@@ -314,15 +325,18 @@ def prepis_fourcc(cesta: Path, z: str, na: str) -> bool:
     ne pevné chování — HEVC_TAG=hvc1 nebo prázdné vrátí čisté varianty.
     """
     data = bytearray(cesta.read_bytes())
-    nalez = najdi_fourcc(bytes(data))
+    nalez = najdi_fourcc(bytes(data), z)
     if nalez is None:
-        log.warning("V souboru není box stsd, kód se nepřepisuje: %s", cesta.name)
+        # Hlasitě: tichý neúspěch tady znamená soubor s jiným kódem,
+        # než čekáme, a to se pozná až u diváka jako nepřehratelné video.
+        log.warning(
+            "Kód %s se v souboru nenašel, přepis se nekoná: %s (nalezeno %s)",
+            z, cesta.name,
+            (najdi_fourcc(bytes(data)) or (0, "nic"))[1],
+        )
         return False
 
-    offset, kod = nalez
-    if kod != z:
-        return False
-
+    offset, _ = nalez
     data[offset:offset + 4] = na.encode("latin-1")
     cesta.write_bytes(bytes(data))
     return True

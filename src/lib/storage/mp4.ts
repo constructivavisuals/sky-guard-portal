@@ -22,14 +22,25 @@ export interface Fourcc {
  * a pak první položka: velikost(4) typ(4). Kód je tedy 16 bajtů za
  * začátkem řetězce „stsd“.
  *
- * Hledá se první výskyt: video stopa je v záznamech z kamer první
- * a jediná, o kterou jde.
+ * ═══ Boxů stsd je v souboru VÍC ═══════════════════════════════════
+ * Jeden na stopu. Když kamera nahrává i zvuk, je v souboru druhý
+ * s kódem `mp4a` — a nezaručeně až za obrazovým. Brát první nalezený
+ * znamenalo, že se u záznamu se zvukem první v pořadí trefil zvuk
+ * a přepis se tiše neprovedl.
+ *
+ * Proto `ocekavany`: prohledají se všechny a vrátí se ten, který sedí.
+ * Bez něj se vrací první, což se hodí jen na zprávu o stavu.
  */
-export function najdiFourcc(buf: Buffer): Fourcc | null {
-  const stsd = buf.indexOf("stsd", 0, "latin1");
-  if (stsd < 0 || stsd + 20 > buf.length) return null;
-  const offset = stsd + 16;
-  return { offset, kod: buf.toString("latin1", offset, offset + 4) };
+export function najdiFourcc(buf: Buffer, ocekavany?: string): Fourcc | null {
+  let i = 0;
+  for (;;) {
+    const stsd = buf.indexOf("stsd", i, "latin1");
+    if (stsd < 0 || stsd + 20 > buf.length) return null;
+    const offset = stsd + 16;
+    const kod = buf.toString("latin1", offset, offset + 4);
+    if (ocekavany === undefined || kod === ocekavany) return { offset, kod };
+    i = stsd + 4;
+  }
 }
 
 /** Zapíše jiný čtyřznakový kód na místo, které našel `najdiFourcc`. */

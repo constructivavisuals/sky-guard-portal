@@ -205,6 +205,19 @@ def test_tag_args(zkontroluj) -> None:
         zkontroluj("soubor bez stsd nespadne",
                    watcher.prepis_fourcc(soubor, "hev1", "hvc1") is False)
 
+        # Kamera může nahrávat i zvuk. Pořadí stop není zaručené,
+        # a když je zvuk první, brát první stsd znamenalo trefit
+        # `mp4a`, tiše nic nepřepsat a nechat soubor jak byl.
+        soubor.write_bytes(vzorek_stsd("mp4a") + vzorek_stsd("hev1"))
+        zkontroluj("se zvukem první se najde SPRÁVNÁ stopa",
+                   watcher.prepis_fourcc(soubor, "hev1", "hvc1"))
+        obsah = soubor.read_bytes()
+        zkontroluj("obrazová stopa je přepsaná",
+                   watcher.najdi_fourcc(obsah, "hvc1") is not None)
+        zkontroluj("a zvuková zůstala nedotčená",
+                   watcher.najdi_fourcc(obsah)[1] == "mp4a",
+                   str(watcher.najdi_fourcc(obsah)))
+
     zkontroluj("neznámý kodek tag nedostane naslepo",
                watcher.tag_args(None) == []
                and watcher.tag_args("") == []
