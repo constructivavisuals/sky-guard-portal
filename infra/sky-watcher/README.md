@@ -367,6 +367,32 @@ lístek na vlastní kameru otevřel i kameru na cizí stavbě.
 porovná TypeScript v portálu s Pythonem tady, včetně případů, které
 mají selhat.
 
+### Portál je na jiné doméně než stream
+
+`kamery.sky-guard.cz` proti `sky-guard-portal.vercel.app` — pro
+prohlížeč je to požadavek přes původy a go2rtc ho na websocketu odmítne
+standardní kontrolou:
+
+```
+websocket: request origin not allowed by Upgrader.CheckOrigin
+```
+
+Řeší to Caddy: hlavičku `Origin` přepíše na vlastního hostitele
+(`header_up Origin http://{host}`). Protože se `Host` nikam nepřepisuje
+a `Origin` se odvozuje z téže hodnoty, jsou vždycky shodné — platí to
+i pro náhledová nasazení portálu na měnících se adresách, které by se
+do pevného seznamu vypsat nedaly.
+
+**Díru to nedělá.** O přístupu nerozhoduje `Origin`, ale lístek, a ten
+cizí stránka nezíská: vydává ho portál proti přihlášení a odpověď si
+přes původy nepřečte. Kontrola původu by tedy nebránila ničemu, co by
+lístek nezastavil dřív.
+
+> Kdyby ten přepis nestačil, je úniková cesta `GO2RTC_ORIGIN=*`
+> v `.env` — povolí to rovnou v go2rtc, jak to má Constructiva. Je to
+> volnější (platí pro celé go2rtc, ne jen pro cesty, které pouští
+> dveřník), tak jen když je potřeba.
+
 ### Administrace go2rtc nesmí ven
 
 go2rtc má na `/` rozhraní, kterým jde přidat proud z **libovolné**
@@ -397,6 +423,8 @@ CAMERA_PASSWORD      heslo ke kamerám, pro všechny stejné
 RTSP_MAIN_PATH       nepovinné, výchozí /cam/realmonitor?channel=1&subtype=0
 RTSP_SUB_PATH        nepovinné, výchozí /cam/realmonitor?channel=1&subtype=1
 RTSP_PORT            nepovinné, výchozí 554
+GO2RTC_ORIGIN        nepovinné, prázdné; `*` jen jako úniková cesta
+                     ke kontrole původu (viz výš)
 ```
 
 Cesty jde přenastavit z prostředí schválně: **ověřené na místě zatím

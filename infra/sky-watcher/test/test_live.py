@@ -43,6 +43,8 @@ os.environ.update({
     "CAMERA_USERNAME": "admin",
 })
 
+import importlib  # noqa: E402
+
 import live  # noqa: E402
 import portal  # noqa: E402
 
@@ -147,8 +149,22 @@ def main() -> int:
 
     zkontroluj("administrace go2rtc poslouchá jen uvnitř",
                "listen: :1984" in config)
+
+    # Kontrolu původu řeší Caddy přepisem hlavičky Origin, ne go2rtc.
+    # Kdyby se `origin` psal vždycky, byla by ta úniková cesta zapnutá
+    # pořád a přepis v Caddy by se nikdy neuplatnil.
+    zkontroluj("origin se ve výchozím stavu NEnastavuje",
+               "origin:" not in config, config[:300])
     zkontroluj("RTSP server se nezapíná", 'rtsp:\n  listen: ""' in config)
     zkontroluj("WebRTC se nezapíná", 'webrtc:\n  listen: ""' in config)
+
+    # Úniková cesta pro případ, že by přepis v Caddy nestačil.
+    os.environ["GO2RTC_ORIGIN"] = "*"
+    importlib.reload(live)
+    zkontroluj("GO2RTC_ORIGIN=* se do konfigurace propíše",
+               'origin: "*"' in live.slozit_config(kamery))
+    os.environ.pop("GO2RTC_ORIGIN", None)
+    importlib.reload(live)
 
     # ── 2. Dveřník ─────────────────────────────────────────────────
     brana = HTTPServer(("127.0.0.1", 0), live.AuthHandler)

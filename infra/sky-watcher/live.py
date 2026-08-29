@@ -69,6 +69,15 @@ GO2RTC_API = os.environ.get("GO2RTC_API", "http://go2rtc:1984").rstrip("/")
 
 CONFIG_REFRESH_SEC = float(os.environ.get("LIVE_CONFIG_REFRESH_SEC", "300"))
 
+# Úniková cesta pro kontrolu původu na websocketu.
+#
+# Portál běží na jiné doméně než stream, takže go2rtc požadavek jako
+# cizí odmítne. Řeší to Caddy přepisem hlavičky Origin (viz Caddyfile)
+# a tohle má proto zůstat prázdné. Kdyby ten přepis nestačil, nastaví
+# se `GO2RTC_ORIGIN=*` a povolí se to rovnou tady — bez čekání na
+# novou verzi.
+GO2RTC_ORIGIN = os.environ.get("GO2RTC_ORIGIN", "").strip()
+
 # Standardní cesty Dahua. Kamera je smí přebít sloupcem v portálu;
 # tohle je to, co platí, dokud jí nikdo nic nenastavil.
 #
@@ -192,6 +201,7 @@ def slozit_config(kamery: list[dict]) -> str:
         # port nepublikuje: administrace go2rtc umí přidat proud
         # z libovolné adresy a to nesmí být vidět zvenčí.
         "  listen: :1984",
+        *([f"  origin: {yaml_retezec(GO2RTC_ORIGIN)}"] if GO2RTC_ORIGIN else []),
         "",
         "rtsp:",
         # Server RTSP nepotřebujeme, obraz jde ven přes prohlížeč.

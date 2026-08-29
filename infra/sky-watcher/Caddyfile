@@ -50,7 +50,35 @@
 		forward_auth sky-live:8089 {
 			uri /auth
 		}
-		reverse_proxy go2rtc:1984
+
+		reverse_proxy go2rtc:1984 {
+			# ═══ Přepis Origin ═════════════════════════════════
+			# Portál běží na JINÉ doméně než stream, takže je to pro
+			# prohlížeč požadavek přes původy. go2rtc má na websocketu
+			# standardní kontrolu, která porovnává Origin s Host, a ta
+			# takový požadavek odmítne:
+			#
+			#   websocket: request origin not allowed by
+			#   Upgrader.CheckOrigin
+			#
+			# Origin se proto přepíše na vlastní hostitele. `{host}` je
+			# ten, na který přišel požadavek, takže to platí i pro
+			# náhledová nasazení portálu na měnících se adresách
+			# — ta by se do pevného seznamu nedala vypsat.
+			#
+			# ═══ Proč to nedělá díru ═══════════════════════════
+			# O přístupu tu nerozhoduje Origin, ale LÍSTEK, a ten cizí
+			# stránka nezíská: vydává ho portál proti přihlášení a
+			# odpověď si přes původy nepřečte. Kontrola původu by tedy
+			# nebránila ničemu, co by lístek nezastavil dřív.
+			#
+			# Alternativa je `api: origin: "*"` v go2rtc.yaml, jak to
+			# má Constructiva. Tady je to radši v Caddy: rozhodnutí
+			# o přístupu tím zůstávají v jednom souboru a go2rtc si
+			# přísnou kontrolu ponechá pro případ, že by na něj někdo
+			# sáhl zevnitř sítě mimo tenhle dveřník.
+			header_up Origin http://{host}
+		}
 	}
 
 	# Hlídači zvenčí, ať se pozná živá služba od zaseklé.
