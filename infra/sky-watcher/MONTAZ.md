@@ -88,37 +88,29 @@ docker compose up -d --build
 docker compose logs -f sky-watcher       # čekej „Sky Guard watcher: …“
 ```
 
-### 5. FTP zvenčí
+### 5. FTP přes tunel
 
-**Tohle je nejčastější důvod, proč první pokus nedorazí.** Za normálního
-provozu je FTP vázané jen na `127.0.0.1` a kamera na něj z internetu
-nedosáhne. Než bude tunel, musí se otevřít — a nestačí porty, musí se
-změnit **dvě** věci v `/opt/cam-relay/docker-compose.yml`:
+Kamera posílá na relay **tailscale adresou `100.72.12.109`**, ne po
+veřejné IP. Na serveru se kvůli tomu nic nastavovat nemusí — vazba
+portů i `ADDRESS` jsou v repu `constructiva-portal`
+(`infra/cam-relay/docker-compose.yml`).
 
-```yaml
-    ports:
-      - "0.0.0.0:21:21"                    # místo 127.0.0.1:21:21
-      - "0.0.0.0:21000-21010:21000-21010"  # pasivní rozsah taky
-    environment:
-      ADDRESS: 49.13.69.91                 # místo 127.0.0.1
-```
+> **Neupravuj `docker-compose.yml` na serveru.** Nasazení ho přepisuje
+> z repa, takže ruční změna vydrží do příštího deploye — a pak kamery
+> tiše přestanou posílat. Jednou to už stálo 45 minut záznamů. Když je
+> potřeba jiná adresa, patří změna do toho repa.
 
-`ADDRESS` je to, co server ohlásí v odpovědi na `PASV`. Když zůstane
-`127.0.0.1`, kamera se pro datový kanál pokusí připojit sama na sebe
-a přenos spadne — **přihlášení přitom projde**, takže to vypadá jako
-úplně jiná chyba.
+Ověření, že relay poslouchá tam, kde má:
 
 ```bash
-docker compose up -d ftp          # restart změnu portů nepromítne
+ssh root@49.13.69.91 \
+  "docker inspect cam-ftp --format '{{json .HostConfig.PortBindings}}'"
+# čekej 100.72.12.109 u 21 i u pasivního rozsahu 21000-21010
 ```
 
-> **FTP posílá heslo v plaintextu a publikovaný port obchází ufw.**
-> Docker si pravidla vkládá před ufw, takže port je otevřený i když
-> `ufw status` o něm neví. Když je veřejná IP stavby pevná, omez zdroj:
->
-> ```bash
-> iptables -I DOCKER-USER -p tcp --dport 21 ! -s <IP-stavby> -j DROP
-> ```
+`ADDRESS` je to, co server ohlásí v odpovědi na `PASV`, a musí sedět
+s vazbou portů. Když se rozejdou, kamera se **přihlásí**, ale přenos dat
+spadne — vypadá to jako úplně jiná chyba.
 
 ---
 
@@ -128,7 +120,7 @@ Webové rozhraní kamery, *Nastavení → Úložiště → Cíl → FTP*:
 
 | Položka | Hodnota |
 |---|---|
-| Server | `49.13.69.91` |
+| Server | `100.72.12.109` (tailscale, ne veřejná IP) |
 | Port | `21` |
 | Uživatel | účet z kroku 3 (= sériové číslo) |
 | Heslo | z kroku 3 |
@@ -384,18 +376,18 @@ v portálu, ne na relayi — mrkni na odpověď v logu.
 
 ## Až budeš pryč
 
-- **Zavři FTP zvenčí**, jakmile kamery odesílají a nic se neladí:
+- **Zkontroluj, že FTP není otevřené zvenku.** Má poslouchat jen na
+  tailscale adrese; na veřejné IP posílá heslo v plaintextu komukoli.
 
   ```bash
-  cd /opt/cam-relay
-  $EDITOR docker-compose.yml        # zpátky na 127.0.0.1 a ADDRESS
-  docker compose up -d ftp
-  docker inspect cam-ftp --format '{{json .HostConfig.PortBindings}}'
-  nc -z -w 4 49.13.69.91 21 && echo OTEVRENO || echo zavreno   # z jiného stroje
+  nc -z -w 4 100.72.12.109 21 && echo 'ok, tunel jede' || echo NEDOSTUPNE
+  nc -z -w 4 49.13.69.91 21 && echo POZOR-VEREJNE || echo 'ok, zvenku zavreno'
   ```
 
-  Případné dočasné pravidlo `iptables -D DOCKER-USER …` smaž ručně;
-  `docker compose down` ho neuklidí.
+  Kdyby někdo FTP dočasně otevřel napřímo, vrací se to změnou **v repu
+  constructiva-portal**, ne na serveru. Případné pravidlo
+  `iptables -D DOCKER-USER …` smaž ručně; `docker compose down` ho
+  neuklidí.
 
 - **Nastav hlídač.** Bez `HEALTHCHECK_URL` se o zastaveném watcheru
   nikdo nedozví. Založ check na healthchecks.io s periodou 5 min
