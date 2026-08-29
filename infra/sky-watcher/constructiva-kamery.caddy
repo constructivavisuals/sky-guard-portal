@@ -13,21 +13,25 @@
 # by se v repozitáři, který o Sky Guardu nic neví.
 #
 # ═══ Co k tomu patří v docker-compose.yml ══════════════════════════
-# Caddy Constructivy musí na síť Sky Guardu vidět:
+# Caddy Constructivy musí na sdílenou síť vidět:
 #
 #     services:
-#       caddy:                        # nebo jak se ta služba jmenuje
+#       caddy:
 #         networks:
-#           - default
+#           - cam
 #           - sky-guard-edge
 #
 #     networks:
 #       sky-guard-edge:
 #         external: true
 #
-# Síť zakládá compose Sky Guardu (/opt/sky-watcher), takže se musí
-# spustit dřív. Když neběží, Caddy Constructivy nenaběhne s chybou
-# „network sky-guard-edge not found“ — hlasitě, ne tiše.
+# Síť se zakládá JEDNOU, ručně, a nepatří ani jednomu compose projektu:
+#
+#     docker network create sky-guard-edge
+#
+# Schválně takhle. Kdyby ji zakládal compose Sky Guardu, nenaběhla by
+# Constructiva, dokud neběží Sky Guard — a to je přesně to, co se nemá
+# stát. Chybí-li síť, řeknou to oba stacky hlasitě při nasazení.
 #
 # ═══ DNS ═══════════════════════════════════════════════════════════
 # kamery.sky-guard.cz musí ukazovat na tutéž adresu jako

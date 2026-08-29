@@ -91,8 +91,16 @@ services:
       - edge
 
 networks:
-  # Jediné místo, kde se ty dva systémy potkávají. Pevné jméno
-  # schválně: compose Constructivy ho uvádí jako `external`, takže se
-  # nesmí odvozovat od jména projektu.
+  # Jediné místo, kde se ty dva systémy potkávají.
+  #
+  # `external` na OBOU stranách schválně: síť se zakládá jednou, ručně,
+  #
+  #     docker network create sky-guard-edge
+  #
+  # a nepatří ani jednomu compose projektu. Kdyby ji zakládal tenhle,
+  # nenaběhla by Constructiva, dokud neběží Sky Guard — a naopak. Takhle
+  # na sobě ty dva systémy nezávisí; chybí-li síť, řeknou to oba hlasitě
+  # při nasazení, ne v noci.
   edge:
     name: sky-guard-edge
+    external: true

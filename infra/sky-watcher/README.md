@@ -309,12 +309,12 @@ fungovat.
    }
    ```
 
-2. Její Caddy musí na naši síť vidět:
+2. Její Caddy musí na sdílenou síť vidět:
 
    ```yaml
    services:
      caddy:
-       networks: [default, sky-guard-edge]
+       networks: [cam, sky-guard-edge]
    networks:
      sky-guard-edge:
        external: true
@@ -324,9 +324,19 @@ Ten blok je schválně hloupý a **nikdy se nebude měnit**: žádná pravidla,
 žádné cesty, žádná tajemství. Když Sky Guard přidá kameru nebo změní
 ověřování, tohle zůstane, jak je.
 
-Síť zakládá compose Sky Guardu, takže se musí spustit dřív. Když
-neběží, Caddy Constructivy nenaběhne s `network sky-guard-edge not
-found` — hlasitě, ne tiše.
+> **Hotovo** — zaneseno v `constructiva-portal`, commit `f53ba0e`.
+> Nasadit se to musí zvlášť, jejich vlastním rsync + `docker compose up`.
+
+Síť **nepatří ani jednomu compose projektu** a zakládá se jednou ručně:
+
+```bash
+docker network create sky-guard-edge
+```
+
+`external: true` je na obou stranách schválně. Kdyby ji zakládal jeden
+z nich, nenaběhl by ten druhý, dokud neběží první — a Constructiva
+nesmí záviset na Sky Guardu. Takhle na sobě nezávisí; chybí-li síť,
+řeknou to oba hlasitě při nasazení.
 
 Ověření z VPS, bez veřejné adresy:
 
