@@ -140,10 +140,9 @@ def test_tag_args(zkontroluj) -> None:
     """
     Čtyřznakový kód video stopy.
 
-    H.264 je normální případ — kamery se na něj nastavují (MONTAZ.md)
-    a dostane `avc1`. HEVC větev zůstává kvůli starým souborům z SD
-    karet a tag se u ní NEvynucuje: `hvc1` vyhazuje parametry streamu
-    ze vzorků a Chrome pak spadne na PIPELINE_ERROR_DECODE.
+    H.264 je jediný podporovaný stav — kamery se na něj nastavují
+    (MONTAZ.md) a dostane `avc1`. HEVC větev zůstává jen kvůli starým
+    souborům z SD karet.
     """
     import importlib
 
@@ -152,11 +151,7 @@ def test_tag_args(zkontroluj) -> None:
     os.environ.pop("HEVC_TAG", None)
     importlib.reload(watcher)
 
-    # Výchozí je `hvc1`: se stripováním parametrů se nic neztrácí,
-    # pokud se parametry nemění — tedy s vypnutým Smart Codecem.
-    zkontroluj("výchozí režim je hvc1",
-               watcher.HEVC_MODE == "hvc1", watcher.HEVC_MODE)
-    zkontroluj("a u HEVC se ten tag ffmpegu předá",
+    zkontroluj("H.265 dostane hvc1 — jen pro staré soubory",
                watcher.tag_args("hevc") == ["-tag:v", "hvc1"])
     zkontroluj("H.264 dostane avc1",
                watcher.tag_args("h264") == ["-tag:v", "avc1"])
@@ -165,56 +160,10 @@ def test_tag_args(zkontroluj) -> None:
     os.environ["HEVC_TAG"] = ""
     importlib.reload(watcher)
     zkontroluj("prázdný HEVC_TAG nechá čisté hev1",
-               watcher.tag_args("hevc") == [] and watcher.HEVC_MODE == "")
+               watcher.tag_args("hevc") == [] and watcher.HEVC_TAG == "")
 
     zkontroluj("HEVC_TAG se na H.264 NEpřelije",
                watcher.tag_args("h264") == ["-tag:v", "avc1"])
-
-    # ── Přepis čtyřznakového kódu ──────────────────────────────
-    import tempfile
-    from pathlib import Path as _Path
-
-    def vzorek_stsd(kod: str) -> bytes:
-        return (b"\x00\x00\x00\x28stsd" + b"\x00" * 4 + b"\x00\x00\x00\x01"
-                + b"\x00\x00\x00\x18" + kod.encode() + b"\x00" * 16)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        soubor = _Path(tmp) / "x.mp4"
-
-        soubor.write_bytes(vzorek_stsd("hev1"))
-        zkontroluj("hev1 se přepíše na hvc1",
-                   watcher.prepis_fourcc(soubor, "hev1", "hvc1")
-                   and watcher.najdi_fourcc(soubor.read_bytes())[1] == "hvc1")
-
-        # Co už hvc1 je, se nepřepisuje — a hlavně se to nemá tvářit
-        # jako by se přepsalo.
-        zkontroluj("co není hev1, se nechá být",
-                   watcher.prepis_fourcc(soubor, "hev1", "hvc1") is False)
-
-        # Řetězec `hvc1` v datech obrazu se přepsat NESMÍ.
-        soubor.write_bytes(b"hev1 nekde v datech " + vzorek_stsd("hev1"))
-        watcher.prepis_fourcc(soubor, "hev1", "hvc1")
-        obsah = soubor.read_bytes()
-        zkontroluj("přepíše se jen kód v stsd, ne výskyt v datech",
-                   obsah.startswith(b"hev1 nekde v datech ")
-                   and watcher.najdi_fourcc(obsah)[1] == "hvc1", str(obsah[:30]))
-
-        soubor.write_bytes(b"tady zadny box neni")
-        zkontroluj("soubor bez stsd nespadne",
-                   watcher.prepis_fourcc(soubor, "hev1", "hvc1") is False)
-
-        # Kamera může nahrávat i zvuk. Pořadí stop není zaručené,
-        # a když je zvuk první, brát první stsd znamenalo trefit
-        # `mp4a`, tiše nic nepřepsat a nechat soubor jak byl.
-        soubor.write_bytes(vzorek_stsd("mp4a") + vzorek_stsd("hev1"))
-        zkontroluj("se zvukem první se najde SPRÁVNÁ stopa",
-                   watcher.prepis_fourcc(soubor, "hev1", "hvc1"))
-        obsah = soubor.read_bytes()
-        zkontroluj("obrazová stopa je přepsaná",
-                   watcher.najdi_fourcc(obsah, "hvc1") is not None)
-        zkontroluj("a zvuková zůstala nedotčená",
-                   watcher.najdi_fourcc(obsah)[1] == "mp4a",
-                   str(watcher.najdi_fourcc(obsah)))
 
     zkontroluj("neznámý kodek tag nedostane naslepo",
                watcher.tag_args(None) == []

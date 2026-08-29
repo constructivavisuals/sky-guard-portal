@@ -139,48 +139,45 @@ Pak *Nastavení → Úložiště → Plán* nebo *Rozvrh nahrávání*:
 nad hardwarovým dekodérem iPhonů — video se uloží, ale na telefonu se
 nepřehraje. Nastav pro FTP záznam `sub stream`.
 
-### Kodek: H.265, a Smart Codec vypnutý
+### Kodek: H.264, ne H.265
 
 *Nastavení → Kamera → Video → Kódování* (Encode):
 
 | Položka | Hodnota |
 |---|---|
-| Komprese | **H.265** (HEVC) |
-| Smart Codec (H.265+) | **vypnuto** |
-| Profil | Main |
+| Komprese | **H.264** — ne H.265 / HEVC |
+| Profil | Main nebo High |
 
-**Proč H.265.** Kvůli objemu. H.264 by datový tok zhruba zdvojnásobil
-a upload na Klanečné je na hraně — a při 14denní lhůtě by to znamenalo
-i dvojnásobek místa proti stropu lokality
-(`recording_quota_bytes`, výchozí 500 GB).
+**Tohle je povinné a ověřuje se zpětně mizerně** — nastav to hned
+a radši si to vyfoť. Kamera, které to někdo zapomene přepnout, bude
+natáčet dál a nic nezahlásí; pozná se to až tím, že se její záznamy
+nedají přehrát.
 
-Za H.265 se ale platí tím, že se v MP4 musí rozhodnout, kam přijdou
-parametry streamu, a ani jedna obvyklá možnost nevyhoví oběma stranám:
+**Proč H.264.** Relay soubor jen přebaluje, nepřekódovává: co kamera
+natočí, to klient vidí. H.265 se po řadě měření vzdalo — nepodařilo se
+u něj najít žádnou kombinaci, která by prošla na desktopu i na iPhonu
+zároveň. Zkoušelo se `hev1`, `hvc1`, přepis kódu po přebalení,
+bitstreamový filtr i vypnutý Smart Codec s krátkým I-frame intervalem;
+poslední pokus padal na `-12909` i na iPhonu. Podrobnosti jsou v README
+relaye.
 
-| | Chrome / desktop | Safari / iPhone |
-|---|---|---|
-| `hev1` — parametry u každého vzorku | ano | **ne** |
-| `hvc1` — jen v hlavičce `hvcC` | **ne** | ano |
+H.264 tuhle celou úvahu ruší: přehraje ho každý prohlížeč a parametry
+streamu zůstávají v souboru na obou místech, takže se nemá co ztratit.
 
-Relay proto zapisuje `hvc1` — jediný kód, který bere Safari i iPhone.
-Ztratit se přitom nemá co, **pokud kamera parametry nemění**. Odtud ta
-podmínka níž.
+**Za co se platí.** Zhruba dvojnásobný datový tok oproti H.265. Při
+14denní lhůtě to je i dvojnásobek místa proti stropu lokality
+(`recording_quota_bytes`, výchozí 500 GB) a na Klanečné je upload na
+hraně. Po pár dnech provozu se vyplatí kouknout do *Areály → lokalita*,
+jestli strop stačí.
 
-> Kdyby se ukázalo, že ani to nestačí, záložní plán je přepnout kamery
-> na **H.264** — ten přehraje každý prohlížeč a celá tahle úvaha u něj
-> nevzniká, za cenu zhruba dvojnásobného objemu. Než k tomu dojde,
-> ptej se, co zrovna platí.
+> **Smart Codec (H.264+) si teď zapnout můžeš.** U H.265 to byla
+> zakázaná položka, protože měnící se parametry se při zápisu ztrácely.
+> U H.264 ffmpeg parametry ve vzorcích nechává (ověřeno), takže tenhle
+> problém nevzniká a ušetřený tok se hodí. Ověř to ale na jednom
+> záznamu, než to zapneš všude.
 
-**Vypnutý Smart Codec je PODMÍNKA, ne doporučení.** Je to funkce, kvůli
-které kamera mění parametry kódování za běhu — a při zápisu do MP4 se
-ty změny ztrácejí. S nimi je záznam v Chrome nepřehratelný, bez nich
-funguje všude. Obejít se to nedá: zkoušelo se to a nepovedlo (viz
-README relaye). Když tuhle položku přeskočíš, záznamy z té kamery
-budou vadné a pozná se to až u klienta.
-
-Záznamy pořízené dřív, kdy se vynucoval `hvc1`, se opravit nedají:
-parametry se při přebalení ztratily a v souboru nejsou. Odejdou lhůtou
-(14 dní).
+Záznamy pořízené v H.265 zůstanou nepřehratelné a opravit se nedají.
+Odejdou lhůtou (14 dní).
 
 ### Detekce člověka (SMD)
 

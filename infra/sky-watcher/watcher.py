@@ -82,28 +82,26 @@ ORPHAN_IDX_TTL_SEC = int(os.environ.get("ORPHAN_IDX_TTL_SEC", "600"))
 
 ONCE = os.environ.get("WATCHER_ONCE", "0") == "1"
 
-# Jak se u HEVC naloží s čtyřznakovým kódem.
+# Čtyřznakový kód pro STARÉ soubory v H.265.
 #
-#   hvc1  (výchozí)  ffmpeg vynutí tag; parametry skončí jen v `hvcC`
-#   ""               nevynucovat nic, tedy `hev1` (láme Safari a iOS)
-#   hvc1-inband      NEPOUŽÍVAT, viz níž
+# Kamery nahrávají H.264 (viz MONTAZ.md) a jen ten je podporovaný.
+# Tahle větev existuje proto, aby se dal přebalit záznam z SD karty
+# pořízený dřív — ne jako volba pro provoz.
 #
-# ═══ Proč `hvc1`, když právě ten stripuje parametry ════════════════
-# Protože stripovat je co ztratit jen tehdy, když se parametry MĚNÍ —
-# a to dělá Dahua Smart Codec. S vypnutým Smart Codecem má klip jednu
-# sadu, `hvcC` popisuje celý stream a nic se neztrácí. Je to jediná
-# kombinace, která je zároveň podle specifikace a projde na obojím.
+# ═══ H.265 se vzdalo po řadě měření ════════════════════════════════
+# `hev1` odmítá Safari a iOS. `hvc1` parametry ze vzorků vyhodí, takže
+# se ztrácejí jejich změny za běhu. Přepis kódu po remuxu dal na
+# reálném záznamu rozpadlý obraz. `-bsf:v hevc_mp4toannexb` nemá na
+# `.dav` žádný účinek (ffmpeg: „input looks like it is Annex B
+# already"), výstup vyšel bajt po bajtu shodně.
 #
-# Vypnutí Smart Codecu je tedy podmínka, ne doporučení — viz MONTAZ.md.
+# Poslední pokus — `hvc1`, vypnutý Smart Codec, I-frame 15,
+# ffmpeg 7.1.5 — padal na -12909 i na iPhonu, tedy i tam, kde `hvc1`
+# předtím hrál. Tím se to uzavřelo.
 #
-# ═══ hvc1-inband: vyzkoušeno, NEFUNGUJE ════════════════════════════
-# Přebalení bez tagu a následný přepis FourCC. Na syntetických vzorcích
-# prošlo, na reálném záznamu z kamery dalo ROZPADLÝ OBRAZ: `hvc1`
-# dekodéru říká, že parametry jsou jen v hlavičce, a ten pak NAL
-# jednotky s parametry ve vzorcích nečeká. Je to mimo specifikaci
-# (ISO/IEC 14496-15) a takhle to vypadá. Zůstává jen jako zápis toho,
-# co se zkusilo, ať se to nevymýšlí znovu.
-HEVC_MODE = os.environ.get("HEVC_TAG", "hvc1").strip()
+# Podrobnosti jsou v README; tady jsou proto, aby se to nezkoušelo
+# znovu při čtení kódu.
+HEVC_TAG = os.environ.get("HEVC_TAG", "hvc1").strip()
 
 log = logging.getLogger("sky-watcher")
 
@@ -263,11 +261,10 @@ def tag_args(codec: str | None) -> list[str]:
     U H.264 ffmpeg parametry (SPS/PPS) nechává i ve vzorcích, ne jen
     v `avcC` — ověřeno. Tím u něj nevzniká to, co lámalo HEVC.
 
-    ═══ U HEVC se tag ffmpegu NEŘÍKÁ ══════════════════════════════
-    Ve výchozím režimu `hvc1-inband` se přebaluje bez tagu a kód se
-    přepíše až potom (prepis_fourcc), aby parametry zůstaly ve vzorcích.
-    Tag se ffmpegu předá jen u `HEVC_TAG=hvc1`, tedy když se schválně
-    chce staré chování.
+    ═══ HEVC už jen pro staré soubory ═════════════════════════════
+    Kamery na něj nenahrávají. Tahle větev je tu, aby se dal přebalit
+    záznam z SD karty pořízený dřív — ani jedna z jejích variant nebyla
+    na reálném záznamu funkční, viz HEVC_TAG výš.
     """
     kodek = (codec or "").lower()
 
@@ -275,81 +272,11 @@ def tag_args(codec: str | None) -> list[str]:
         return ["-tag:v", "avc1"]
 
     if kodek in {"hevc", "h265"}:
-        # `hvc1-inband` se ffmpegu NEŘÍKÁ — ten by parametry vyhodil.
-        # Kód se přepíše až po remuxu, viz prepis_fourcc().
-        if HEVC_MODE == "hvc1":
-            return ["-tag:v", "hvc1"]
-        return []
+        return ["-tag:v", HEVC_TAG] if HEVC_TAG else []
 
     # Neznámý nebo nepřečtený kodek: ffmpeg si vybere sám. Vnutit tag
     # naslepo by remux shodilo u něčeho, co jsme nečekali.
     return []
-
-
-def najdi_fourcc(data: bytes, ocekavany: str | None = None) -> tuple[int, str] | None:
-    """
-    Kde v souboru leží čtyřznakový kód stopy a jaký je.
-
-    Parsuje se box `stsd`, NEHLEDÁ se řetězec `hvc1` v souboru: ten se
-    může objevit i v datech obrazu a přepsat ho jinde by soubor rozbilo
-    — a poznalo by se to až při přehrávání.
-
-    Tvar boxu: velikost(4) typ(4) verze+příznaky(4) počet(4), pak první
-    položka velikost(4) typ(4). Kód je tedy 16 bajtů za „stsd“.
-
-    ═══ Boxů stsd je v souboru VÍC ════════════════════════════════
-    Jeden na stopu. Když kamera nahrává i zvuk, je v souboru druhý
-    s kódem `mp4a` — a nezaručeně až za obrazovým. Brát první nalezený
-    znamenalo, že se u záznamu se zvukem první v pořadí trefil zvuk,
-    přepis se neprovedl a soubor tiše zůstal, jak byl.
-
-    Proto `ocekavany`: prohledají se VŠECHNY a vrátí se ten, který
-    sedí. Bez něj se vrací první, což se hodí jen na zprávu o stavu.
-    """
-    i = 0
-    while True:
-        i = data.find(b"stsd", i)
-        if i < 0 or i + 20 > len(data):
-            return None
-        offset = i + 16
-        kod = data[offset:offset + 4].decode("latin-1", "replace")
-        if ocekavany is None or kod == ocekavany:
-            return offset, kod
-        i += 4
-
-
-def prepis_fourcc(cesta: Path, z: str, na: str) -> bool:
-    """
-    Přepíše čtyřznakový kód video stopy. Vrací False, když tam nebyl.
-
-    ═══ K čemu to je ══════════════════════════════════════════════
-    Sestavuje třetí variantu, kterou samotný ffmpeg neumí: parametry
-    streamu zůstanou U KAŽDÉHO VZORKU (jako u `hev1`), ale stopa je
-    označená `hvc1`, což je jediný kód, který bere Safari a iOS.
-    Dekodér tak dostane víc informací než u kterékoli z čistých
-    variant — z `hvcC` i z obrazu.
-
-    ═══ Je to MIMO SPECIFIKACI ════════════════════════════════════
-    ISO/IEC 14496-15 říká, že u `hvc1` parametry ve vzorcích být
-    nemají. Přísný přehrávač to odmítnout může. Proto je to nastavení,
-    ne pevné chování — HEVC_TAG=hvc1 nebo prázdné vrátí čisté varianty.
-    """
-    data = bytearray(cesta.read_bytes())
-    nalez = najdi_fourcc(bytes(data), z)
-    if nalez is None:
-        # Hlasitě: tichý neúspěch tady znamená soubor s jiným kódem,
-        # než čekáme, a to se pozná až u diváka jako nepřehratelné video.
-        log.warning(
-            "Kód %s se v souboru nenašel, přepis se nekoná: %s (nalezeno %s)",
-            z, cesta.name,
-            (najdi_fourcc(bytes(data)) or (0, "nic"))[1],
-        )
-        return False
-
-    offset, _ = nalez
-    data[offset:offset + 4] = na.encode("latin-1")
-    cesta.write_bytes(bytes(data))
-    return True
 
 
 def remux_to_mp4(src: Path, dst: Path) -> None:
@@ -358,39 +285,36 @@ def remux_to_mp4(src: Path, dst: Path) -> None:
 
     `-c copy`: obraz se nepřepočítává, jen se přebalí.
 
-    ═══ HEVC: parametry ve vzorcích, ale kód `hvc1` ═══════════════
-    Kamery nahrávají H.265 kvůli objemu — H.264 by ho zdvojnásobil
-    a upload na Klanečné je na hraně. U H.265 se ale musí rozhodnout,
-    kam v MP4 přijdou parametry streamu (VPS/SPS/PPS), a ani jedna
-    čistá varianta nevyhoví oběma stranám:
+    ═══ Kamery nahrávají H.264 ════════════════════════════════════
+    A je to jediný podporovaný stav. Přehraje ho každý prohlížeč,
+    `avc1` je jeho obvyklý kód a ffmpeg u něj parametry (SPS/PPS)
+    NECHÁVÁ i ve vzorcích — ověřeno. Nemá se tedy co ztratit, ani když
+    je kamera mění za běhu.
 
-        hev1   parametry u každého vzorku   Chrome ano, Safari NE
-        hvc1   ffmpeg je ze vzorků VYHODÍ   Safari ano, Chrome NE
-               (mění-li kamera parametry za běhu)
-
-    Výchozí `hvc1-inband` je skládá dohromady: přebalí se BEZ tagu,
-    takže parametry zůstanou u každého vzorku, a pak se přepíše jen
-    čtyřznakový kód stopy. Dekodér tak dostane víc než u kterékoli
-    čisté varianty — z `hvcC` i z obrazu.
-
-    Je to MIMO SPECIFIKACI (ISO/IEC 14496-15 říká, že u `hvc1`
-    parametry ve vzorcích být nemají) a přísný přehrávač to odmítnout
-    může. Proto je to nastavení: `HEVC_TAG=hvc1` nebo prázdné vrátí
-    čisté varianty a `HEVC_TAG=` prázdné je ta bezpečnější z nich.
-
-    ═══ H.264 je záložní plán ═════════════════════════════════════
-    Přehraje ho každý prohlížeč, `avc1` je jeho obvyklý kód a ffmpeg
-    u něj parametry ve vzorcích NECHÁVÁ — celá tahle úvaha u něj
-    nevzniká. Platí se za to zhruba dvojnásobným datovým tokem.
+    Platí se za to zhruba dvojnásobným datovým tokem oproti H.265. To
+    je cena za to, že se záznam dá přehrát; H.265 se po řadě měření
+    vzdalo, protože se u něj nepodařilo najít kombinaci, která by
+    prošla na desktopu i na iPhonu. Podrobnosti u HEVC_TAG a v README.
 
     Relay NIKDY nepřekódovává. Devět kamer nepřetržitě by z VPS udělalo
     překódovací farmu a obraz by se tím i zhoršil; co kamera natočí, to
-    klient vidí.
+    klient vidí — proto se kodek řeší v kameře, ne tady.
 
     `+faststart` dá moov dopředu, aby šlo přehrávat od začátku stahování.
     """
     kodek = (probe_video_codec(src) or "").lower()
     tag = tag_args(kodek)
+
+    if kodek in {"hevc", "h265"}:
+        # Po přepnutí kamer na H.264 může H.265 dorazit ze dvou důvodů:
+        # je to starý soubor z SD karty, nebo někdo zapomněl kameru
+        # přepnout. To druhé se jinak pozná až u klienta jako
+        # nepřehratelné video, takže se to říká nahlas hned tady.
+        log.warning(
+            "Záznam je v H.265, ne v H.264: %s. Buď je to starý soubor "
+            "z SD karty, nebo má kamera špatně nastavený kodek — viz "
+            "MONTAZ.md.", src.name,
+        )
 
     # .dav bývá holý Annex-B stream. Když ho ffmpeg neuhodne, zkusí se
     # vnutit formát podle kodeku.
@@ -402,12 +326,6 @@ def remux_to_mp4(src: Path, dst: Path) -> None:
                "-movflags", "+faststart", str(dst)]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
         if proc.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
-            if HEVC_MODE == "hvc1-inband" and kodek in {"hevc", "h265"}:
-                # ffmpeg zapsal `hev1` s parametry u každého vzorku;
-                # tady se změní jen kód stopy. Selhání není důvod
-                # zahodit hotový soubor — `hev1` je pořád platné video.
-                if prepis_fourcc(dst, "hev1", "hvc1"):
-                    log.info("FourCC přepsán na hvc1 (parametry zůstaly ve vzorcích)")
             return
         posledni = (proc.stderr or "").strip()[:300]
         dst.unlink(missing_ok=True)

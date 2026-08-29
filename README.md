@@ -273,42 +273,30 @@ není podmínkou přehratelnosti.
 R2 se nikdy nepoužilo; starší poznámky o `r2_key` v komentářích byly
 převzaté z Constructivy.
 
-### Kamery nahrávají H.265, a co z toho plyne
+### Kamery nahrávají H.264
 
-Kvůli objemu: H.264 by datový tok zhruba zdvojnásobil a upload na
-Klanečné je na hraně. Relay soubor jen **přebaluje, nepřekódovává** —
-co kamera natočí, to klient vidí.
+Jediný podporovaný stav. Relay soubor jen **přebaluje, nepřekódovává** —
+co kamera natočí, to klient vidí, takže se kodek řeší v kameře.
 
-U H.265 se ale musí v MP4 rozhodnout, kam se zapíšou parametry streamu
-(VPS/SPS/PPS), a ani jedna obvyklá možnost nevyhoví oběma stranám:
+H.264 přehraje každý prohlížeč, `avc1` je jeho obvyklý kód a ffmpeg
+u něj parametry streamu nechává i ve vzorcích, takže se nemá co
+ztratit. Platí se za to zhruba dvojnásobným datovým tokem oproti
+H.265 — tedy i dvojnásobkem místa proti stropu lokality
+(`recording_quota_bytes`).
 
-| | Chrome / desktop | Safari / iPhone |
-|---|---|---|
-| `hev1` — parametry u každého vzorku | ano | **ne** |
-| `hvc1` — jen v hlavičce `hvcC` | **ne** | ano |
-
-`-tag:v hvc1` totiž není přejmenování FourCC: ffmpeg při něm parametry
-ze vzorků **vyhodí**. Mění-li kamera parametry za běhu (Smart Codec),
-ty změny se ztratí a Chrome — který si postaví dekodér jednou z `hvcC` —
-spadne na `PIPELINE_ERROR_DECODE` (VideoToolbox `-12909`).
-
-Watcher proto skládá **třetí variantu** (`HEVC_TAG=hvc1-inband`,
-výchozí): přebalí bez tagu, takže parametry zůstanou u každého vzorku,
-a pak přepíše jen čtyřznakový kód na `hvc1`. Dekodér tak dostane víc
-než u kterékoli čisté varianty.
-
-> **Mimo specifikaci a zatím neověřené.** ISO/IEC 14496-15 říká, že
-> u `hvc1` parametry ve vzorcích být nemají. Ověřuje se to na skutečném
-> Safari a Chrome; kdyby neprošlo, záložní plán je přepnout kamery na
-> **H.264**, u kterého celá tahle úvaha nevzniká — za cenu dvojnásobného
-> objemu. Přepíná se to proměnnou na relayi, ne v kódu.
+**H.265 se vzdalo** po řadě měření: `-tag:v hvc1` vyhazuje parametry
+streamu ze vzorků, takže se ztrácejí jejich změny za běhu, a `hev1`
+zase odmítá Safari. Vyzkoušel se přepis kódu po přebalení, bitstreamový
+filtr i vypnutý Smart Codec s krátkým I-frame intervalem; poslední
+pokus padal na `PIPELINE_ERROR_DECODE` (`-12909`) i na iPhonu, tedy
+i tam, kde `hvc1` předtím hrálo. Celá tabulka pokusů je
+v [README relaye](infra/sky-watcher/README.md), aby se to nevymýšlelo
+znovu.
 
 Nastavení kamery popisuje
-[MONTAZ.md](infra/sky-watcher/MONTAZ.md). **Záznamy pořízené v době,
-kdy se vynucoval `hvc1`, se opravit nedají** — parametry se při
-přebalení ztratily a v souboru nejsou; ověřeno měřením. `npm run
-pretaguj` umí jen přepsat ten kód. Odejdou lhůtou
-(`clip_retention_days`, 14 dní).
+[MONTAZ.md](infra/sky-watcher/MONTAZ.md). **Záznamy pořízené v H.265 se
+opravit nedají** — parametry, které se při přebalení ztratily, v souboru
+nejsou; ověřeno měřením. Odejdou lhůtou (`clip_retention_days`, 14 dní).
 
 ### Souvislý den, ne seznam souborů
 

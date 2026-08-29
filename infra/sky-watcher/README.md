@@ -215,44 +215,39 @@ Vezme hotové `.mp4` z úložiště a řekne, proč ho přehrávač odmítá:
 kodek, tag, profil, level, rozlišení, pozice `moov` a hlavně **kde leží
 parametry streamu** (VPS/SPS/PPS).
 
-**Kamery nahrávají H.265** kvůli objemu (H.264 by ho zdvojnásobil
-a upload na Klanečné je na hraně). U H.265 se ale musí rozhodnout, kam
-v MP4 přijdou parametry streamu — a `-tag:v hvc1` je ze vzorků
-**vyhodí**, nechá jen ty první v `hvcC`. Mění-li je kamera za běhu, ty
-změny se ztratí.
+**Kamery nahrávají H.264** a je to jediný podporovaný stav. `avc1` je
+jeho obvyklý kód, přehraje ho každý prohlížeč a ffmpeg u něj parametry
+streamu (SPS/PPS) nechává **i ve vzorcích** — ověřeno. Nemá se tedy co
+ztratit, ani když je kamera mění za běhu.
 
-| `HEVC_TAG` | co vznikne | Chrome | Safari/iOS |
-|---|---|---|---|
-| `hvc1` *(výchozí)* | parametry jen v `hvcC` | ano\* | ano |
-| prázdné | `hev1`, parametry ve vzorcích | ano | **ne** |
-| `hvc1-inband` | `hvc1` + parametry ve vzorcích | **rozpadlý obraz** | — |
+Platí se za to zhruba dvojnásobným datovým tokem oproti H.265.
 
-\* Za podmínky, že se parametry **nemění**. Proto je **vypnutý Smart
-Codec povinný**, ne doporučený — viz [MONTAZ.md](MONTAZ.md). Je to
-jediná kombinace, která je zároveň podle specifikace a projde na obojím.
+### H.265 se vzdalo — co se u něj zkusilo
 
-### Co se u HEVC zkusilo a nefunguje
-
-Ať se to nevymýšlí znovu:
+Ať se to nevymýšlí znovu. Problém: `-tag:v hvc1` parametry ze vzorků
+**vyhodí** a nechá jen ty první v `hvcC`, takže se ztrácejí jejich
+změny za běhu.
 
 | Pokus | Výsledek |
 |---|---|
-| `hev1` | Chrome ano, **Safari a iOS ne** |
-| `hvc1-inband` (přepis FourCC po remuxu) | na syntetických vzorcích prošlo, na **reálném záznamu rozpadlý obraz** — je to mimo ISO/IEC 14496-15 a takhle to vypadá |
+| `hev1` (parametry ve vzorcích) | Chrome ano, **Safari a iOS ne** |
+| `hvc1` (parametry v `hvcC`) | Safari ano, **Chrome `-12909`** |
+| přepis kódu po přebalení (`hvc1` + parametry ve vzorcích) | syntetické vzorky prošly, **reálný záznam rozpadlý obraz** — je to mimo ISO/IEC 14496-15 |
 | `-bsf:v hevc_mp4toannexb` | **žádný účinek** |
+| `hvc1` + Smart Codec vypnutý + I-frame 15 + ffmpeg 7.1.5 | **`-12909` i na iPhonu** |
 
-Ten filtr převádí z `hvcC` do Annex-B — jenže `.dav` už Annex-B je,
-takže se neuplatní. ffmpeg to i řekne:
+K tomu filtru: převádí z `hvcC` do Annex-B, jenže `.dav` už Annex-B je,
+takže se neuplatní — ffmpeg to i řekne (`The input looks like it is
+Annex B already`) a výstup vyšel bajt po bajtu shodně jako bez něj.
 
-```
-[hevc_mp4toannexb] The input looks like it is Annex B already
-```
+Poslední řádek tabulky to uzavřel: padalo to i tam, kde `hvc1` předtím
+hrálo. Podezření se tím posunulo od tagu k samotnému přebalení `.dav`,
+ale H.264 tu otázku obchází, takže se dál nešlo.
 
-Výstup vyšel **bajt po bajtu shodně** jako bez něj. A i se vstupem
-v MP4, kde se filtr uplatní, muxer parametry u `hvc1` stejně vyhodí:
-ve vzorcích zůstalo VPS=0, SPS=0. Verze ffmpegu na tom nic nemění
-(v obrazu relaye je 5.1.x z Debianu bookworm, tedy dávno po opravě
-z roku 2019).
+**HEVC větev ve watcheru zůstává jen pro staré soubory** z SD karet.
+Když přijde záznam v H.265, watcher to napíše do logu jako varování —
+po přepnutí kamer to znamená buď starý soubor, nebo kameru, kterou
+někdo zapomněl přepnout.
 
 **Relay nikdy nepřekódovává** — devět kamer nepřetržitě by z VPS
 udělalo překódovací farmu.
