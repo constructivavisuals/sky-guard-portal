@@ -189,6 +189,22 @@ z hostitele ano, přidej službě `network_mode: host`.
 Postup na místě — co nastavit v kameře, co založit v portálu předem
 a jak ověřit, že záznam dorazil: **[MONTAZ.md](MONTAZ.md)**.
 
+Na stavbu se hodí papír, ne telefon:
+
+```bash
+./md2pdf.sh          # MONTAZ.md → MONTAZ.pdf
+```
+
+Převádí se Markdown → HTML → tisk přes Chrome; pandoc ani wkhtmltopdf
+na to nejsou potřeba. **Po každé úpravě MONTAZ.md pusť znovu** — PDF se
+samo neaktualizuje a zastaralý postup na papíře je horší než žádný.
+
+Vlastní převodník (`md2html.py`) umí jen podmnožinu Markdownu, kterou
+ten dokument používá. Hlídá ho `test/test_md2html.py`: chyba v převodu
+se totiž v PDF pozná jako „nějak divně to vypadá“, a to typicky až na
+stavbě, kde s tím nikdo nic neudělá — rozsekaný blok kódu přitom vypadá
+jako platný příkaz.
+
 ## Když se záznam nepřehraje v prohlížeči
 
 ```bash
@@ -335,6 +351,7 @@ Celý řetěz proti **falešnému portálu**, bez VPS a bez Sky Guardu:
 python3 infra/sky-watcher/test/test_watcher.py
 python3 infra/sky-watcher/test/test_events.py
 python3 infra/sky-watcher/test/test_live.py
+python3 infra/sky-watcher/test/test_md2html.py
 ```
 
 Vyrobí syntetické `.dav`, postaví portál na localhostu a ověří vznik
