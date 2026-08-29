@@ -279,9 +279,14 @@ def restartovat_go2rtc() -> None:
             odpoved.read()
         log.info("go2rtc restartován kvůli změně konfigurace")
     except (urllib.error.URLError, OSError) as exc:
-        # Nezdařený restart není důvod službu shodit: konfigurák je
-        # zapsaný a go2rtc ho vezme při svém příštím startu.
-        log.warning("Restart go2rtc se nepodařil: %s", exc)
+        # Konfigurák je zapsaný, ale go2rtc pořád jede podle starého —
+        # a to je stav, který vypadá jako „změna nezabrala“. Proto
+        # ERROR a rovnou i to, co s tím: samotné přepsání souboru nic
+        # nezmění, dokud si ho go2rtc nepřečte.
+        log.error(
+            "Restart go2rtc SELHAL (%s). Konfigurace je zapsaná, ale "
+            "neuplatní se — spusť `docker compose restart go2rtc`.", exc,
+        )
 
 
 def smycka_konfigurace() -> None:
@@ -360,7 +365,18 @@ def main() -> int:
         log.error("Chybí LIVE_STREAM_SECRET — živý obraz se nespustí.")
         return 1
 
-    log.info("Sky Guard živý obraz: brána na %s:%d", AUTH_HOST, AUTH_PORT)
+    # Nastavení se vypisuje při startu schválně. Konfigurace přichází
+    # z .env, které se čte při VYTVOŘENÍ kontejneru — samotný restart
+    # ji nepřenačte. Bez tohohle řádku se rozdíl mezi „proměnná není
+    # nastavená“ a „kontejner ji ještě nezná“ nedá poznat jinak než
+    # exekem dovnitř.
+    log.info(
+        "Sky Guard živý obraz: brána na %s:%d, origin=%s, "
+        "hlavní=%s, vedlejší=%s, obnova po %.0f s",
+        AUTH_HOST, AUTH_PORT,
+        GO2RTC_ORIGIN or "(nenastaveno, řeší Caddy)",
+        RTSP_MAIN_DEFAULT, RTSP_SUB_DEFAULT, CONFIG_REFRESH_SEC,
+    )
 
     if ONCE:
         smycka_konfigurace()

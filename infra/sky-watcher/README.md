@@ -393,6 +393,45 @@ lístek nezastavil dřív.
 > volnější (platí pro celé go2rtc, ne jen pro cesty, které pouští
 > dveřník), tak jen když je potřeba.
 
+### Změna nezabrala? Nejdřív ověř, že vůbec dorazila
+
+Skoro pokaždé jde o to, že nová hodnota **není v běžícím kontejneru** —
+ne o to, že by byla špatně. `.env` se čte při VYTVOŘENÍ kontejneru,
+`Caddyfile` je bind mount z disku serveru, a go2rtc si konfiguraci čte
+při startu. Restart samotný ani jedno nepřenačte.
+
+```bash
+# 1. Vidí služba proměnnou? První řádek logu vypisuje nastavení.
+docker compose logs sky-live | head -1
+
+# 2. Má Caddy v kontejneru NOVÝ soubor? (bind mount ze serveru)
+docker exec sky-caddy grep -c 'header_up Origin' /etc/caddy/Caddyfile
+
+# 3. Vygenerovala se konfigurace, jak má?
+docker exec sky-go2rtc head -8 /config/go2rtc.yaml
+
+# 4. Přečetl si ji go2rtc? Zápis sám nestačí.
+docker compose logs sky-live | grep -i 'restart go2rtc'
+```
+
+Když něco nesedí, v tomhle pořadí:
+
+```bash
+# soubory z repa na server (BEZ .env — to žije jen tam)
+rsync -av --exclude '.env' --exclude 'live-config' \
+  infra/sky-watcher/ root@49.13.69.91:/opt/sky-watcher/
+
+# a teprve pak. --force-recreate kvůli .env: samotné `up -d`
+# u změny proměnných kontejner nemusí přestavět.
+docker compose up -d --force-recreate sky-live caddy
+docker compose restart go2rtc
+```
+
+> `docker compose restart` **nestačí** na změnu v `.env` — restartuje
+> týž kontejner s týmž prostředím. A `--force-recreate` zase nepomůže,
+> když nový `Caddyfile` na serveru vůbec není: kontejner se přestaví
+> nad starým souborem.
+
 ### Administrace go2rtc nesmí ven
 
 go2rtc má na `/` rozhraní, kterým jde přidat proud z **libovolné**
