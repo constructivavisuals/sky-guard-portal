@@ -433,6 +433,34 @@ curl -s -o /dev/null -w '%{http_code} %{size_download}\n' \
 Když tohle vrátí JPEG o desítkách kB, RTSP i přihlášení ke kameře jsou
 v pořádku a chyba je na websocketu, ne u kamery.
 
+### Záznam se nepřehraje, ale živý obraz z téže kamery ano
+
+To je silná stopa: dekodér prohlížeče ten obsah **umí** — 4K H.265
+přes MSE z go2rtc jede. Rozdíl je v tom, co z `.dav` vyrobí přebalení,
+ne v kodeku ani v rozlišení.
+
+Nejpodezřelejší je, **kterým pokusem** se soubor přebalil. `.dav` je
+kontejner (DHAV); když ho ffmpeg rozpozná, dostane obraz i časování.
+Když se musí vnutit `-f hevc`, čte se soubor jako holý Annex-B —
+rámování kontejneru se pak bere jako obrazová data a časové značky
+nejsou vůbec. **Takový remux skončí úspěšně** a vyrobí MP4, které se
+tváří platně, ale dekodér z něj skládá nesmysl.
+
+Watcher to od teď hlásí:
+
+```bash
+docker compose logs sky-watcher | grep -E 'VNUTIT|nesedí|použitelnou délku'
+```
+
+- `Remux musel VNUTIT formát` → kontejner se nerozpoznal, soubor je
+  podezřelý
+- `Délka přebaleného souboru nesedí` → rozbité časování; délka se
+  porovnává s rozsahem, který kamera píše do názvu souboru
+
+Když je log čistý a záznam se přesto nepřehraje, na řadě je porovnání
+souboru: `diagnostika.py` na staženém MP4 a proti němu segment
+z go2rtc.
+
 ### Změna nezabrala? Nejdřív ověř, že vůbec dorazila
 
 Skoro pokaždé jde o to, že nová hodnota **není v běžícím kontejneru** —

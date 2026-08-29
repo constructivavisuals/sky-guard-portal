@@ -177,6 +177,49 @@ def test_tag_args(zkontroluj) -> None:
     importlib.reload(watcher)
 
 
+def test_kontrola_vysledku(zkontroluj) -> None:
+    """
+    Hlášení o tom, JAK se soubor přebalil.
+
+    Vnucený vstupní formát je poslední záchrana, ne rovnocenná cesta:
+    `.dav` je kontejner a když se nerozpozná, čte se jako holý stream —
+    bez časování a s rizikem, že se rámování vezme jako obraz. Takový
+    remux skončí úspěšně a vyrobí soubor, ze kterého dekodér skládá
+    nesmysl. Bez varování v logu se to nedá odlišit od vady kodeku.
+    """
+    import logging as _log
+
+    zprávy: list[tuple[str, str]] = []
+
+    class Sber(_log.Handler):
+        def emit(self, zaznam):
+            zprávy.append((zaznam.levelname, zaznam.getMessage()))
+
+    sber = Sber()
+    watcher.log.addHandler(sber)
+    watcher.log.setLevel(_log.DEBUG)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            soubor = Path(tmp) / "x.mp4"
+            soubor.write_bytes(b"neni to video")
+
+            zprávy.clear()
+            watcher.zkontroluj_vysledek(Path("a.dav"), soubor, ["-f", "hevc"], None)
+            zkontroluj("vnucený formát se hlásí jako podezřelý",
+                       any(u == "WARNING" and "VNUTIT" in t for u, t in zprávy),
+                       str(zprávy))
+
+            zprávy.clear()
+            watcher.zkontroluj_vysledek(Path("a.dav"), soubor, [], None)
+            zkontroluj("rozpoznaný kontejner se nehlásí jako vada",
+                       not any(u == "WARNING" and "VNUTIT" in t for u, t in zprávy))
+            zkontroluj("ale nepoužitelná délka ano",
+                       any(u == "WARNING" and "délku" in t for u, t in zprávy),
+                       str(zprávy))
+    finally:
+        watcher.log.removeHandler(sber)
+
+
 def main() -> int:
     if not ffmpeg_funguje():
         print("PŘESKOČENO: ffmpeg není k dispozici nebo se nespustí.")
@@ -199,6 +242,7 @@ def main() -> int:
 
     # Nepotřebuje ffmpeg ani portál — čistá funkce.
     test_tag_args(zkontroluj)
+    test_kontrola_vysledku(zkontroluj)
 
     with tempfile.TemporaryDirectory() as tmp:
         inbox = Path(tmp) / "inbox"

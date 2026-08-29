@@ -247,6 +247,22 @@ def probe_video_codec(src: Path) -> str | None:
     return name[0] if name else None
 
 
+def probe_duration(src: Path) -> float | None:
+    """Délka podle hlavičky, nebo None. Čte jen hlavičku, ne obraz."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(src)],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        return float((out.stdout or "").strip())
+    except ValueError:
+        return None
+
+
 def tag_args(codec: str | None) -> list[str]:
     """
     Argumenty ffmpegu pro čtyřznakový kód video stopy.
@@ -279,7 +295,9 @@ def tag_args(codec: str | None) -> list[str]:
     return []
 
 
-def remux_to_mp4(src: Path, dst: Path) -> None:
+def remux_to_mp4(
+    src: Path, dst: Path, ocekavana_delka: float | None = None
+) -> None:
     """
     .dav → .mp4 bez překódování.
 
@@ -301,6 +319,9 @@ def remux_to_mp4(src: Path, dst: Path) -> None:
     klient vidí — proto se kodek řeší v kameře, ne tady.
 
     `+faststart` dá moov dopředu, aby šlo přehrávat od začátku stahování.
+
+    `ocekavana_delka` je délka podle názvu souboru. Slouží ke kontrole,
+    že přebalení nerozbilo časování — viz zkontroluj_vysledek().
     """
     kodek = (probe_video_codec(src) or "").lower()
     tag = tag_args(kodek)
@@ -326,11 +347,66 @@ def remux_to_mp4(src: Path, dst: Path) -> None:
                "-movflags", "+faststart", str(dst)]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
         if proc.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+            zkontroluj_vysledek(src, dst, vstup, ocekavana_delka)
             return
         posledni = (proc.stderr or "").strip()[:300]
         dst.unlink(missing_ok=True)
 
     raise RuntimeError(f"remux selhal: {posledni}")
+
+
+def zkontroluj_vysledek(
+    src: Path,
+    dst: Path,
+    vstup: list[str],
+    ocekavana_delka: float | None,
+) -> None:
+    """
+    Řekne, JAK se soubor přebalil a jestli výsledek dává smysl.
+
+    ═══ Proč na tom záleží ════════════════════════════════════════
+    Vnucený vstupní formát je poslední záchrana, ne rovnocenná cesta.
+    `.dav` je kontejner (DHAV); když ho ffmpeg rozpozná, dostane obraz
+    i ČASOVÁNÍ. Když se musí vnutit `-f hevc`, čte se soubor jako holý
+    Annex-B — rámování kontejneru se pak bere jako obrazová data
+    a časové značky nejsou vůbec.
+
+    Takový remux SKONČÍ ÚSPĚŠNĚ. Výsledkem je MP4, které se tváří
+    platně, ale dekodér z něj skládá nesmysl. Přesně tak vypadá
+    „rozpadlý obraz“ a `-12909` — a bez tohohle řádku v logu se to
+    nedá odlišit od vady kodeku.
+
+    Nezastavuje se to: soubor se odesílá dál, protože i vadný záznam
+    je pořád záznam. Jen se o tom ví.
+    """
+    if vstup:
+        log.warning(
+            "Remux musel VNUTIT formát %s: %s. Kontejner se nerozpoznal, "
+            "takže se čte jako holý stream — bez časování a s rizikem, "
+            "že se rámování kontejneru vezme jako obraz. Tohle je "
+            "podezřelý soubor.", vstup[-1], src.name,
+        )
+    else:
+        log.debug("Remux: kontejner rozpoznán sám, %s", src.name)
+
+    delka = probe_duration(dst)
+    if delka is None or delka <= 0:
+        log.warning(
+            "Přebalený soubor nemá použitelnou délku (%s): %s. Bez "
+            "časových značek si prohlížeč neporadí se skládáním obrazu.",
+            delka, dst.name,
+        )
+        return
+
+    if ocekavana_delka and ocekavana_delka > 0:
+        odchylka = abs(delka - ocekavana_delka)
+        # Vteřina sem nebo tam je normální; násobek ne.
+        if odchylka > max(2.0, ocekavana_delka * 0.25):
+            log.warning(
+                "Délka přebaleného souboru nesedí: %.1f s proti %.1f s "
+                "podle názvu (%s). Ukazuje to na rozbité časování.",
+                delka, ocekavana_delka, dst.name,
+            )
 
 
 # ── Zpracování ───────────────────────────────────────────────────
@@ -365,7 +441,15 @@ def handle(path: Path) -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         mp4 = Path(tmp) / "out.mp4"
-        remux_to_mp4(path, mp4)
+        # Délka podle názvu souboru: kamera ji do něj píše jako rozsah
+        # HH.MM.SS-HH.MM.SS, takže je to nezávislý údaj proti tomu, co
+        # vyjde z přebalení.
+        ocekavana = (
+            (meta["ended_at"] - meta["started_at"]).total_seconds()
+            if meta.get("ended_at")
+            else None
+        )
+        remux_to_mp4(path, mp4, ocekavana)
         velikost = mp4.stat().st_size
         log.info("Remux OK: %s (%.1f MB)", sd_file_path, velikost / 1_048_576)
 
