@@ -2,20 +2,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import {
-  AlertTriangle,
   BatteryMedium,
+  ChevronRight,
   CloudSun,
   HardDrive,
   LayoutDashboard,
   Plane,
-  ScanEye,
-  Send,
   ShieldCheck,
+  Video,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { AreaMap } from "@/components/area-map.tsx";
-import { DispatchOutcomeShortBadge, ObjectClassBadge } from "@/components/badges.tsx";
+
 import {
   BlockTitle,
   EmptyState,
@@ -26,25 +25,11 @@ import {
 import {
   BATTERY_WARNING_PERCENT,
   STORAGE_WARNING_PERCENT,
-  PLATE_READ_STUCK_MINUTES,
-  STUCK_GRACE_MINUTES,
-  STUCK_WINDOW_HOURS,
-  cameraSilenceWarnings,
-  cameraWarnings,
-  relayCameraWarnings,
-  platelessGateWarnings,
-  stuckWorkWarnings,
-  dockWarnings,
   formatUntil,
-  patrolWarnings,
-  unknownPlateWarnings,
-  zoneWarnings,
-  type PatrolHealth,
-  type Warning,
 } from "@/lib/dashboard.ts";
 import { boundsAspectRatio } from "@/lib/area-map.ts";
 import { localDateISO } from "@/lib/arrivals/rules.ts";
-import { CRON_JOBS, cronWarnings, type CronRunSummary } from "@/lib/cron/runs.ts";
+
 import { loadAreaMap, siteBounds } from "@/lib/area-map-data.ts";
 import { getDockStateCached } from "@/lib/dispatch/dock-cache.ts";
 import {
@@ -52,11 +37,9 @@ import {
   formatRainfall,
   formatTemperature,
   formatWindSpeed,
-  orDash,
 } from "@/lib/format.ts";
 import { zonedTimeToUtc } from "@/lib/patrols/schedule.ts";
-import { getCurrentProfile } from "@/lib/current-profile.ts";
-import { isOperator } from "@/lib/profile.ts";
+
 import {
   getSiteSelection,
   siteCapabilities,
@@ -66,12 +49,8 @@ import {
 import { nextArmedTransition } from "@/lib/site-status.ts";
 import { visibleNavItems } from "@/lib/nav.ts";
 import { createClient } from "@/lib/supabase/server.ts";
-import { isPlateReliable } from "@/lib/plates.ts";
-import {
-  isSiteArmed,
-  type DetectionObjectClass,
-  type DispatchOutcome,
-} from "@/types/database.ts";
+
+import { isSiteArmed } from "@/types/database.ts";
 
 export const metadata: Metadata = { title: "Přehled" };
 
@@ -80,33 +59,6 @@ interface PassageWarningRow {
   confidence: number | null;
   list_match: string | null;
   passed_at: string;
-}
-
-interface CameraRow {
-  id: string;
-  name: string;
-  zone_id: string | null;
-  status: string;
-  last_seen_at: string | null;
-  /** Migrace 20260914180000; bez ní se čte jako "http". */
-  ingest_mode: "http" | "ftp";
-  /** Ve schématu od první migrace, takže bez záchytné větve. */
-  lan_ip: string | null;
-}
-
-interface PatrolRow {
-  id: string;
-  name: string;
-  interval_minutes: number;
-  created_at: string;
-}
-
-interface EventRow {
-  id: string;
-  at: string;
-  kind: "detection" | "dispatch";
-  label: ReactNode;
-  href: string;
 }
 
 /** Půlnoc lokality v UTC — od kdy se počítá „dnes“. */
@@ -123,17 +75,9 @@ function startOfLocalDay(timeZone: string, now: Date): Date {
 }
 
 export default async function Page() {
-  const [{ selectedRow: site, rows }, profile] = await Promise.all([
-    getSiteSelection(),
-    getCurrentProfile(),
-  ]);
+  const { selectedRow: site, rows } = await getSiteSelection();
   const now = new Date();
   const capabilities = siteCapabilities(rows, site);
-  // Stav cronu čte od migrace 20260911120000 jen operátor a admin.
-  // Klientovi by prázdná odpověď (RLS nevrací chybu, vrací nic)
-  // vypadala jako „úloha nikdy neproběhla“ — a to je varování o něčem,
-  // s čím stejně nic neudělá.
-  const operator = isOperator(profile);
 
   if (!site) {
     return (
@@ -148,7 +92,6 @@ export default async function Page() {
     );
   }
 
-  let patrols: PatrolRow[] = [];
   let lastPatrolFlightAt: Date | null = null;
   const patrolLastByid = new Map<string, Date>();
   let counts = {
@@ -160,25 +103,7 @@ export default async function Page() {
     unknownPlates: 0,
     announced: 0,
   };
-  let unknownPlates: { plate: string | null; armed: boolean }[] = [];
-  let cameras = { total: 0, withoutZone: 0 };
   /** Pro varování o kamerách přes relay bez adresy v síti. */
-  let relayCameras: { name: string; ingest_mode: string; lan_ip: string | null }[] = [];
-  let zones = { total: 0, withoutWayline: 0 };
-  // null = nepodařilo se zjistit (migrace 20260905120000 neběžela).
-  // Varovat na základě neexistující tabulky by bylo totéž tiché
-  // selhání, jaké tahle evidence řeší, jen obráceně.
-  let cronRuns: CronRunSummary[] | null = null;
-  let silence: { name: string; lastSeenAt: Date | null; online: boolean }[] = [];
-  // Kamery, které mají číst značky, a vjezdy, co od nich přišly.
-  // Prázdné, dokud neproběhne migrace 20260910120000 — varovat podle
-  // sloupce, který neexistuje, nejde.
-  let gateCameras: { id: string; name: string; readsPlate: boolean }[] = [];
-  let gatePassages: { cameraId: string | null; hasPlate: boolean }[] = [];
-  // Práce v after(), která nedoběhla. Nula znamená „hledali jsme
-  // a nic“, ne „nedívali jsme se“ — dotazy níž selžou nahlas.
-  let stuck = { detectionsWithoutDispatch: 0, passagesWithoutRead: 0 };
-  let events: EventRow[] = [];
   let failed = false;
 
   // Lokalita už přišla se seznamem v layoutu, včetně okna střežení
@@ -192,7 +117,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, patrolRows, cameraRows, zoneRows, cronRows, passageCount, announcedCount, passageRows, patrolFlights, lastDetections, lastDispatches, gateRows, gatePassageRows, stuckDetections, stuckPassages] =
+      const [detections, dispatches, suppressed, flights, passageCount, announcedCount, passageRows, patrolFlights] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -203,34 +128,6 @@ export default async function Page() {
             .in("outcome", ["suppressed_disarmed", "suppressed_cooldown", "suppressed_dock"]),
           supabase.from("flights").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("started_at", since),
-          supabase.from("patrols").select("id, name, interval_minutes, created_at")
-            .eq("site_id", site.id).eq("enabled", true)
-            .returns<PatrolRow[]>(),
-          // Kamer je na lokalitě řád jednotek, takže je levnější přivézt
-          // si zone_id a spočítat obojí tady, než posílat dva dotazy
-          // s count=exact.
-          // ingest_mode přidává migrace 20260914180000; dokud neběžela,
-          // dotaz spadne a níž se použije záchytná větev bez něj.
-          supabase.from("cameras")
-            .select("id, name, zone_id, status, last_seen_at, ingest_mode, lan_ip")
-            .eq("site_id", site.id).neq("status", "decommissioned")
-            .returns<CameraRow[]>(),
-          // Zóna bez trasy je tichý výpadek stejného druhu jako kamera
-          // bez zóny: detekce se zapíše, dron nikam neletí.
-          supabase.from("zones").select("id, wayline_uuid")
-            .eq("site_id", site.id).eq("enabled", true)
-            .returns<{ id: string; wayline_uuid: string | null }[]>(),
-          // Poslední běh každého cronu zvlášť: jeden dotaz seřazený
-          // přes všechny by při různých periodách nemusel na tu
-          // nejřidší vůbec dosáhnout.
-          Promise.all(
-            CRON_JOBS.map((job) =>
-              supabase.from("cron_runs").select("name, ran_at")
-                .eq("name", job.name)
-                .order("ran_at", { ascending: false }).limit(1)
-                .returns<{ name: string; ran_at: string }[]>(),
-            ),
-          ),
           supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("passed_at", since),
           // Ohlášení na dnešek. Kalendářní datum, ne časové razítko —
@@ -240,58 +137,18 @@ export default async function Page() {
             .eq("arrival_date", localDateISO(site.timezone, now))
             .is("cancelled_at", null),
           // Vjezdy s neznámou nebo nepřečtenou značkou. Ostrý režim se
-          // vyhodnocuje až v paměti — SQL na to funkci nemá a dotaz
-          // s podmínkou na okno střežení by ji opisoval potřetí.
+          // vyhodnocuje až v paměti — SQL na to funkci nemá.
           supabase.from("vehicle_passages")
             .select("plate, confidence, list_match, passed_at")
             .eq("site_id", site.id).gte("passed_at", since)
             .is("list_match", null)
             .returns<PassageWarningRow[]>(),
           // Poslední lety hlídek: jedním dotazem, nejnovější první.
-          // Z nich se v paměti vybere poslední let ke každé hlídce.
           supabase.from("flights").select("patrol_id, started_at")
             .eq("site_id", site.id).eq("kind", "patrol")
             .not("started_at", "is", null)
             .order("started_at", { ascending: false }).limit(50)
             .returns<{ patrol_id: string | null; started_at: string }[]>(),
-          supabase.from("detections")
-            .select("id, detected_at, object_class, dispatches!dispatches_triggered_by_detection_fkey(id)")
-            .eq("site_id", site.id)
-            .order("detected_at", { ascending: false }).limit(5)
-            .returns<{ id: string; detected_at: string; object_class: DetectionObjectClass; dispatches: { id: string }[] }[]>(),
-          supabase.from("dispatches")
-            .select("id, sent_at, outcome, zones(name)")
-            .eq("site_id", site.id)
-            .order("sent_at", { ascending: false }).limit(5)
-            .returns<{ id: string; sent_at: string; outcome: DispatchOutcome; zones: { name: string } | null }[]>(),
-          // Kamery, které mají číst značky. Zvlášť od hlavního dotazu
-          // na kamery schválně: sloupec přidává ručně nasazovaná
-          // migrace 20260910120000 a kdyby chyběl, spadl by s ním
-          // i seznam kamer pro ostatní varování.
-          supabase.from("cameras").select("id, name, reads_plate")
-            .eq("site_id", site.id).eq("reads_plate", true)
-            .returns<{ id: string; name: string; reads_plate: boolean }[]>(),
-          // Vjezdy dneška i se značkou — z nich se pozná brána, která
-          // značky vůbec neposílá.
-          supabase.from("vehicle_passages").select("camera_id, plate")
-            .eq("site_id", site.id).gte("passed_at", since)
-            .returns<{ camera_id: string | null; plate: string | null }[]>(),
-          // Detekce bez zásahu. Ostrý režim se vyhodnocuje až v paměti,
-          // stejně jako u neznámých značek.
-          supabase.from("detections")
-            .select("id, detected_at, dispatches!dispatches_triggered_by_detection_fkey(id)")
-            .eq("site_id", site.id)
-            .gte("detected_at", new Date(now.getTime() - STUCK_WINDOW_HOURS * 3_600_000).toISOString())
-            .lte("detected_at", new Date(now.getTime() - STUCK_GRACE_MINUTES * 60_000).toISOString())
-            .returns<{ id: string; detected_at: string; dispatches: { id: string }[] }[]>(),
-          // Vjezdy se snímkem, u kterých čtení značky nikdy neproběhlo.
-          // Bez snímku není z čeho číst a prázdný sloupec je v pořádku.
-          supabase.from("vehicle_passages").select("id", { count: "exact", head: true })
-            .eq("site_id", site.id)
-            .gte("passed_at", new Date(now.getTime() - STUCK_WINDOW_HOURS * 3_600_000).toISOString())
-            .lte("passed_at", new Date(now.getTime() - PLATE_READ_STUCK_MINUTES * 60_000).toISOString())
-            .is("plate_read_at", null)
-            .not("storage_path", "is", null),
         ]);
 
       counts = {
@@ -302,92 +159,12 @@ export default async function Page() {
         passages: passageCount.count ?? 0,
         // Chybějící tabulka (nenasazená migrace) dá nulu, ne pád.
         announced: announcedCount.error ? 0 : (announcedCount.count ?? 0),
-        // Doplní se níž, až se vjezdy profiltrují ostrým režimem.
-        unknownPlates: 0,
-      };
-
-      unknownPlates = (passageRows.data ?? [])
-        .filter((row) => isSiteArmed(site, new Date(row.passed_at)))
-        .map((row) => ({
-          // Nejistá značka se se seznamem nepárovala, takže se do
-          // varování hlásí jako nepřečtená, ne jako neznámá.
-          plate: isPlateReliable(row.plate, row.confidence) ? row.plate : null,
-          armed: true,
-        }));
-      counts.unknownPlates = unknownPlates.length;
-      patrols = patrolRows.data ?? [];
-      let cameraList = cameraRows.data ?? [];
-
-      if (cameraRows.error) {
-        const bez = await supabase.from("cameras")
-          .select("id, name, zone_id, status, last_seen_at, lan_ip")
-          .eq("site_id", site.id).neq("status", "decommissioned")
-          .returns<CameraRow[]>();
-        // Neznámý způsob příjmu se bere jako http, tedy jako dosud.
-        cameraList = (bez.data ?? []).map((row) => ({ ...row, ingest_mode: "http" }));
-      }
-
-      // Stavební kamera přes FTP zónu nikdy mít nebude — z ní zásah
-      // nevzniká. Kdyby se počítala, hlásil by přehled každé stavby
-      // „5 kamer nemá přiřazenou zónu“ hned po zapnutí modulu.
-      relayCameras = cameraList;
-      const zonoveKamery = cameraList.filter((camera) => camera.ingest_mode !== "ftp");
-      cameras = {
-        total: zonoveKamery.length,
-        withoutZone: zonoveKamery.filter((camera) => camera.zone_id === null).length,
-      };
-      // Chybějící sloupec (migrace 20260903180000 ještě neběžela)
-      // znamená „nevíme“, ne „nemá trasu“ — strašit varováním na
-      // základě neexistujícího sloupce by bylo horší než mlčet.
-      // Chybějící tabulka znamená „nevíme“, ne „neběží“.
-      if (operator && cronRows.every((row) => !row.error)) {
-        cronRuns = CRON_JOBS.map((job, index) => {
-          const radek = cronRows[index].data?.[0];
-          return {
-            name: job.name,
-            lastRunAt: radek ? new Date(radek.ran_at) : null,
-          };
-        });
-      }
-
-      if (!zoneRows.error) {
-        const zoneList = zoneRows.data ?? [];
-        zones = {
-          total: zoneList.length,
-          withoutWayline: zoneList.filter((zone) => !zone.wayline_uuid).length,
-        };
-      }
-
-      // Chybějící sloupec = nevíme, která kamera má značky číst.
-      // Mlčet je pak správně: varovat podle domněnky by znamenalo
-      // strašit u kamer, kterých se to netýká.
-      if (!gateRows.error) {
-        gateCameras = (gateRows.data ?? []).map((row) => ({
-          id: row.id,
-          name: row.name,
-          readsPlate: row.reads_plate,
-        }));
-        gatePassages = (gatePassageRows.data ?? []).map((row) => ({
-          cameraId: row.camera_id,
-          hasPlate: Boolean(row.plate),
-        }));
-      }
-
-      stuck = {
-        detectionsWithoutDispatch: (stuckDetections.data ?? []).filter(
-          (row) =>
-            row.dispatches.length === 0 &&
-            // Mimo ostrý režim se zásah nezakládá schválně.
-            isSiteArmed(site, new Date(row.detected_at)),
+        // Nejistá značka se se seznamem nepárovala; do čísla se počítá
+        // jen to, co přišlo v ostrém režimu.
+        unknownPlates: (passageRows.data ?? []).filter((row) =>
+          isSiteArmed(site, new Date(row.passed_at)),
         ).length,
-        passagesWithoutRead: stuckPassages.count ?? 0,
       };
-
-      silence = cameraList.map((camera) => ({
-        name: camera.name,
-        lastSeenAt: camera.last_seen_at ? new Date(camera.last_seen_at) : null,
-        online: camera.status === "online",
-      }));
 
       for (const flight of patrolFlights.data ?? []) {
         if (!flight.patrol_id) continue;
@@ -399,36 +176,6 @@ export default async function Page() {
         ? new Date((patrolFlights.data ?? [])[0].started_at)
         : null;
 
-      events = [
-        ...(lastDetections.data ?? []).map((row) => ({
-          id: `d-${row.id}`,
-          at: row.detected_at,
-          kind: "detection" as const,
-          label: <ObjectClassBadge objectClass={row.object_class} />,
-          // Detekce vlastní detail nemá; nejblíž je zásah, který
-          // spustila, jinak seznam. Kontroluje se id, ne jen existence
-          // objektu — jinak by z prázdné vazby vznikl odkaz na
-          // /zasahy/undefined.
-          href:
-            typeof row.dispatches[0]?.id === "string" && row.dispatches[0].id
-              ? `/zasahy/${row.dispatches[0].id}`
-              : "/detekce",
-        })),
-        ...(lastDispatches.data ?? []).map((row) => ({
-          id: `p-${row.id}`,
-          at: row.sent_at,
-          kind: "dispatch" as const,
-          label: (
-            <span className="flex items-center gap-2">
-              <DispatchOutcomeShortBadge outcome={row.outcome} />
-              <span className="text-[var(--text-muted)]">{orDash(row.zones?.name)}</span>
-            </span>
-          ),
-          href: `/zasahy/${row.id}`,
-        })),
-      ]
-        .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-        .slice(0, 5);
     }
   } catch {
     failed = true;
@@ -454,38 +201,6 @@ export default async function Page() {
   const transition = nextArmedTransition(site, now, { currentlyArmed: armed });
   const until = transition ? formatUntil(transition.at, now) : null;
 
-  const health: PatrolHealth[] = patrols.map((patrol) => ({
-    name: patrol.name,
-    interval_minutes: patrol.interval_minutes,
-    lastFlightAt: patrolLastByid.get(patrol.id) ?? null,
-    since: new Date(patrol.created_at),
-  }));
-
-  // Varování z databáze se vypíšou hned; ta ze stavu doku dorazí
-  // streamovaně, protože na ně se čeká na FlightHub.
-  // Varování se skládají podle toho, co lokalita má. Stavba bez dronu
-  // nemá zóny s trasou ani hlídky; upozorňovat na jejich chybějící
-  // nastavení by znamenalo posílat člověka opravovat něco, co tam
-  // schválně není.
-  const rychlaVarovani: Warning[] = [
-    // Nefungující cron první: zaseklé plánování znamená, že nelétá
-    // vůbec nic, což přebíjí každou jednotlivou zónu nebo kameru.
-    ...(cronRuns ? cronWarnings(cronRuns, now) : []),
-    // Kamera bez zóny je varování o ZÁSAHU, ne o kameře: bez zóny
-    // z detekce zásah nevznikne. Na stavbě bez dronu tedy nedává smysl,
-    // i když kamery má.
-    ...(capabilities.drone ? cameraWarnings(cameras) : []),
-    // Bez adresy nepřijde detekce, ale záznamy chodí dál — kamera se
-    // tváří živá. Proto to musí říct přehled.
-    ...(capabilities.cameras ? relayCameraWarnings(relayCameras) : []),
-    ...(capabilities.drone ? zoneWarnings(zones) : []),
-    ...(capabilities.cameras ? unknownPlateWarnings(unknownPlates) : []),
-    ...(capabilities.cameras ? platelessGateWarnings(gateCameras, gatePassages) : []),
-    ...cameraSilenceWarnings(silence, now),
-    ...stuckWorkWarnings(stuck),
-    ...(capabilities.drone ? patrolWarnings(health, now) : []),
-  ];
-
   return (
     <>
       <PageHeader title="Přehled" description={site.name} />
@@ -502,6 +217,7 @@ export default async function Page() {
             until={until}
             becomes={transition?.becomes ?? null}
             lastPatrolFlightAt={lastPatrolFlightAt}
+            hasDrone={capabilities.drone}
             dockFacts={
               // Stavba bez dronu dok nemá a nikdy mít nebude —
               // prázdné dlaždice by tvrdily, že se něco nenačetlo.
@@ -513,26 +229,15 @@ export default async function Page() {
             }
           />
 
-          {/* Fallback ukazuje varování z databáze hned; až dorazí stav
-              doku, seznam se doplní. Čekat s celým blokem na FlightHub
-              by znamenalo, že kamera bez zóny svítí o vteřinu později
-              než všechno ostatní. */}
-          <Suspense
-            fallback={
-              rychlaVarovani.length > 0 ? <Warnings items={rychlaVarovani} /> : null
-            }
-          >
-            <WarningsWithDock
-              base={rychlaVarovani}
-              // Bez dronu se na FlightHub vůbec nesahá: stav doku, který
-              // neexistuje, není varování, ale zbytečné volání po síti.
-              dockSn={capabilities.drone ? site.dock_sn : null}
-            />
-          </Suspense>
+          {/* ═══ Varování a poslední události tu bývaly ═══════════
+              Obojí zmizelo na přání: přehled má odpovídat na „jak to
+              tam vypadá", ne být druhý seznam detekcí a sloupec
+              hlášek, které se stejně řeší jinde. Detekce mají vlastní
+              sekci, kamery taky. */}
+
+          {capabilities.cameras ? <NaKamery /> : null}
 
           <Numbers counts={counts} capabilities={capabilities} />
-
-          <Timeline events={events} timeZone={site.timezone} />
         </div>
 
         {hasMap ? (
@@ -577,6 +282,7 @@ function StatusBar({
   becomes,
   lastPatrolFlightAt,
   dockFacts,
+  hasDrone,
 }: {
   site: SiteRow;
   armed: boolean;
@@ -584,6 +290,7 @@ function StatusBar({
   becomes: "armed" | "disarmed" | null;
   lastPatrolFlightAt: Date | null;
   dockFacts: ReactNode;
+  hasDrone: boolean;
 }) {
   const sentence = armed ? "Areál je právě střežený." : "Areál právě nestřeží.";
   const switchNote =
@@ -625,21 +332,56 @@ function StatusBar({
         </p>
       </Section>
 
-      <div className="hairline-grid grid-cols-2">
-        {dockFacts}
-        {/* Přes celou šířku, aby v mřížce nezůstala prázdná buňka —
-            ta by se prokreslila jako světlý obdélník bez obsahu. */}
-        <Metric
-          className="col-span-2"
-          label="Poslední hlídka"
-          icon={<Plane className="h-3.5 w-3.5" aria-hidden="true" />}
-        >
-          {lastPatrolFlightAt
-            ? formatDateTime(lastPatrolFlightAt.toISOString(), site.timezone)
-            : "Zatím žádná"}
-        </Metric>
-      </div>
+      {/* Hlídky lítá dron. Stavba bez něj nemá co ukazovat a „Zatím
+          žádná" tam tvrdilo, že se něco nestalo — přitom se to stát
+          nemůže. Bez dronu tedy mřížka nevzniká vůbec. */}
+      {hasDrone ? (
+        <div className="hairline-grid grid-cols-2">
+          {dockFacts}
+          {/* Přes celou šířku, aby v mřížce nezůstala prázdná buňka —
+              ta by se prokreslila jako světlý obdélník bez obsahu. */}
+          <Metric
+            className="col-span-2"
+            label="Poslední hlídka"
+            icon={<Plane className="h-3.5 w-3.5" aria-hidden="true" />}
+          >
+            {lastPatrolFlightAt
+              ? formatDateTime(lastPatrolFlightAt.toISOString(), site.timezone)
+              : "Zatím žádná"}
+          </Metric>
+        </div>
+      ) : null}
     </>
+  );
+}
+
+/**
+ * Proklik na kamery.
+ *
+ * Z přehledu se nejčastěji pokračuje k obrazu — „něco se tam děje,
+ * ukaž mi to“. Bez odkazu to znamenalo cestu přes menu, což je na
+ * telefonu dvě klepnutí navíc a na přehledu, který má být rozcestník,
+ * zbytečně.
+ */
+function NaKamery() {
+  return (
+    <Link
+      href="/kamery"
+      className="flex items-center gap-3 border-b border-[var(--line)] px-5 py-4 transition hover:bg-[var(--surface-2)] sm:px-6"
+    >
+      <Video
+        className="h-4 w-4 shrink-0 text-[var(--accent-bright)]"
+        aria-hidden="true"
+      />
+      <span className="flex-1 text-sm text-[var(--text)]">Kamery</span>
+      <span className="text-xs text-[var(--text-muted)]">
+        obraz, záznam, události
+      </span>
+      <ChevronRight
+        className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
+        aria-hidden="true"
+      />
+    </Link>
   );
 }
 
@@ -749,26 +491,6 @@ function DockFactsSkeleton({ hasDock }: { hasDock: boolean }) {
   );
 }
 
-/** Varování z databáze doplněná o ta ze stavu doku. */
-async function WarningsWithDock({
-  base,
-  dockSn,
-}: {
-  base: Warning[];
-  dockSn: string | null;
-}) {
-  let items = base;
-  if (dockSn) {
-    const cached = await getDockStateCached(dockSn);
-    if (cached.result.ok) {
-      // Dok až za varováními z databáze: kamera bez zóny je horší zpráva
-      // než plné úložiště.
-      items = [...base, ...dockWarnings(cached.result.state)];
-    }
-  }
-  return items.length > 0 ? <Warnings items={items} /> : null;
-}
-
 /** Podklad areálu i s body. Čeká na souřadnice doku z FlightHubu. */
 async function AreaMapCard({ site }: { site: SiteRow }) {
   const supabase = await createClient();
@@ -792,38 +514,6 @@ function AreaMapSkeleton({ site }: { site: SiteRow }) {
       style={{ aspectRatio: bounds ? String(boundsAspectRatio(bounds)) : "16 / 10" }}
       aria-hidden="true"
     />
-  );
-}
-
-/**
- * Varování. Oranžová je táž jako Sky Construction na webu — v portálu
- * má jediný význam: vyžaduje pozornost.
- */
-function Warnings({ items }: { items: Warning[] }) {
-  return (
-    <Section role="alert" className="relative bg-[var(--warning)]/[0.05]">
-      <span
-        aria-hidden="true"
-        className="absolute inset-y-0 left-0 w-[3px] bg-[var(--warning)]"
-      />
-      <div className="flex items-center gap-2 text-[var(--warning)]">
-        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.14em]">
-          Vyžaduje pozornost
-        </h2>
-      </div>
-      <ul className="mt-3 space-y-2 text-sm leading-relaxed text-[var(--text-dim)]">
-        {items.map((item) => (
-          <li key={item.key} className="flex gap-2.5">
-            <span
-              aria-hidden="true"
-              className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-[var(--warning)]"
-            />
-            {item.text}
-          </li>
-        ))}
-      </ul>
-    </Section>
   );
 }
 
@@ -887,52 +577,3 @@ function Numbers({
   );
 }
 
-/**
- * Poslední události jako seznam řádků dělených vlasovou linkou —
- * stejný vzor jako seznam otázek na webu. Svislá spojnice mezi
- * ikonami tu byla dřív; v mřížce by konkurovala linkám, které nesou
- * strukturu, takže zmizela.
- */
-function Timeline({ events, timeZone }: { events: EventRow[]; timeZone: string }) {
-  return (
-    <>
-      <Section className="pb-0 sm:pb-0">
-        <BlockTitle className="mb-0">Poslední události</BlockTitle>
-      </Section>
-
-      {events.length === 0 ? (
-        <Section>
-          <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-            Na téhle lokalitě se zatím nic nestalo. Detekce a zásahy se objeví,
-            jakmile začne ingest posílat data.
-          </p>
-        </Section>
-      ) : (
-        <ol className="border-b border-[var(--line)]">
-          {events.map((event) => (
-            <li key={event.id} className="border-t border-[var(--line)]">
-              <Link
-                href={event.href}
-                className="flex items-center gap-4 px-5 py-4 transition hover:bg-[var(--surface-2)] sm:px-8"
-              >
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--line-strong)] text-[var(--text-muted)]">
-                  {event.kind === "detection" ? (
-                    <ScanEye className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <Send className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm">
-                  {event.label}
-                </span>
-                <span className="shrink-0 text-xs tabular-nums text-[var(--text-muted)]">
-                  {formatDateTime(event.at, timeZone)}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ol>
-      )}
-    </>
-  );
-}

@@ -47,7 +47,7 @@ export const NAV_ITEMS = [
   // stránek, mezi kterými si člověk musel pamatovat, o které kameře
   // je řeč. Teď je to jedna sekce a přepíná se až uvnitř kamery.
   { href: "/kamery", label: "Kamery", icon: Video },
-  { href: "/brana", label: "Brána", icon: DoorOpen },
+  { href: "/brana", label: "Vjezdy", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },
 ] as const satisfies readonly NavItem[];
