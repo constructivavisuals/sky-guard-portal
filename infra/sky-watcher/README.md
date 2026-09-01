@@ -367,6 +367,31 @@ nestojí — ale lístek se na něj nevydává, takže je nedosažitelný.
   karta doopravdy drží. Je to jen mez pro časovou osu, ne pravda o
   kartě — postup výpočtu je v MONTAZ.md.
 
+### Když se proud založí a nic se nepřehraje
+
+Signatura: lístek se vydá, `sky-playback` hlásí „Přehrávání otevřeno",
+websocket vrátí 101 — a obraz nenaskočí.
+
+Znamená to, že se **nedokončilo vyjednání kodeků**. Prohlížeč posílá
+po otevření socketu `{"type":"mse","value":"avc1…"}` a teprve na to
+go2rtc rozjede zdroj. Bez toho spojení drží a neteče přes něj nic;
+`prehravac.tsx` to má u sebe popsané, protože se na tom už jednou
+pálilo.
+
+Rozhodne to jeden pohled do **DevTools → Network → WS → Messages**:
+
+- **žádná odchozí zpráva** → vada je v prohlížeči, ne na relayi;
+- **zpráva odešla a nic se nevrátilo** → vada je za go2rtc; zvedni
+  `log: level` v `playback-config/go2rtc.yaml` na `debug`, jinak
+  o startu zdroje nic nenapíše.
+
+Nejzrádnější příčina je **chybějící vstupní šablona**. go2rtc na ni
+neupozorní: neznámé jméno vrátí beze změny a `{input}` v něm nemá co
+nahradit, takže ffmpeg dostane jako celý vstup slovo `playback` — bez
+`-i` a bez adresy. Proud se přesto založí a websocket naváže.
+`sky-playback` proto při startu čte `GET /api/config` a chybějící
+šablonu hlásí jako ERROR.
+
 ### Co změřit na místě
 
 Adresa playbacku funguje, ale zbytek ne. Před ostrým provozem:

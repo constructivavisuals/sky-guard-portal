@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 
 import { Prehravac } from "../prehravac.tsx";
@@ -70,17 +70,32 @@ export function OsaCasu({
   cameraName: string;
   dosahDni: number;
 }) {
-  // Výchozí je hodina zpátky, ne „teď“: na živém okraji karty ještě
-  // nemusí být dopsáno a divák by koukal na prázdno. Kdo chce teď, má
-  // na to /zive.
-  const [od, setOd] = useState(() => new Date(Date.now() - VYCHOZI_ZPET_MS));
+  // ═══ Nic časového se nevykreslí, dokud se nenahydratuje ═════════
+  // Tahle komponenta jde na server i do prohlížeče. Kdyby vykreslila
+  // čas rovnou, obě vykreslení by se lišila hned dvakrát:
+  //
+  //   * `Date.now()` je mezi nimi o pár set milisekund jinde;
+  //   * `toLocaleString` a `getTimezoneOffset` berou zónu BĚHU —
+  //     server jede v UTC, prohlížeč v Europe/Prague, takže i při
+  //     zmrazeném čase by se texty lišily o dvě hodiny.
+  //
+  // React to hlásí jako #418 a hydrataci té části zahodí.
+  //
+  // Do nahydratování se proto vykresluje kostra, která je na obou
+  // stranách stejná. Týž vzor jako v login-form.tsx: `useState`
+  // s efektem by vyrobil kaskádový render navíc.
+  //
+  // Vedlejší užitek: přehrávač se nesmontuje se serverovým časem,
+  // takže si nesahá pro lístek na okamžik, který si nikdo nevybral.
+  const hydratovano = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
-  // ═══ „Teď“ se drží ve stavu, nečte se při renderu ════════════════
-  // `Date.now()` v renderu je nečistá funkce: při každém překreslení
-  // by dalo jinou mez a React na to má právem lintovací pravidlo.
-  // Kotva se proto obnovuje v obsluze událostí — tam je to v pořádku
-  // a je to i správná chvíle: stránka otevřená hodinu by jinak měla
-  // horní mez o hodinu pozadu.
+  // Inicializátory `useState` běží až v prohlížeči při prvním klientském
+  // renderu — a jejich hodnota se do té doby stejně nevykresluje.
+  const [od, setOd] = useState(() => new Date(Date.now() - VYCHOZI_ZPET_MS));
   const [ted, setTed] = useState(() => Date.now());
 
   const nejdriv = useMemo(
@@ -101,6 +116,14 @@ export function OsaCasu({
   // i když ji ve skutečnosti nikdo z renderu nevolá.
   function posun(ms: number, nyni: number) {
     nastav(new Date(od.getTime() + ms), nyni);
+  }
+
+  if (!hydratovano) {
+    return (
+      <div className="border-b border-[var(--line)] px-4 py-4 text-xs text-[var(--text-muted)] sm:px-6">
+        Načítá se časová osa…
+      </div>
+    );
   }
 
   const naZacatku = od.getTime() - 60_000 < nejdriv.getTime();

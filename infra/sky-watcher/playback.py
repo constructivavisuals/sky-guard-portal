@@ -245,6 +245,44 @@ def _go2rtc(metoda: str, dotaz: dict) -> dict | None:
         raise RuntimeError(f"go2rtc vrátil nesrozumitelnou odpověď: {exc}") from exc
 
 
+def overit_sablonu() -> str | None:
+    """
+    Zkontroluje, že go2rtc vstupní šablonu opravdu zná.
+
+    ═══ Proč to stojí za vlastní kontrolu ═════════════════════════
+    Protože neznámá šablona NESELŽE. `configTemplate()` v go2rtc
+    vrátí neznámé jméno beze změny:
+
+        if s := defaults[template]; s != "" { return s }
+        return template
+
+    a `inputTemplate()` v něm pak nahradí `{input}`, které tam ale
+    není. ffmpeg tedy dostane jako celý vstup slovo „playback" —
+    žádné `-i`, žádnou adresu.
+
+    Navenek to vypadá zdravě: PUT projde, proud se založí, websocket
+    se naváže (101) a nic se nepřehraje. Tedy k nerozeznání od vady
+    kamery nebo linky, a hledalo by se to všude jinde než v překlepu
+    v konfiguráku.
+
+    Vrací důvod, nebo None když je vše v pořádku.
+    """
+    url = f"{GO2RTC_API}/api/config"
+    try:
+        with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT) as odpoved:
+            config = odpoved.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError) as exc:
+        return f"konfigurace go2rtc se nedá přečíst: {exc}"
+
+    # Hrubě, bez YAML parseru: relay nemá jedinou závislost mimo
+    # standardní knihovnu a na tuhle jednu otázku parser netřeba.
+    if f"\n  {VSTUPNI_SABLONA}:" not in config:
+        return (
+            f"go2rtc nezná vstupní šablonu '{VSTUPNI_SABLONA}'"
+        )
+    return None
+
+
 def seznam_proudu() -> dict:
     return _go2rtc("GET", {}) or {}
 
@@ -499,6 +537,18 @@ def main() -> int:
         return 2
 
     KAMERY.obnov()
+
+    # Šablona je jediné, co se dá zkazit tak, že se to nijak neprojeví
+    # — viz overit_sablonu(). Proto se to říká nahlas hned při startu,
+    # ne až u diváka, který kouká na černo.
+    duvod = overit_sablonu()
+    if duvod:
+        log.error(
+            "%s. Bez ní ffmpeg nedostane vstupní adresu a NIC SE "
+            "NEPŘEHRAJE, i když se proud založí a websocket naváže. "
+            "Zkontroluj sekci `ffmpeg:` v playback-config/go2rtc.yaml "
+            "a jestli si ji go2rtc načetl.", duvod,
+        )
 
     stop = threading.Event()
     uklid = threading.Thread(target=smycka_uklidu, args=(stop,), daemon=True)

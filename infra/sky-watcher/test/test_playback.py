@@ -51,6 +51,7 @@ class FakeGo2rtc(BaseHTTPRequestHandler):
     proudy: dict = {}
     volani: list = []
     odmitat: str = ""
+    config: str = ""
 
     def log_message(self, *args):
         return
@@ -72,6 +73,15 @@ class FakeGo2rtc(BaseHTTPRequestHandler):
         }
 
     def do_GET(self):
+        import urllib.parse as _up
+        cesta = _up.urlparse(self.path).path
+        if cesta == "/api/config":
+            telo = FakeGo2rtc.config.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(telo)))
+            self.end_headers()
+            self.wfile.write(telo)
+            return
         FakeGo2rtc.volani.append(("GET", self._dotaz()))
         self._telo(FakeGo2rtc.proudy)
 
@@ -281,6 +291,36 @@ def test_chyba_z_go2rtc_nese_duvod(zkontroluj, port: int) -> None:
         FakeGo2rtc.odmitat = ""
 
 
+def test_kontrola_sablony(zkontroluj, port: int) -> None:
+    """
+    Chybějící vstupní šablona se musí ozvat při startu.
+
+    go2rtc na ni neupozorní: neznámé jméno vrátí beze změny a ffmpeg
+    pak dostane jako celý vstup slovo „playback" — bez `-i` a bez
+    adresy. Proud se přesto založí, websocket se naváže a nic se
+    nepřehraje. To je k nerozeznání od vady kamery nebo linky.
+    """
+    playback.GO2RTC_API = f"http://127.0.0.1:{port}"
+
+    FakeGo2rtc.config = (
+        "ffmpeg:\n"
+        f"  {playback.VSTUPNI_SABLONA}: \"-rtsp_transport tcp -i {{input}}\"\n"
+        "streams:\n"
+    )
+    zkontroluj("načtená šablona projde", playback.overit_sablonu() is None)
+
+    FakeGo2rtc.config = "streams:\n"
+    duvod = playback.overit_sablonu()
+    zkontroluj("chybějící se pozná",
+               duvod is not None and playback.VSTUPNI_SABLONA in duvod,
+               str(duvod))
+
+    # Jméno se nesmí trefit jen jako podřetězec jiné hodnoty.
+    FakeGo2rtc.config = f"streams:\n  kamera-{playback.VSTUPNI_SABLONA}: rtsp://x\n"
+    zkontroluj("a podobné jméno jinde ji nenahradí",
+               playback.overit_sablonu() is not None)
+
+
 def test_listek_je_vazany_na_cas(zkontroluj) -> None:
     """
     Lístek na jeden okamžik nesmí otevřít jiný.
@@ -347,6 +387,7 @@ def main() -> int:
     test_uklid_sezeni(zkontroluj)
     test_brana(zkontroluj, port)
     test_chyba_z_go2rtc_nese_duvod(zkontroluj, port)
+    test_kontrola_sablony(zkontroluj, port)
     test_listek_je_vazany_na_cas(zkontroluj)
     test_fronta_klipu(zkontroluj)
 
