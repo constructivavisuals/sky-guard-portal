@@ -6,6 +6,7 @@ import type { SiteOption } from "@/lib/site.ts";
 
 import { MobileNav } from "./mobile-nav.tsx";
 import { Sidebar } from "./sidebar.tsx";
+import { SrovnatOkno } from "./srovnat-okno.tsx";
 import { Topbar, type GuardState } from "./topbar.tsx";
 
 // App shell pro přihlášené.
@@ -78,6 +79,10 @@ export function Shell({
       </div>
 
       <MobileNav isAdmin={profile?.role === "admin"} capabilities={capabilities} />
+
+      {/* Nic nevykresluje; po startu z plochy jen donutí iOS přeměřit
+          okno, aby spodní lišta nesedla výš, než má. */}
+      <SrovnatOkno />
     </div>
   );
 }
