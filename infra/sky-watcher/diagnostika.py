@@ -123,11 +123,17 @@ def moov_pred_mdat(soubor: Path) -> bool:
 
 
 def remux_bez_tagu(zdroj: Path, cil: Path) -> bool:
-    """Týž vstup jako watcher, ale bez -tag:v hvc1 — parametry zůstanou in-band."""
+    """
+    Týž vstup jako watcher, ale bez -tag:v hvc1 — parametry zůstanou in-band.
+
+    `-an` je stejné jako ve watcheru: pcm_alaw z kamery se do MP4
+    nezabalí a bez něj by srovnávací remux spadl na zvuku, ne na obrazu.
+    """
     for vstup in ([], ["-f", "hevc"], ["-f", "h264"]):
         proc = subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *vstup,
-             "-i", str(zdroj), "-c", "copy", "-movflags", "+faststart", str(cil)],
+             "-i", str(zdroj), "-c", "copy", "-an",
+             "-movflags", "+faststart", str(cil)],
             capture_output=True, text=True, timeout=600, check=False,
         )
         if proc.returncode == 0 and cil.exists() and cil.stat().st_size > 0:

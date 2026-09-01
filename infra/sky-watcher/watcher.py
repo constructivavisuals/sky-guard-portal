@@ -320,6 +320,18 @@ def remux_to_mp4(
 
     `+faststart` dá moov dopředu, aby šlo přehrávat od začátku stahování.
 
+    ═══ `-an`: zvuk se zahazuje, jinak remux vůbec neprojde ═══════
+    Dahua posílá zvuk jako `pcm_alaw` a ten se do MP4 zabalit NEDÁ —
+    ffmpeg skončí chybou „Could not find tag for codec pcm_alaw in
+    stream #1" a celý remux spadne. Nespadne ale viditelně: první
+    pokus (rozpoznaný kontejner DHAV) selže kvůli zvuku a projde až
+    záchranné `-f h264`, které čte soubor jako holý Annex-B — bez
+    časování a s rámováním kontejneru v obraze. Přesně to je ten
+    „rozpadlý obraz“, který se předtím sváděl na kodek.
+
+    Zvuk se stejně nikde nepřehrává (viz živý pohled), takže se
+    zahazuje rovnou a obrazová stopa se přebalí z kontejneru, jak má.
+
     `ocekavana_delka` je délka podle názvu souboru. Slouží ke kontrole,
     že přebalení nerozbilo časování — viz zkontroluj_vysledek().
     """
@@ -343,7 +355,7 @@ def remux_to_mp4(
     posledni = ""
     for vstup in pokusy:
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-               *vstup, "-i", str(src), "-c", "copy", *tag,
+               *vstup, "-i", str(src), "-c", "copy", "-an", *tag,
                "-movflags", "+faststart", str(dst)]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
         if proc.returncode == 0 and dst.exists() and dst.stat().st_size > 0:

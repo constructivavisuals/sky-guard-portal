@@ -241,8 +241,10 @@ takže se neuplatní — ffmpeg to i řekne (`The input looks like it is
 Annex B already`) a výstup vyšel bajt po bajtu shodně jako bez něj.
 
 Poslední řádek tabulky to uzavřel: padalo to i tam, kde `hvc1` předtím
-hrálo. Podezření se tím posunulo od tagu k samotnému přebalení `.dav`,
-ale H.264 tu otázku obchází, takže se dál nešlo.
+hrálo. Podezření se tím posunulo od tagu k samotnému přebalení `.dav`
+— a tam taky bylo, viz [Zvuk shazoval remux](#zvuk-shazoval-remux).
+Celá tahle tabulka měřila následek, ne příčinu: soubory z ní vůbec
+neprošly cestou přes rozpoznaný kontejner.
 
 **HEVC větev ve watcheru zůstává jen pro staré soubory** z SD karet.
 Když přijde záznam v H.265, watcher to napíše do logu jako varování —
@@ -460,6 +462,31 @@ docker compose logs sky-watcher | grep -E 'VNUTIT|nesedí|použitelnou délku'
 Když je log čistý a záznam se přesto nepřehraje, na řadě je porovnání
 souboru: `diagnostika.py` na staženém MP4 a proti němu segment
 z go2rtc.
+
+### Zvuk shazoval remux
+
+To byla ta příčina. Kamera nahrává i zvuk, a to jako `pcm_alaw` —
+kodek, který se do MP4 zabalit **nedá**. Bez `-an` proto první pokus
+o přebalení (rozpoznaný kontejner DHAV) skončil chybou:
+
+```
+Could not find tag for codec pcm_alaw in stream #1
+```
+
+Watcher to ale nevzdal: sáhl po záchranném `-f h264`, které soubor
+čte jako holý Annex-B. Ten pokus **projde** a vyrobí MP4 bez časování
+a s rámováním kontejneru v obraze. Tak vznikal ten rozpadlý obraz
+i `-12909`, a proto to vypadalo jako vada kodeku — cestou přes
+rozpoznaný kontejner ani jeden z těch souborů nešel.
+
+Ověřeno protipokusem: 30 s odebraných přímo z RTSP téže kamery se
+`-c copy` do MP4 (4K, H.264, `avc1`) hraje v Chrome bez potíží. Právě
+u něj bylo taky potřeba `-an` — se stejnou hláškou.
+
+Watcher teď zvuk zahazuje rovnou (`-an`) a obraz se přebaluje
+z kontejneru, jak má. Nic se tím neztrácí: zvuk se v portálu
+nikde nepřehrává. Hlídá to `test/test_watcher.py` — bez `-an` ten
+test neprojde.
 
 ### Změna nezabrala? Nejdřív ověř, že vůbec dorazila
 

@@ -220,6 +220,75 @@ def test_kontrola_vysledku(zkontroluj) -> None:
         watcher.log.removeHandler(sber)
 
 
+def test_zvuk_nebrani_remuxu(zkontroluj) -> None:
+    """
+    Zvuková stopa nesmí shodit remux.
+
+    Dahua posílá zvuk jako `pcm_alaw`, který se do MP4 zabalit nedá.
+    Bez `-an` skončí první pokus (rozpoznaný kontejner) chybou
+    „Could not find tag for codec pcm_alaw" a projde až záchranné
+    `-f h264` — to čte soubor jako holý Annex-B, tedy bez časování
+    a s rámováním kontejneru v obraze. Výsledek se tváří platně
+    a přitom je rozpadlý.
+
+    Syntetické .dav v tomhle testu je holý stream bez zvuku, takže
+    tuhle cestu neprojde. Proto se sem bere skutečný kontejner —
+    zastupuje DHAV, který ffmpeg u reálné kamery taky rozpozná.
+    """
+    import logging as _log
+
+    zprávy: list[tuple[str, str]] = []
+
+    class Sber(_log.Handler):
+        def emit(self, zaznam):
+            zprávy.append((zaznam.levelname, zaznam.getMessage()))
+
+    sber = Sber()
+    watcher.log.addHandler(sber)
+    watcher.log.setLevel(_log.DEBUG)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            zdroj = Path(tmp) / "se-zvukem.mkv"
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=1",
+                 "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                 "-c:v", "libx264", "-c:a", "pcm_alaw", "-ar", "8000",
+                 str(zdroj)],
+                check=True, timeout=120,
+            )
+
+            cil = Path(tmp) / "out.mp4"
+            try:
+                watcher.remux_to_mp4(zdroj, cil, 1.0)
+                selhani = ""
+            except Exception as exc:  # ať je z toho FAIL, ne traceback
+                selhani = str(exc)[:300]
+            zkontroluj("remux se zvukem pcm_alaw projde",
+                       not selhani and cil.exists() and cil.stat().st_size > 0,
+                       selhani)
+            if selhani:
+                return
+
+            zkontroluj("a kontejner se nemusel vnucovat",
+                       not any(u == "WARNING" and "VNUTIT" in t for u, t in zprávy),
+                       str(zprávy))
+
+            stopy = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+                 "-of", "csv=p=0", str(cil)],
+                capture_output=True, text=True, timeout=60, check=False,
+            ).stdout.split()
+            zkontroluj("ve výsledku je jen obraz, zvuk se zahodil",
+                       stopy == ["video"], str(stopy))
+
+            delka = watcher.probe_duration(cil)
+            zkontroluj("a časování zůstalo", delka is not None and abs(delka - 1.0) < 0.5,
+                       str(delka))
+    finally:
+        watcher.log.removeHandler(sber)
+
+
 def main() -> int:
     if not ffmpeg_funguje():
         print("PŘESKOČENO: ffmpeg není k dispozici nebo se nespustí.")
@@ -243,6 +312,7 @@ def main() -> int:
     # Nepotřebuje ffmpeg ani portál — čistá funkce.
     test_tag_args(zkontroluj)
     test_kontrola_vysledku(zkontroluj)
+    test_zvuk_nebrani_remuxu(zkontroluj)
 
     with tempfile.TemporaryDirectory() as tmp:
         inbox = Path(tmp) / "inbox"
