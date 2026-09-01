@@ -1,0 +1,27 @@
+# go2rtc pro PŘEHRÁVÁNÍ ZE ZÁZNAMU — ne pro živý obraz.
+#
+# Proudy tu schválně žádné nejsou: zakládá je sky-playback za běhu
+# přes API, pokaždé když si někdo s platným lístkem řekne o konkrétní
+# čas. Seznam kamer se sem tedy negeneruje a tenhle soubor se nemění.
+#
+# ═══ Proč vlastní instance ═════════════════════════════════════════
+# Ta od živého obrazu se restartuje při každé změně seznamu kamer
+# (live.py → /api/restart) a restart utne všechna běžící spojení.
+# U živého obrazu je to vteřina bez obrazu, u přehrávání konec sezení.
+
+api:
+  # Ven se nepublikuje; chodí se sem jedině přes Caddy, který ověří
+  # lístek. Administrace go2rtc umí přidat proud z libovolné adresy.
+  listen: ":1984"
+
+rtsp:
+  # Server nepotřebujeme, obraz jde do prohlížeče přes MSE.
+  listen: ""
+
+webrtc:
+  listen: ""
+
+log:
+  level: info
+
+streams:

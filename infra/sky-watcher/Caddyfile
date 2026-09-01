@@ -81,6 +81,40 @@
 		}
 	}
 
+	# ── Přehrávání ze SD karty ──────────────────────────────────
+	#
+	# Vlastní cesta i vlastní instance go2rtc. Ta od živého obrazu se
+	# restartuje při každé změně seznamu kamer a restart by utnul
+	# každé běžící přehrávání.
+	#
+	# `handle_path` prefix ODŘÍZNE, takže go2rtc-playback dostane
+	# /api/ws stejně jako ten druhý a nemusí o téhle cestě vědět.
+	#
+	# Jméno proudu nese čas (`<sériové>-pb-<epocha>`), takže lístek
+	# vydaný na jeden okamžik nejde použít na jiný — je to jiné jméno
+	# a podpis nesedí. Rozhoduje o tom sky-playback, ne tenhle soubor.
+	handle_path /zaznam/* {
+		@proud_zaznam path /api/ws /api/webrtc /api/frame.jpeg
+
+		handle @proud_zaznam {
+			forward_auth sky-playback:8090 {
+				uri /auth
+			}
+
+			reverse_proxy go2rtc-playback:1984 {
+				# Totéž co u živého obrazu: portál běží na jiné doméně,
+				# takže by go2rtc websocket odmítl jako cizí původ.
+				# O přístupu rozhoduje lístek, ne Origin.
+				header_up Origin http://{host}
+			}
+		}
+
+		# Administrace té druhé instance ven stejně tak nesmí.
+		handle {
+			respond "not found" 404
+		}
+	}
+
 	# Hlídači zvenčí, ať se pozná živá služba od zaseklé.
 	handle /zdravi {
 		reverse_proxy sky-live:8089

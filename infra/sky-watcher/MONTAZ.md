@@ -135,9 +135,85 @@ Pak *Nastavení → Úložiště → Plán* nebo *Rozvrh nahrávání*:
 - Ujisti se, že cíl je **FTP**, ne jen SD karta. Některé firmwary mají
   cíl zvlášť pro záznam a zvlášť pro snímky.
 
-**Vedlejší stream, ne hlavní.** Nativní rozlišení Dahuy (4480×2512) je
-nad hardwarovým dekodérem iPhonů — video se uloží, ale na telefonu se
-nepřehraje. Nastav pro FTP záznam `sub stream`.
+### SD karta: nahrávej na ni 24/7
+
+**Tohle je od nynějška hlavní archiv, ne záloha.** Klient se dívá týden
+zpátky přímo z karty přes RTSP playback; do Hetzneru odchází jen krátký
+klip kolem každé detekce jako důkaz, který přežije i krádež kamery.
+
+*Nastavení → Úložiště → Plán*:
+
+| Položka | Hodnota |
+|---|---|
+| Nahrávání na SD kartu | **Nepřetržité (24/7)** |
+| Přepis při zaplnění | **zapnuto** — karta má jet dokola |
+| Karta | čím větší, tím delší dosah; 256 GB je minimum |
+
+Bez přepisu se karta zaplní a kamera přestane nahrávat. To se pozná až
+tím, že v portálu chybí týden dozadu.
+
+## Vedlejší stream je TEN stream
+
+**Hlavní stream se přes tunel nepřenese.** Změřeno na místě: 4K se
+rozpadá živě i z karty, vedlejší je čistý. Není to vada kodeku ani
+kontejneru — je to prostě víc dat, než linka unese. Vedlejší stream
+proto obsluhuje všechno: živý obraz, přehrávání ze záznamu i klipy.
+
+Tím pádem **D1 (704×576) už nestačí.** Na D1 se nepřečte SPZ ani
+obličej a jako archiv je to k ničemu. Nastav vedlejší stream na
+nejvyšší rozlišení, které linka utáhne.
+
+### Dva stropy, platí ten nižší
+
+**Linka.** Kde přesně leží, se nedá spočítat — musí se změřit, a na
+každé stavbě vyjde jinak. Postupuj po krocích a každý ověř:
+
+```
+704×576  →  1280×720  →  1920×1080
+```
+
+Po každém kroku pusť živý obraz a přehrávání ze záznamu a nech je běžet
+pár minut. Rozpadlý obraz znamená, že je to o krok moc.
+
+**Karta.** Sedmidenní dosah na 256GB kartě vyjde na zhruba **3 Mbit/s**:
+
+| karta | využitelné | tok na 7 dní |
+|---|---|---|
+| 256 GB | ~240 GB | **3,0 Mbit/s** |
+| 512 GB | ~480 GB | 6,0 Mbit/s |
+
+Kontrola proti skutečnosti: 4K na 8 Mbit/s vydrží na 256GB kartě
+necelé **tři dny** — přesně jak to na místě vyšlo.
+
+### Co z toho nastavit
+
+Při 3 Mbit/s (256GB karta, týden):
+
+| Rozlišení | Snímků/s | Hodnocení |
+|---|---|---|
+| **1920×1080** | **12–15** | doporučené, pokud linka utáhne |
+| 1280×720 | 15 | bezpečná volba na slabší lince |
+| 2560×1440 | 10 | jen s 512GB kartou |
+| 3840×2160 | jakkoli | nevejde se ani do karty, ani do linky |
+
+Při 512GB kartě se strop zvedne na 6 Mbit/s a vejde se 2560×1440 při
+15 sn./s. Je to nejlevnější způsob, jak zvednout kvalitu — karta stojí
+zlomek toho, co výjezd na stavbu.
+
+| Položka | Hodnota | Proč |
+|---|---|---|
+| Typ toku | **VBR se stropem** | strop drží týdenní dosah, průměr bývá níž |
+| Horní mez | 3 Mbit/s (256 GB) | viz tabulka výš |
+| I-frame interval | **1× snímková frekvence** | kratší = rychlejší posun na časové ose |
+| Zvuk | **vypnutý** | portál ho nepřehrává a v MP4 se stejně zahazuje |
+
+I-frame interval je tu nově parametr ovládání, ne jen kvality:
+přehrávání ze záznamu se posouvá po klíčových snímcích, takže delší
+interval znamená delší čekání po každém posunu na ose.
+
+Smart Codec (H.264+) si zapni — u nepřetržitého nahrávání se vyplatí
+víc než u pohybového, protože noc je statická. Týdenní dosah se tím
+prodlouží, jen přestane být přesně spočitatelný.
 
 ### Kodek: H.264, ne H.265
 

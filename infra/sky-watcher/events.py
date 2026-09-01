@@ -48,7 +48,9 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
+import klipy
 import portal
 from portal import PortalError
 
@@ -71,6 +73,10 @@ REPORTED_CODES = os.environ.get("EVENT_CODES", "SmartMotionHuman")
 EVENT_ACTIONS = os.environ.get("EVENT_ACTIONS", "Start,Pulse")
 
 OBJECT_CLASS = os.environ.get("EVENT_CLASS", "person")
+
+# Kam se kladou úkoly na klipy. Sdílený svazek s sky-klipy — tahle
+# služba do něj jen píše, druhá z něj bere.
+KLIPY_FRONTA = Path(os.environ.get("KLIPY_FRONTA_DIR", "/fronta"))
 
 # Kolik nejméně vteřin mezi dvěma hlášeními téže kamery a téhož kódu.
 # Člověk procházející záběrem vyvolá událost každou vteřinu; bez tohohle
@@ -340,6 +346,29 @@ def posli_detekci(kamera: dict, udalost: dict, snimek: bytes | None) -> None:
         odpoved.get("detection_id", "?"),
         "ano" if snimek else "ne",
     )
+
+    # ═══ Úkol na klip do fronty ════════════════════════════════════
+    # Až TEĎ, po úspěšném odeslání. Na 409 (tatáž detekce už tam je)
+    # se sem nedojde, takže se druhý klip nezaloží.
+    #
+    # Do fronty, ne rovnou: stažení klipu z karty trvá přes minutu a
+    # tahle služba mezitím musí poslouchat další události. Detekce je
+    # rychlá cesta, klip pomalá — proto jsou to dvě služby.
+    #
+    # Selhání zápisu NESMÍ shodit detekci: ta už je odeslaná a je
+    # důležitější než klip.
+    try:
+        klipy.zapis_ukol(
+            KLIPY_FRONTA,
+            kamera["serial_number"],
+            datetime.fromisoformat(payload["detected_at"].replace("Z", "+00:00")),
+            udalost["code"],
+        )
+    except OSError as exc:
+        log.warning(
+            "Úkol na klip se nepodařilo zapsat (%s). Detekce odeslaná "
+            "je, ale video k ní nikdo nevytáhne.", exc,
+        )
 
 
 class CameraWorker(threading.Thread):

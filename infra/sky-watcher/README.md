@@ -205,6 +205,133 @@ se totiž v PDF pozná jako „nějak divně to vypadá“, a to typicky až na
 stavbě, kde s tím nikdo nic neudělá — rozsekaný blok kódu přitom vypadá
 jako platný příkaz.
 
+## Archiv je na kartě, do Hetzneru jde jen důkaz
+
+Kamera natáčí 24/7 na vlastní SD kartu a přepisuje ji dokola. Klient se
+podívá týden zpátky **přímo z karty** přes RTSP playback — stejnou
+cestou, jakou používá DMSS. Průběžný archiv se nikam neodesílá.
+
+Do Hetzneru odchází jediná věc: **krátký klip kolem každé detekce**.
+To je důkaz, a ten musí přežít i krádež kamery.
+
+```
+kamera ─ SD karta 24/7 ─┬─ playback RTSP ──> sky-playback ──> divák
+                        └─ klip u detekce ──> sky-klipy ────> Hetzner
+```
+
+Co to znamená: bez internetu kamera natáčí dál a záznam se dožene, až
+se linka vrátí. Co to nezvládne: když kameru někdo ukradne, zůstanou
+z ní jen klipy u detekcí. Byl to vědomý obchod — viz historii rozhodnutí
+níž.
+
+### Změřeno na místě
+
+Tohle rozhodlo o všem ostatním. Měřeno přes tunel na skutečné kameře:
+
+| | výsledek |
+|---|---|
+| živý hlavní proud (4K) | **rozpadlý** |
+| živý vedlejší proud | čistý |
+| playback hlavní proud | **rozpadlý** |
+| playback vedlejší proud | čistý (s `-rtsp_transport tcp`) |
+| vedlejší proud přes UDP | **rozpadlý** |
+
+Dva závěry, oba se propisují do kódu:
+
+**Hlavní proud přes tunel neprojde.** Není to kodek ani kontejner, je to
+objem dat. Vedlejší proud proto obsluhuje živý obraz, přehrávání
+i klipy — a musí se nastavit na nejvyšší rozlišení, které linka utáhne
+(viz MONTAZ.md; D1 už nestačí).
+
+**Vždycky TCP.** UDP při ztrátě paketu nic neopakuje a přes tunel se
+pakety ztrácejí. Obraz z toho vyjde rozsypaný, ale proud vypadá platně
+— tatáž třída závady jako dělené snímky v DHAV. `ffplay` i `ffmpeg`
+jedou UDP jako výchozí, takže se to musí říct pokaždé.
+
+Playback URL, která funguje:
+
+```
+rtsp://<kamera>/cam/playback?channel=1&subtype=1&starttime=...&endtime=...
+```
+
+Čas je **místní podle kamery**, ne UTC, a `endtime` zabírá.
+
+### Vlastní instance go2rtc
+
+Přehrávání má svou (`sky-go2rtc-playback`), oddělenou od živého obrazu.
+Důvod je v `live.py`: ta při každé změně seznamu kamer přepíše
+konfigurák a zavolá `/api/restart`. U živého obrazu to znamená vteřinu
+bez obrazu, u přehrávání konec každého běžícího sezení.
+
+Proudy se do ní zakládají **za běhu**, přes `PUT /api/streams`, vždy na
+jeden konkrétní čas. Jméno proudu ten čas nese:
+
+```
+<sériové číslo>-pb-<epocha UTC>
+```
+
+Tím se nemusel měnit lístek: `live.overit_listek` podepisuje jméno
+proudu, takže lístek na 14:00 nejde použít na 3:00 — je to jiné jméno
+a podpis nesedí. Kdyby šel čas zvlášť jako parametr, otevřel by jeden
+lístek celý týden.
+
+Proud bez diváka se po minutě ruší, ale ne hned: při posunu na časové
+ose se prohlížeč na chvíli odpojí a okamžité rušení by znamenalo nové
+spojení na kameru po každém šťouchnutí.
+
+Vynucení TCP jde přes `ffmpeg:` zdroj, protože nativní RTSP klient
+go2rtc přepínač transportu **nemá** (`#transport=` umí jen WebSocket):
+
+```
+ffmpeg:rtsp://...#input=-rtsp_transport tcp -i {input}
+```
+
+Napsané výslovně, i když je TCP u ffmpeg zdroje výchozí — záměr má být
+v kódu vidět, ne schovaný ve výchozí hodnotě cizí knihovny.
+
+### Klipy kolem detekcí
+
+`events.py` po odeslané detekci položí úkol do fronty (adresář se
+soubory JSON, sdílený svazek). `klipy.py` počká, až kamera úsek dopíše
+na kartu, a vytáhne ho **z karty přes playback** — tedy včetně toho, co
+bylo *před* detekcí.
+
+Proto z karty a ne ze živého obrazu: ze živého jde nahrát jen to, co
+teprve přijde, a to zajímavé se stane pár vteřin předtím, než kamera
+člověka pozná. Zachytit to živě by znamenalo držet trvalé spojení na
+každou kameru — přesně ten trvalý tok, kterého se tahle architektura
+zbavuje.
+
+Když playback nevyjde, je záchrana: klip se vezme ze živého vedlejšího
+proudu dopředu. Přijde se o pre-roll, ale důkaz zůstane. Hlásí se to
+jako varování — je to zhoršený stav, ne rovnocenná cesta.
+
+### Co ještě zbývá
+
+- **Portál**: vydávání lístků na playback a časová osa. Relay je hotový
+  a čeká; lístky se vydávají týmž kódem jako na živý obraz, jen na jiné
+  jméno proudu.
+- **Živý obraz pořád nabízí `main`.** `src/lib/live/stream.ts` umí
+  `main` i `sub`; podle měření je `main` přes tunel nepoužitelný. Než se
+  to rozhodne, je to past na uživatele.
+- **FTP se dá vypnout.** Klipy teď chodí z karty, takže pohybové
+  nahrávání na FTP je nadbytečné. Watcher zatím zůstává kvůli starým
+  souborům a jako záchrana.
+- **Caddyfile** se nepodařilo ověřit `caddy validate` — na stroji, kde
+  se to psalo, nebyl Docker. Ověřit při nasazení.
+
+### Co změřit na místě
+
+Adresa playbacku funguje, ale zbytek ne. Před ostrým provozem:
+
+1. Jak dlouho trvá od otevření proudu k prvnímu snímku? To je cena
+   jednoho posunu na časové ose.
+2. Kolik současných přehrávání kamera unese, aniž by trpěl živý obraz?
+   Strop je v `PLAYBACK_MAX_STREAMS`, výchozí 12 je odhad.
+3. Co udělá proud, když dojede na `endtime`? Očekává se, že ho go2rtc
+   uvidí jako odpojený zdroj a připojí se znovu od `starttime` — tedy
+   skok na začátek. Okno je proto 4 hodiny (`PLAYBACK_WINDOW_SEC`).
+
 ## Když se záznam nepřehraje v prohlížeči
 
 ```bash

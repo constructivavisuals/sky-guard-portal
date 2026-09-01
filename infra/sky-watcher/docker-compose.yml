@@ -31,8 +31,33 @@ services:
     restart: unless-stopped
     env_file: .env
     command: /app/events.py
-    # Bez svazků: k FTP inboxu ani k úložišti tahle služba nemá co mít.
-    # Mluví jen s kamerami v LAN a s portálem.
+    volumes:
+      # Jediný svazek: fronta úkolů na klipy. K úložišti tahle služba
+      # pořád nemá co mít — jen sem POLOŽÍ lístek papíru, že se něco
+      # stalo, a video z něj vyrobí sky-klipy.
+      - ./klipy-fronta:/fronta
+    environment:
+      KLIPY_FRONTA_DIR: /fronta
+
+  # ── Klipy kolem detekcí ──────────────────────────────────────────
+  #
+  # To JEDINÉ, co se ukládá do Hetzneru. Průběžný archiv je na SD kartě
+  # v kameře; tady se vyrábí důkaz, který přežije i krádež kamery.
+  #
+  # Vlastní služba, ne součást sky-events: stažení klipu z karty trvá
+  # přes minutu a po tu dobu nesmí nikdo přestat poslouchat události.
+  sky-klipy:
+    build: .
+    container_name: sky-klipy
+    restart: unless-stopped
+    env_file: .env
+    command: /app/klipy.py
+    volumes:
+      - ./klipy-fronta:/fronta
+      - ./klipy-failed:/failed-klipy
+    environment:
+      KLIPY_FRONTA_DIR: /fronta
+      KLIPY_FAILED_DIR: /failed-klipy
 
   # ── Živý obraz ───────────────────────────────────────────────────
   #
@@ -53,6 +78,30 @@ services:
     volumes:
       # Konfigurák sem skládá sky-live podle seznamu kamer z portálu.
       - ./live-config:/config
+
+  # ── Přehrávání ze SD karty ───────────────────────────────────────
+  #
+  # VLASTNÍ instance go2rtc, ne ta výš. Ta se restartuje při každé
+  # změně seznamu kamer a restart by utnul každé běžící přehrávání.
+  #
+  # Konfigurák je statický a prázdný: proudy sem zakládá sky-playback
+  # za běhu, pokaždé na jeden konkrétní čas.
+  go2rtc-playback:
+    image: alexxit/go2rtc:1.9.9
+    container_name: sky-go2rtc-playback
+    restart: unless-stopped
+    volumes:
+      - ./playback-config:/config
+
+  # Vrátný přehrávání: ověří lístek a založí proud z karty.
+  sky-playback:
+    build: .
+    container_name: sky-playback
+    restart: unless-stopped
+    env_file: .env
+    command: /app/playback.py
+    environment:
+      PLAYBACK_GO2RTC_API: http://go2rtc-playback:1984
 
   # Ověřování lístků a generování konfigurace go2rtc.
   sky-live:
