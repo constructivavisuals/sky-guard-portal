@@ -605,11 +605,22 @@ ho berou vážně.
 Výchozí je proto `subtype=0`; přebít se dá proměnnou `PLAYBACK_SUBTYPE`.
 
 `zkouska.py` na 404 zkusí i ten druhý proud a řekne, který ta kamera
-má. Když vrátí 404 na oba, teprve pak je to karta nebo rozvrh:
+má. Když vrátí 404 na oba, ptá se dál — a v tomhle pořadí, protože
+tak se to na místě ukázalo:
 
-- karta chybí, je plná bez přepisu, nebo selhala,
-- nahrávání není nastavené na 24/7 (viz MONTAZ.md),
-- požadovaný čas je za dosahem karty.
+**1. Hodiny kamery.** Adresa playbacku nese `starttime` v čase KAMERY.
+Portál počítá v UTC a relay to převádí do zóny lokality, jenže kamera
+se řídí svými hodinami. Když jdou špatně, ptáme se na okamžik, který
+u ní nenastal — a ona odpoví 404, přestože je karta plná. Zvenčí je to
+k nerozeznání od prázdné karty. Zkouška rozdíl změří a řekne ho
+v minutách; opravuje se to NTP a časovou zónou v kameře.
+
+**2. Režim nahrávání.** `RecordMode` říká, jestli kamera nahrává
+nepřetržitě, podle rozvrhu, nebo vůbec ne. Rozvrh je nejzrádnější:
+kamera nahrává, karta plní, ale zrovna v tu chvíli nemusela nahrávat.
+
+**3. Teprve pak karta:** chybí, je plná bez přepisu, selhala, nebo je
+požadovaný čas za jejím dosahem.
 
 Přehrávač to od nynějška rozliší a napíše „Z téhle doby na kartě
 v kameře záznam není“ místo obecné chyby spojení. `zkouska.py` to

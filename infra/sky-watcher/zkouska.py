@@ -52,6 +52,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import events
 import live
 import playback
 
@@ -162,6 +163,118 @@ def snimek_z_go2rtc(api: str, jmeno: str) -> tuple[float, int, str]:
     return doba, len(telo), ""
 
 
+# ── Hodiny kamery ────────────────────────────────────────────────
+
+
+def cas_kamery(lan_ip: str) -> tuple[datetime | None, str]:
+    """
+    Co si kamera myslí, že je za čas. Vrací (čas, chyba).
+
+    ═══ Proč na tom u záznamu záleží ══════════════════════════════
+    Adresa playbacku nese `starttime` v čase KAMERY. Portál i lístky
+    počítají v UTC a relay to převádí do zóny lokality — jenže kamera
+    se řídí SVÝMI hodinami. Když jdou špatně, ptáme se na okamžik,
+    který u ní ještě nenastal (nebo dávno vypadl z karty), a ona
+    odpoví 404.
+
+    Zvenčí je to k nerozeznání od „karta nic nemá": kamera odpovídá,
+    karta je plná, a přehrávání přesto nejde. Proto se to měří.
+    """
+    opener = events.opener_pro(lan_ip)
+    url = f"http://{lan_ip}/cgi-bin/global.cgi?action=getCurrentTime"
+    try:
+        with opener.open(url, timeout=10) as odpoved:
+            telo = odpoved.read(200).decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)[:120]
+
+    # Odpověď: `result=2026-09-01 21:11:02`
+    shoda = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})", telo)
+    if not shoda:
+        return None, f"nesrozumitelná odpověď: {telo.strip()[:60]}"
+    r, m, d, h, mi, sec = (int(x) for x in shoda.groups())
+    return datetime(r, m, d, h, mi, sec, tzinfo=playback.CAMERA_TZ), ""
+
+
+REZIMY_NAHRAVANI = {
+    "0": "podle rozvrhu",
+    "1": "nepřetržitě",
+    "2": "VYPNUTO",
+}
+
+
+def rezim_nahravani(lan_ip: str) -> tuple[str | None, str]:
+    """
+    Nahrává kamera na kartu, a jak? Vrací (kód režimu, chyba).
+
+    Druhá otázka po hodinách. Když jdou hodiny dobře a záznam přesto
+    není, bývá to tím, že kamera nahrává jen podle rozvrhu — a v tu
+    chvíli zrovna nenahrávala.
+    """
+    opener = events.opener_pro(lan_ip)
+    url = (
+        f"http://{lan_ip}/cgi-bin/configManager.cgi"
+        "?action=getConfig&name=RecordMode"
+    )
+    try:
+        with opener.open(url, timeout=10) as odpoved:
+            telo = odpoved.read(500).decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)[:120]
+
+    shoda = re.search(r"RecordMode\[0\]\.Mode=(\d+)", telo)
+    if not shoda:
+        return None, f"nesrozumitelná odpověď: {telo.strip()[:60]}"
+    return shoda.group(1), ""
+
+
+def krok_nahravani(s: Sesit, lan_ip: str) -> None:
+    kod, chyba = rezim_nahravani(lan_ip)
+    if kod is None:
+        s.pozn(f"režim nahrávání se nepodařilo přečíst ({chyba})")
+        return
+
+    popis = REZIMY_NAHRAVANI.get(kod, f"neznámý ({kod})")
+    if kod == "1":
+        s.ok(f"kamera nahrává {popis}")
+    elif kod == "0":
+        s.pozn(
+            f"kamera nahrává {popis} — v době, na kterou se ptáme, "
+            "nemusela nahrávat"
+        )
+    else:
+        s.chyba(
+            f"kamera má nahrávání {popis}",
+            "na kartu nic nepřibývá, takže přehrávat není co — "
+            "viz MONTAZ.md, nahrávání má být nepřetržité",
+        )
+
+
+def krok_hodiny(s: Sesit, lan_ip: str) -> None:
+    """Rozdíl mezi hodinami kamery a našimi, v zóně lokality."""
+    kamera, chyba = cas_kamery(lan_ip)
+    if kamera is None:
+        s.pozn(f"hodiny kamery se nepodařilo přečíst ({chyba})")
+        return
+
+    nas = datetime.now(playback.CAMERA_TZ)
+    rozdil = (kamera - nas).total_seconds()
+
+    if abs(rozdil) <= 60:
+        s.ok(f"hodiny kamery sedí ({kamera.strftime('%H:%M:%S')})",
+             f"rozdíl {rozdil:+.0f} s")
+        return
+
+    s.chyba(
+        f"hodiny kamery jdou o {rozdil / 60:+.0f} min jinak "
+        f"(kamera {kamera.strftime('%d.%m. %H:%M:%S')}, my "
+        f"{nas.strftime('%d.%m. %H:%M:%S')})",
+        "adresa playbacku nese čas KAMERY — na okamžik, který u ní "
+        "nenastal, odpoví 404, i když je karta plná. Nastav jí NTP "
+        "a správnou časovou zónu.",
+    )
+
+
 # ── Kroky ────────────────────────────────────────────────────────
 
 
@@ -214,6 +327,11 @@ def krok_kamera(s: Sesit, kamera: dict, rezimy: list[str], pred_sec: int) -> Non
         return
     s.ok(f"kamera odpovídá na {lan_ip}:{RTSP_PORT}",
          f"({(time.monotonic() - zacatek) * 1000:.0f} ms)")
+
+    # Hodiny jen u záznamu — u živého obrazu na nich nezáleží.
+    if "zaznam" in rezimy:
+        krok_hodiny(s, lan_ip)
+        krok_nahravani(s, lan_ip)
 
     with tempfile.TemporaryDirectory() as tmp:
         for rezim in rezimy:
