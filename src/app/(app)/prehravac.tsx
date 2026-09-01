@@ -475,6 +475,24 @@ export function Prehravac({
 
       if (typeof event.data === "string") {
         const zprava = JSON.parse(event.data);
+
+        // ═══ Chybu od relaye je potřeba ukázat ═══════════════════
+        // go2rtc posílá po témže websocketu zprávy typu `error`.
+        // Dokud se zahazovaly, vypadala každá z nich stejně: obraz
+        // nenaskočil a nikdo nevěděl proč. Nejčastější je 404 od
+        // kamery, což NENÍ závada spojení — na kartě prostě z té doby
+        // není záznam.
+        if (zprava.type === "error") {
+          const text = String(zprava.value ?? "");
+          setStav("chyba");
+          setDuvod(
+            /404|not found/i.test(text)
+              ? "Z téhle doby na kartě v kameře záznam není."
+              : `Relay obraz neposlal: ${text.slice(0, 120)}`,
+          );
+          return;
+        }
+
         if (zprava.type !== "mse" || !ms) return;
         try {
           sb = ms.addSourceBuffer(zprava.value);

@@ -109,6 +109,9 @@ PRES_FFMPEG = os.environ.get("PLAYBACK_PRES_FFMPEG", "0") == "1"
 # Po kolika vteřinách se nativní klient vzdá mrtvé kamery.
 ZDROJ_TIMEOUT = int(os.environ.get("PLAYBACK_SOURCE_TIMEOUT_SEC", "10"))
 
+# Jak dlouho nechat běžet rozehrání proudu na pozadí — viz rozehrej().
+SNIMEK_ROZEHRANI_SEC = float(os.environ.get("PLAYBACK_WARMUP_SEC", "20"))
+
 # Po jak dlouhé nečinnosti se proud zruší. Každý živý proud drží
 # spojení na kameru a ta zároveň píše na tutéž kartu, takže zapomenutý
 # proud stojí víc než místo v paměti.
@@ -521,9 +524,40 @@ def zajisti_proud(jmeno: str) -> str | None:
         return "backend_unavailable"
 
     SEZENI.zapomen(jmeno)
+    rozehrej(jmeno)
     log.info("Přehrávání otevřeno: %s (kamera %s, od %s)", jmeno, serial,
              datetime.fromtimestamp(od_epoch, timezone.utc).isoformat())
     return None
+
+
+def rozehrej(jmeno: str) -> None:
+    """
+    Šťouchne do go2rtc, ať se ke kameře připojí HNED.
+
+    ═══ Proč to není zbytečné ═════════════════════════════════════
+    go2rtc je líný: proud sice založí, ale ke kameře sáhne teprve ve
+    chvíli, kdy se připojí divák. Jenže mezi založením proudu a
+    otevřením websocketu je ještě celé navazování přes Caddy — a po
+    celou tu dobu se nic neděje.
+
+    Kamera přitom potřebuje na kartě NAJÍT, kde ten čas je. Změřeno
+    na místě: čtyři až pět vteřin, než pošle první snímek. Když se
+    hledání rozjede už tady, běží souběžně s navazováním websocketu
+    místo po něm.
+
+    Na vlákně a bez čekání: tahle funkce nesmí zdržet odpověď bráně,
+    jinak by se prodleva jen přesunula jinam. Selhání se ignoruje —
+    je to urychlení, ne podmínka.
+    """
+    def sahni() -> None:
+        url = f"{GO2RTC_API}/api/frame.jpeg?" + urllib.parse.urlencode({"src": jmeno})
+        try:
+            with urllib.request.urlopen(url, timeout=SNIMEK_ROZEHRANI_SEC) as odpoved:
+                odpoved.read(1)
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=sahni, daemon=True).start()
 
 
 def smycka_uklidu(stop: threading.Event) -> None:

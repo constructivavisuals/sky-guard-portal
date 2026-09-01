@@ -557,17 +557,49 @@ Obojí čte `sky-playback` při startu z `GET /api/config` a hlásí jako
 ERROR. Toutéž kontrolou prochází i konfigurák v repu, aby se vada
 nedala zanést commitem.
 
-### Co změřit na místě
+### Změřeno na místě (9 kamer, přehrávání)
 
-Adresa playbacku funguje, ale zbytek ne. Před ostrým provozem:
+```
+kamera odpovídá na :554        40–240 ms
+přímo ffmpegem první snímek    5,7–7,8 s
+přes go2rtc první snímek       3,9–4,9 s
+```
 
-1. Jak dlouho trvá od otevření proudu k prvnímu snímku? To je cena
-   jednoho posunu na časové ose.
-2. Kolik současných přehrávání kamera unese, aniž by trpěl živý obraz?
-   Strop je v `PLAYBACK_MAX_STREAMS`, výchozí 12 je odhad.
-3. Co udělá proud, když dojede na `endtime`? Očekává se, že ho go2rtc
-   uvidí jako odpojený zdroj a připojí se znovu od `starttime` — tedy
-   skok na začátek. Okno je proto 4 hodiny (`PLAYBACK_WINDOW_SEC`).
+Dvě věci z toho stojí za zapamatování:
+
+**Přes go2rtc je to RYCHLEJŠÍ než přímo ffmpegem.** Není to překlep —
+ffmpeg si vstup nejdřív ohledá (~3 s, viz výš), kdežto nativní klient
+go2rtc jede rovnou. Je to nezávislé potvrzení, proč z té cesty ffmpeg
+zmizel.
+
+**Zbylé 4–5 s je kamera.** Musí na kartě najít, kde ten čas je, a poslat
+klíčový snímek. Zkrátit to jde jedině v kameře — kratším **I-frame
+intervalem** (MONTAZ.md doporučuje 1× snímková frekvence). Přehrávání
+nemůže začít dřív než u klíčového snímku, takže delší interval je
+přímo prodleva.
+
+Relay to částečně obchází: `sky-playback` po ověření lístku hned
+šťouchne do go2rtc, aby se ke kameře začalo připojovat, zatímco se
+teprve navazuje websocket. Hledání na kartě tím běží souběžně
+s navazováním, ne po něm.
+
+### Když kamera vrátí 404
+
+```
+method DESCRIBE failed: 404 Not Found
+```
+
+**Není to vada spojení.** Kamera odpovídá (TCP na 554 projde), jen
+z požadované doby na kartě nemá záznam. Typicky:
+
+- karta chybí, je plná bez přepisu, nebo selhala,
+- nahrávání není nastavené na 24/7 (viz MONTAZ.md),
+- požadovaný čas je za dosahem karty.
+
+Přehrávač to od nynějška rozliší a napíše „Z téhle doby na kartě
+v kameře záznam není“ místo obecné chyby spojení. `zkouska.py` to
+u dotčených kamer ukáže rovnou.
+
 
 ## Když se záznam nepřehraje v prohlížeči
 
