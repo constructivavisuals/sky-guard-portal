@@ -306,19 +306,43 @@ Když playback nevyjde, je záchrana: klip se vezme ze živého vedlejšího
 proudu dopředu. Přijde se o pre-roll, ale důkaz zůstane. Hlásí se to
 jako varování — je to zhoršený stav, ne rovnocenná cesta.
 
+### Portálová strana
+
+Hotová. Lístky vydává `/api/kamery/<id>/zaznam?od=<ISO čas>` a časová
+osa je na `/osa`.
+
+Lístek se vydává **týmž kódem** jako na živý obraz — jen na jiné jméno
+proudu. Ověřuje ho `playback.py`, které si `overit_listek` importuje
+z `live.py`, takže se ty dvě strany nemají jak rozejít. Hlídá to
+`npm run hranice-listek`, kde je mezi případy i lístek na jeden čas
+zkoušený na jiný.
+
+Přehrávač je jedna komponenta pro obojí (`src/app/(app)/prehravac.tsx`):
+rozdíl mezi „teď“ a „minulý čtvrtek ve tři“ je jen v tom, odkud si vzít
+lístek. Skládání obrazu je stejné, protože go2rtc posílá v obou
+případech totéž.
+
+Časová osa má **skoky, ne táhlo**. Je to úmyslné: každý posun znamená
+zavřít proud a otevřít nový, tedy nové spojení na kameru a čekání na
+klíčový snímek. Táhlo by slibovalo plynulost, kterou pod ním nikdo
+nemá.
+
+**Volba `main` v živém obrazu zmizela.** Podle měření je hlavní proud
+přes tunel nepoužitelný, takže nabízet „Detailní“ znamenalo nabízet
+rozbitý obraz. Relay proud `<sériové>` pořád generuje — go2rtc se ke
+kameře připojí až když si o něj někdo řekne, takže nepoužitý nic
+nestojí — ale lístek se na něj nevydává, takže je nedosažitelný.
+
 ### Co ještě zbývá
 
-- **Portál**: vydávání lístků na playback a časová osa. Relay je hotový
-  a čeká; lístky se vydávají týmž kódem jako na živý obraz, jen na jiné
-  jméno proudu.
-- **Živý obraz pořád nabízí `main`.** `src/lib/live/stream.ts` umí
-  `main` i `sub`; podle měření je `main` přes tunel nepoužitelný. Než se
-  to rozhodne, je to past na uživatele.
 - **FTP se dá vypnout.** Klipy teď chodí z karty, takže pohybové
   nahrávání na FTP je nadbytečné. Watcher zatím zůstává kvůli starým
   souborům a jako záchrana.
 - **Caddyfile** se nepodařilo ověřit `caddy validate` — na stroji, kde
   se to psalo, nebyl Docker. Ověřit při nasazení.
+- **`PLAYBACK_REACH_DAYS`** v portálu (výchozí 7) musí sedět s tím, co
+  karta doopravdy drží. Je to jen mez pro časovou osu, ne pravda o
+  kartě — postup výpočtu je v MONTAZ.md.
 
 ### Co změřit na místě
 

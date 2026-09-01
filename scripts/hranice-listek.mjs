@@ -34,6 +34,11 @@ const STREAMY = [
   // Znaky, na kterých by se rozešlo kódování.
   "kamera-ěščřž",
   "a.b.c",
+  // Přehrávání ze záznamu: čas je součástí jména proudu, takže se
+  // podepisuje s ním. Ověřuje ho playback.py, ne live.py — ale týmž
+  // kódem, protože si ho odtamtud importuje.
+  "BK024AAPAGB5592-pb-1788000000",
+  "cam-01-pb-1788000000",
 ];
 
 /** Co má projít a co ne. Obojí schválně. */
@@ -50,6 +55,21 @@ for (const stream of STREAMY) {
     ceka: "bad_signature",
   });
 }
+
+// Lístek na jeden okamžik nesmí otevřít jiný. Je to totéž jako „cizí
+// kamera“ výš, ale stojí za vlastní případ: kdyby čas ze jména kdy
+// vypadl, tenhle řádek to chytí a ten druhý ne.
+const { token: naCtrnact } = issueLiveToken({
+  stream: "BK024AAPAGB5592-pb-1788000000",
+  secret: SECRET,
+  now: NOW,
+});
+PRIPADY.push({
+  popis: "lístek na jiný čas",
+  stream: "BK024AAPAGB5592-pb-1788003600",
+  token: naCtrnact,
+  ceka: "bad_signature",
+});
 
 const { token: kratky } = issueLiveToken({
   stream: "BK024AAPAGB5592",

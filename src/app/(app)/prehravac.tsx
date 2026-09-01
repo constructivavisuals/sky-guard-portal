@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX, WifiOff } from "lucide-react";
 
-// Živý obraz jedné kamery.
+// Přehrávač obrazu z kamery — živého i ze záznamu na její SD kartě.
+//
+// ═══ Jedna komponenta pro obojí ════════════════════════════════════
+// Rozdíl mezi „teď“ a „minulý čtvrtek ve tři“ je JEN v tom, odkud si
+// vzít lístek a adresu — viz `konfiguraceUrl`. Skládání obrazu je pak
+// úplně stejné, protože go2rtc posílá v obou případech totéž.
 //
 // ═══ Jak se obraz dostane do prohlížeče ════════════════════════════
 // Relay (go2rtc) posílá po websocketu fragmentované MP4 a tady se to
@@ -75,14 +80,22 @@ interface Odpoved {
   expires_in: number;
 }
 
-export function LiveView({
-  cameraId,
+export function Prehravac({
+  konfiguraceUrl,
   cameraName,
-  quality,
 }: {
-  cameraId: string;
+  /**
+   * Odkud si vzít lístek a adresu websocketu.
+   *
+   * Parametr, ne pevná cesta: TÝŽ přehrávač obsluhuje živý obraz
+   * (`/api/kamery/<id>/zivy`) i přehrávání ze záznamu
+   * (`/api/kamery/<id>/zaznam?od=…`). Obě routy vracejí totéž —
+   * `{ stream, url, expires_in }` — a co se přehrává, rozhoduje ta
+   * adresa, ne tahle komponenta. Dvě kopie MSE kódu vedle sebe by se
+   * rozešly při první opravě.
+   */
+  konfiguraceUrl: string;
   cameraName: string;
-  quality: "main" | "sub";
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const socket = useRef<WebSocket | null>(null);
@@ -126,10 +139,7 @@ export function LiveView({
       // Lístek se bere PŘED každým spojením, ne jednou při načtení
       // stránky: platí pár minut a po výpadku sítě by ten původní
       // býval dávno propadlý.
-      const odpoved = await fetch(
-        `/api/kamery/${cameraId}/zivy?kvalita=${quality}`,
-        { cache: "no-store" },
-      );
+      const odpoved = await fetch(konfiguraceUrl, { cache: "no-store" });
       if (!odpoved.ok) {
         const telo = await odpoved.json().catch(() => ({}));
         setStav("chyba");
@@ -138,7 +148,13 @@ export function LiveView({
             ? "Živý obraz zatím není nastavený."
             : telo?.error === "camera_without_serial"
               ? "Kamera nemá vyplněné sériové číslo, relay ji nemá jak najít."
-              : "Kameru se nepodařilo otevřít.",
+              : telo?.error === "beyond_card_reach"
+                ? `Takhle daleko zpátky karta v kameře nesahá (drží zhruba ${
+                    telo?.detail?.reach_days ?? "?"
+                  } dní).`
+                : telo?.error === "od_in_future"
+                  ? "Do budoucnosti se podívat nedá."
+                  : "Kameru se nepodařilo otevřít.",
         );
         return;
       }
@@ -281,7 +297,7 @@ export function LiveView({
       // a znovupřipojení řeší tam.
       setStav("chyba");
     });
-  }, [cameraId, quality, naplanovatZnovu]);
+  }, [konfiguraceUrl, naplanovatZnovu]);
 
   useEffect(() => {
     pripojitRef.current = () => void pripojit();

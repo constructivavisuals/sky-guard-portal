@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   DoorOpen,
   FileText,
+  History,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -43,6 +44,7 @@ const PRIMARY = [
 const SECONDARY = [
   { href: "/hlidky", label: "Hlídky", icon: Route },
   { href: "/arealy", label: "Areály", icon: MapPin },
+  { href: "/osa", label: "Časová osa", icon: History },
   { href: "/zaznamy", label: "Záznamy", icon: Video },
   { href: "/brana", label: "Brána", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },

@@ -2,12 +2,18 @@ import type { NextRequest } from "next/server";
 
 import { liveStreamConfig } from "@/lib/env.ts";
 import { issueLiveToken } from "@/lib/live/token.ts";
-import { isStreamQuality, liveSocketUrl, streamName } from "@/lib/live/stream.ts";
+import { liveSocketUrl, streamName } from "@/lib/live/stream.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
-// GET /api/kamery/<id>/zivy?kvalita=main|sub
+// GET /api/kamery/<id>/zivy
 //
 // Lístek na živý obraz jedné kamery.
+//
+// ═══ Kvalita se nevybírá ═══════════════════════════════════════════
+// Dřív se dal parametrem `kvalita` zvolit hlavní proud (4K). Změřeno
+// na místě, že se přes tunel rozpadá, takže ta volba zmizela — viz
+// streamName(). Starý parametr se mlčky ignoruje, aby uložený odkaz
+// nespadl; dostane vedlejší proud, tedy ten, který funguje.
 //
 // ═══ Proč to nejde přes portál ═════════════════════════════════════
 // Serverless funkce neudrží minutové spojení a video by teklo přes
@@ -46,13 +52,10 @@ function jsonError(status: number, error: string) {
 }
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   ctx: RouteContext<"/api/kamery/[id]/zivy">,
 ): Promise<Response> {
   const { id } = await ctx.params;
-
-  const kvalitaRaw = request.nextUrl.searchParams.get("kvalita") ?? "sub";
-  if (!isStreamQuality(kvalitaRaw)) return jsonError(400, "unknown_quality");
 
   let config;
   try {
@@ -88,7 +91,7 @@ export async function GET(
     return jsonError(409, "camera_without_serial");
   }
 
-  const stream = streamName(camera.serial_number, kvalitaRaw);
+  const stream = streamName(camera.serial_number);
   const { token, expiresIn } = issueLiveToken({ stream, secret: config.secret });
 
   console.info("Vydán lístek na živý obraz", {
@@ -99,7 +102,6 @@ export async function GET(
   return Response.json(
     {
       stream,
-      quality: kvalitaRaw,
       url: liveSocketUrl({ baseUrl: config.baseUrl, stream, token }),
       expires_in: expiresIn,
     },

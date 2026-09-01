@@ -3,19 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  DoorOpen,
   FileText,
+  History,
   LayoutDashboard,
+  LogOut,
+  MapPin,
+  Plane,
+  Radio,
+  Route,
   ScanEye,
   Send,
-  Plane,
-  Route,
-  MapPin,
-  DoorOpen,
-  Radio,
   Settings,
   Users,
   Video,
-  LogOut,
   type LucideIcon,
 } from "lucide-react";
 
@@ -44,6 +45,7 @@ export const NAV_ITEMS = [
   { href: "/hlidky", label: "Hlídky", icon: Route },
   { href: "/arealy", label: "Areály", icon: MapPin },
   { href: "/zive", label: "Živý obraz", icon: Radio },
+  { href: "/osa", label: "Časová osa", icon: History },
   { href: "/zaznamy", label: "Záznamy", icon: Video },
   { href: "/brana", label: "Brána", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },

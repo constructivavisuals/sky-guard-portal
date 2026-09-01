@@ -3,11 +3,10 @@ import Link from "next/link";
 import { Video } from "lucide-react";
 
 import { EmptyState, PageHeader, Section } from "@/components/ui.tsx";
-import { isStreamQuality, type StreamQuality } from "@/lib/live/stream.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
-import { LiveView } from "./live-view.tsx";
+import { Prehravac } from "../prehravac.tsx";
 
 export const metadata: Metadata = { title: "Živý obraz" };
 
@@ -19,10 +18,15 @@ export const metadata: Metadata = { title: "Živý obraz" };
 // notebook. Diváci jsou dva tři a dívají se, jestli na place někdo je;
 // na to stačí přepínač.
 //
-// ═══ Výchozí je VEDLEJŠÍ proud ═════════════════════════════════════
-// Hlavní proud je v plném rozlišení a přes LTE na stavbě se nerozjede.
-// Kdo chce detail, přepne — a ví proč. Opačné pořadí by znamenalo, že
-// první dojem z živého obrazu je zasekaný obraz.
+// ═══ Vedlejší proud, a jiný na výběr není ══════════════════════════
+// Hlavní proud (4K) se přes tunel rozpadá — změřeno na místě, živě
+// i ze záznamu. Přepínač kvality tu proto býval a zmizel: nabízet
+// „Detailní“ znamenalo nabízet rozbitý obraz. Podrobnosti u
+// streamName() v src/lib/live/stream.ts.
+//
+// ═══ Kdo chce vidět, co bylo ═══════════════════════════════════════
+// Ten jde na /osa. Záznam neleží v portálu, ale na kartě v kameře,
+// a přehrává se z ní stejným přehrávačem.
 
 export const dynamic = "force-dynamic";
 
@@ -36,12 +40,10 @@ interface CameraRow {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ kamera?: string; kvalita?: string }>;
+  searchParams: Promise<{ kamera?: string }>;
 }) {
-  const { kamera, kvalita } = await searchParams;
+  const { kamera } = await searchParams;
   const { selected } = await getSiteSelection();
-
-  const quality: StreamQuality = isStreamQuality(kvalita) ? kvalita : "sub";
 
   let cameras: CameraRow[] = [];
   let failed = false;
@@ -105,29 +107,26 @@ export default async function Page({
                 polozky={dostupne.map((row) => ({
                   key: row.id,
                   label: row.name,
-                  href: `/zive?kamera=${row.id}&kvalita=${quality}`,
+                  href: `/zive?kamera=${row.id}`,
                   aktivni: row.id === vybrana.id,
                 }))}
                 popis="Kamera"
               />
-              <Prepinac
-                polozky={[
-                  { key: "sub", label: "Plynulý", href: `/zive?kamera=${vybrana.id}&kvalita=sub`, aktivni: quality === "sub" },
-                  { key: "main", label: "Detailní", href: `/zive?kamera=${vybrana.id}&kvalita=main`, aktivni: quality === "main" },
-                ]}
-                popis="Kvalita"
-              />
+              {/*
+                Přepínač kvality tu byl a zmizel: hlavní proud (4K) se
+                přes tunel rozpadá, takže „Detailní“ nabízelo rozbitý
+                obraz. Měřeno na místě — viz streamName().
+              */}
             </div>
           </Section>
 
-          <LiveView
-            // Přepnutí kamery nebo kvality je jiný proud: bez klíče by
-            // se do běžícího <video> jen vyměnil zdroj a MediaSource
+          <Prehravac
+            // Přepnutí kamery je jiný proud: bez klíče by se do
+            // běžícího <video> jen vyměnil zdroj a MediaSource
             // z minulého spojení by zůstala viset.
-            key={`${vybrana.id}-${quality}`}
-            cameraId={vybrana.id}
+            key={vybrana.id}
+            konfiguraceUrl={`/api/kamery/${vybrana.id}/zivy`}
             cameraName={vybrana.name}
-            quality={quality}
           />
         </>
       )}
