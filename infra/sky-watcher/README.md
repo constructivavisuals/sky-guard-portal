@@ -615,9 +615,21 @@ u ní nenastal — a ona odpoví 404, přestože je karta plná. Zvenčí je to
 k nerozeznání od prázdné karty. Zkouška rozdíl změří a řekne ho
 v minutách; opravuje se to NTP a časovou zónou v kameře.
 
-**2. Režim nahrávání.** `RecordMode` říká, jestli kamera nahrává
-nepřetržitě, podle rozvrhu, nebo vůbec ne. Rozvrh je nejzrádnější:
-kamera nahrává, karta plní, ale zrovna v tu chvíli nemusela nahrávat.
+**2. Režim nahrávání a rozvrh.** `RecordMode` říká, jestli kamera
+nahrává nepřetržitě, podle rozvrhu, nebo vůbec. „Podle rozvrhu" samo
+o sobě není závada — rozvrh může pokrývat celý týden. Zkouška se proto
+zeptá i na něj (`Record`) a spočítá, které dny jsou pokryté CELÉ.
+Nepokryté časy jsou na kartě díry: přehrávání v nich vrátí 404
+a časová osa slibuje, co tam není.
+
+> **Změřeno:** hodinový posun hodin u dvou kamer způsobil přesně to,
+> co vypadalo jako prázdná karta. Byla to zóna, ne karta ani rozvrh.
+>
+> Po opravě hodin je potřeba počítat s tím, že **záznam pořízený
+> předtím zůstane na kartě orazítkovaný špatně** — u těch dvou kamer
+> o hodinu vedle, dokud se karta nepřetočí. V okamžiku opravy navíc
+> vznikne zdánlivá hodinová díra, protože hodiny přeskočily dopředu.
+> Není to závada, jen následek.
 
 **3. Teprve pak karta:** chybí, je plná bez přepisu, selhala, nebo je
 požadovaný čas za jejím dosahem.

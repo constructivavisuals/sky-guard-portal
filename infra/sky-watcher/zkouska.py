@@ -228,6 +228,51 @@ def rezim_nahravani(lan_ip: str) -> tuple[str | None, str]:
     return shoda.group(1), ""
 
 
+# `table.Record[0].TimeSection[den][úsek]=1 00:00:00-23:59:59`
+# První číslo je zapnuto/vypnuto, za ním rozsah v čase kamery.
+USEK_RE = re.compile(
+    r"Record\[\d+\]\.TimeSection\[(\d)\]\[\d\]="
+    r"(\d)\s+(\d{2}):(\d{2}):(\d{2})-(\d{2}):(\d{2}):(\d{2})"
+)
+
+
+def rozvrh_nahravani(lan_ip: str) -> tuple[set[int] | None, str]:
+    """
+    Které dny v týdnu kamera nahrává CELÉ. Vrací (dny, chyba).
+
+    ═══ Proč nestačí režim ════════════════════════════════════════
+    „Podle rozvrhu" samo o sobě není závada — rozvrh může pokrývat
+    celý týden. Ale taky nemusí, a pak má karta díry: přehrávání
+    v nich vrátí 404 a časová osa slibuje dny, které tam nejsou.
+    Rozdíl mezi tím je právě tenhle dotaz.
+    """
+    opener = events.opener_pro(lan_ip)
+    url = (
+        f"http://{lan_ip}/cgi-bin/configManager.cgi"
+        "?action=getConfig&name=Record"
+    )
+    try:
+        with opener.open(url, timeout=15) as odpoved:
+            telo = odpoved.read(20_000).decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)[:120]
+
+    cele: set[int] = set()
+    for shoda in USEK_RE.finditer(telo):
+        den = int(shoda.group(1))
+        if shoda.group(2) != "1":
+            continue
+        od = int(shoda.group(3)) * 3600 + int(shoda.group(4)) * 60 + int(shoda.group(5))
+        do = int(shoda.group(6)) * 3600 + int(shoda.group(7)) * 60 + int(shoda.group(8))
+        # Celý den: od půlnoci nejméně do 23:59.
+        if od == 0 and do >= 23 * 3600 + 59 * 60:
+            cele.add(den)
+
+    if not cele and "TimeSection" not in telo:
+        return None, "kamera rozvrh nevrátila"
+    return cele, ""
+
+
 def krok_nahravani(s: Sesit, lan_ip: str) -> None:
     kod, chyba = rezim_nahravani(lan_ip)
     if kod is None:
@@ -235,19 +280,36 @@ def krok_nahravani(s: Sesit, lan_ip: str) -> None:
         return
 
     popis = REZIMY_NAHRAVANI.get(kod, f"neznámý ({kod})")
+
     if kod == "1":
         s.ok(f"kamera nahrává {popis}")
-    elif kod == "0":
-        s.pozn(
-            f"kamera nahrává {popis} — v době, na kterou se ptáme, "
-            "nemusela nahrávat"
-        )
-    else:
+        return
+
+    if kod != "0":
         s.chyba(
             f"kamera má nahrávání {popis}",
             "na kartu nic nepřibývá, takže přehrávat není co — "
             "viz MONTAZ.md, nahrávání má být nepřetržité",
         )
+        return
+
+    # Režim „podle rozvrhu": rozhodne až ten rozvrh.
+    dny, chyba = rozvrh_nahravani(lan_ip)
+    if dny is None:
+        s.pozn(f"kamera nahrává {popis}, rozvrh se nepodařilo přečíst ({chyba})")
+        return
+
+    if len(dny) >= 7:
+        s.ok("kamera nahrává podle rozvrhu, a ten pokrývá celý týden")
+        return
+
+    chybi = sorted(set(range(7)) - dny)
+    s.chyba(
+        f"rozvrh nepokrývá celý týden — celé dny jen {len(dny)} ze 7",
+        "v nepokrytých časech na kartě záznam není a přehrávání tam "
+        f"vrátí 404 (dny bez celodenního nahrávání: {chybi}; "
+        "0 = neděle podle číslování Dahuy)",
+    )
 
 
 def krok_hodiny(s: Sesit, lan_ip: str) -> None:
