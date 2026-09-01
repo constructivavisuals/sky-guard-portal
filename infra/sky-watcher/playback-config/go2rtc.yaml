@@ -15,8 +15,24 @@ api:
   listen: ":1984"
 
 rtsp:
-  # Server nepotřebujeme, obraz jde do prohlížeče přes MSE.
-  listen: ""
+  # ═══ Zapnuto, a jen na smyčce ════════════════════════════════════
+  # Tady se to liší od instance pro živý obraz, kde je RTSP vypnuté —
+  # a NENÍ to nedopatření, které by se mělo srovnat.
+  #
+  # Živý obraz bere proudy nativním RTSP klientem, takže server
+  # nepotřebuje. Přehrávání jde přes `ffmpeg:` zdroj a ten si výstup
+  # z ffmpegu předává zpátky do go2rtc PRÁVĚ TÍMHLE serverem:
+  #
+  #     if rtsp.Port == "" { return nil, errors.New("exec: rtsp module disabled") }
+  #     rawURL = "rtsp://127.0.0.1:" + rtsp.Port + path + ...
+  #
+  # Bez něj se proud založí, websocket naváže a přijde
+  #     {"type":"error","value":"mse: streams: exec: rtsp module disabled"}
+  #
+  # Adresu si go2rtc skládá na 127.0.0.1 natvrdo, takže vazba na
+  # smyčku stačí — ffmpeg běží ve stejném kontejneru. Ven se tím
+  # neotevírá nic: ani do sítě kontejnerů, natož na veřejnou adresu.
+  listen: "127.0.0.1:8554"
 
 webrtc:
   listen: ""

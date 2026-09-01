@@ -291,34 +291,72 @@ def test_chyba_z_go2rtc_nese_duvod(zkontroluj, port: int) -> None:
         FakeGo2rtc.odmitat = ""
 
 
-def test_kontrola_sablony(zkontroluj, port: int) -> None:
-    """
-    Chybějící vstupní šablona se musí ozvat při startu.
+DOBRY_KONFIG = (
+    "ffmpeg:\n"
+    f"  {playback.VSTUPNI_SABLONA}: \"-rtsp_transport tcp -i {{input}}\"\n"
+    "\n"
+    "rtsp:\n"
+    '  listen: "127.0.0.1:8554"\n'
+    "\n"
+    "webrtc:\n"
+    '  listen: ""\n'
+    "\n"
+    "streams:\n"
+)
 
-    go2rtc na ni neupozorní: neznámé jméno vrátí beze změny a ffmpeg
-    pak dostane jako celý vstup slovo „playback" — bez `-i` a bez
-    adresy. Proud se přesto založí, websocket se naváže a nic se
-    nepřehraje. To je k nerozeznání od vady kamery nebo linky.
+
+def test_kontrola_konfigurace(zkontroluj, port: int) -> None:
+    """
+    Dvě tiché pasti v go2rtc.yaml se musí ozvat při startu.
+
+    Obě mají týž příznak — proud se založí, websocket se naváže a nic
+    se nepřehraje — takže se hledají všude jinde než v konfiguráku.
+
+    Šablona: neznámé jméno go2rtc vrátí beze změny, `{input}` v něm
+    nemá co nahradit a ffmpeg dostane jako celý vstup slovo „playback".
+
+    RTSP: `ffmpeg:` zdroj si přes něj předává výstup zpátky do go2rtc.
+    Vypnutý znamená „exec: rtsp module disabled".
     """
     playback.GO2RTC_API = f"http://127.0.0.1:{port}"
 
-    FakeGo2rtc.config = (
-        "ffmpeg:\n"
-        f"  {playback.VSTUPNI_SABLONA}: \"-rtsp_transport tcp -i {{input}}\"\n"
-        "streams:\n"
-    )
-    zkontroluj("načtená šablona projde", playback.overit_sablonu() is None)
+    FakeGo2rtc.config = DOBRY_KONFIG
+    zkontroluj("správný konfigurák projde bez nálezu",
+               playback.overit_konfiguraci() == [],
+               str(playback.overit_konfiguraci()))
 
-    FakeGo2rtc.config = "streams:\n"
-    duvod = playback.overit_sablonu()
-    zkontroluj("chybějící se pozná",
-               duvod is not None and playback.VSTUPNI_SABLONA in duvod,
-               str(duvod))
+    FakeGo2rtc.config = DOBRY_KONFIG.replace(
+        f"  {playback.VSTUPNI_SABLONA}:", "  jina:")
+    nalezy = playback.overit_konfiguraci()
+    zkontroluj("chybějící šablona se pozná",
+               any(playback.VSTUPNI_SABLONA in n for n in nalezy), str(nalezy))
 
     # Jméno se nesmí trefit jen jako podřetězec jiné hodnoty.
-    FakeGo2rtc.config = f"streams:\n  kamera-{playback.VSTUPNI_SABLONA}: rtsp://x\n"
+    FakeGo2rtc.config = DOBRY_KONFIG.replace(
+        f"  {playback.VSTUPNI_SABLONA}:", f"  kamera-{playback.VSTUPNI_SABLONA}:")
     zkontroluj("a podobné jméno jinde ji nenahradí",
-               playback.overit_sablonu() is not None)
+               playback.overit_konfiguraci() != [])
+
+    FakeGo2rtc.config = DOBRY_KONFIG.replace('  listen: "127.0.0.1:8554"',
+                                             '  listen: ""')
+    nalezy = playback.overit_konfiguraci()
+    zkontroluj("vypnutý RTSP server se pozná",
+               any("RTSP" in n for n in nalezy), str(nalezy))
+
+    # Prázdný `listen` u webrtc je v pořádku a nesmí se hlásit.
+    FakeGo2rtc.config = DOBRY_KONFIG
+    zkontroluj("prázdný listen u webrtc se za vadu nebere",
+               playback.overit_konfiguraci() == [],
+               str(playback.overit_konfiguraci()))
+
+    # A hlavně: konfigurák, který je v repu, musí projít TOUTÉŽ
+    # kontrolou, jakou pak běží proti nasazenému go2rtc. Jinak by se
+    # dala vada zanést commitem a poznalo by se to až na stavbě.
+    FakeGo2rtc.config = (
+        KOREN / "playback-config" / "go2rtc.yaml"
+    ).read_text(encoding="utf-8")
+    nalezy = playback.overit_konfiguraci()
+    zkontroluj("konfigurák v repu projde", nalezy == [], str(nalezy))
 
 
 def test_listek_je_vazany_na_cas(zkontroluj) -> None:
@@ -387,7 +425,7 @@ def main() -> int:
     test_uklid_sezeni(zkontroluj)
     test_brana(zkontroluj, port)
     test_chyba_z_go2rtc_nese_duvod(zkontroluj, port)
-    test_kontrola_sablony(zkontroluj, port)
+    test_kontrola_konfigurace(zkontroluj, port)
     test_listek_je_vazany_na_cas(zkontroluj)
     test_fronta_klipu(zkontroluj)
 

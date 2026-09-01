@@ -385,12 +385,32 @@ Rozhodne to jeden pohled do **DevTools → Network → WS → Messages**:
   `log: level` v `playback-config/go2rtc.yaml` na `debug`, jinak
   o startu zdroje nic nenapíše.
 
-Nejzrádnější příčina je **chybějící vstupní šablona**. go2rtc na ni
-neupozorní: neznámé jméno vrátí beze změny a `{input}` v něm nemá co
+Zprávu typu `error` posílá go2rtc po témže websocketu, takže bývá
+vidět rovnou v Messages. Dvě, které to stály nejvíc času:
+
+**`exec: rtsp module disabled`** — `ffmpeg:` zdroj si výstup z ffmpegu
+předává zpátky do go2rtc přes jeho **vlastní RTSP server**, takže ten
+musí běžet:
+
+```go
+if rtsp.Port == "" { return nil, errors.New("exec: rtsp module disabled") }
+rawURL = "rtsp://127.0.0.1:" + rtsp.Port + path + ...
+```
+
+Adresu si skládá na `127.0.0.1` natvrdo a ffmpeg běží ve stejném
+kontejneru, takže stačí `listen: "127.0.0.1:8554"` — ven se tím
+neotevírá nic. Instance pro živý obraz ho vypnutý MÁ a je to správně:
+ta bere proudy nativním klientem a server nepotřebuje. Není to
+nesoulad, který by se měl srovnat.
+
+**Chybějící vstupní šablona** je zrádnější, protože nehlásí nic.
+go2rtc neznámé jméno vrátí beze změny a `{input}` v něm nemá co
 nahradit, takže ffmpeg dostane jako celý vstup slovo `playback` — bez
 `-i` a bez adresy. Proud se přesto založí a websocket naváže.
-`sky-playback` proto při startu čte `GET /api/config` a chybějící
-šablonu hlásí jako ERROR.
+
+Obojí čte `sky-playback` při startu z `GET /api/config` a hlásí jako
+ERROR. Toutéž kontrolou prochází i konfigurák v repu, aby se vada
+nedala zanést commitem.
 
 ### Co změřit na místě
 
