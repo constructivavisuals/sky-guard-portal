@@ -44,14 +44,33 @@ ffmpeg:
   # že UDP se přes tunel rozpadá (ztracený paket se neopakuje), takže
   # „preferovat" nestačí a musí se vynutit.
   #
-  # Zbytek je opsaný z výchozí šablony schválně, ať se neztratí:
-  # `-timeout` je to, co odpojí mrtvou kameru místo věčného čekání.
+  # Zbytek je opsaný z výchozí šablony `rtsp` TÉHLE VERZE go2rtc
+  # schválně, ať se neztratí: `-timeout` je to, co odpojí mrtvou
+  # kameru místo věčného čekání.
   #
-  # Jako pojmenovaná šablona, ne jako `#input=` přímo v adrese: zdroj
-  # pak nemá mezery ani složené závorky, které se při dvojím průchodu
-  # kódováním (jednou do API, podruhé při rozboru `#` parametrů) můžou
-  # rozejít. V adrese zbyde `#input=playback` a je to čitelné i v logu.
-  playback: "-fflags nobuffer -flags low_delay -timeout {timeout} -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
+  # ═══ Číslo, ne {timeout} ═════════════════════════════════════════
+  # go2rtc 1.9.9 dosazuje ve vlastních šablonách JEDINÉ `{input}`:
+  #
+  #     return strings.Replace(template, "{input}", s, 1)
+  #
+  # Zástupné `{timeout}` je až z pozdějších verzí a ve vestavěné
+  # šabloně 1.9.9 je taky natvrdo `5000000`. Kdyby se sem opsalo
+  # z novější dokumentace, dojde do ffmpegu doslova a ten spadne na
+  # „Error setting option timeout to value {timeout}".
+  #
+  # Proto tu žádná jiná zástupná hodnota než `{input}` být nesmí.
+  # Hlídá to kontrola při startu v playback.py.
+  #
+  # Hodnota je v mikrosekundách, tedy 5 s — shodně s vestavěnou
+  # šablonou. Kdyby se ukázalo, že hledání na kartě trvá déle, je to
+  # číslo, které se zvedá.
+  #
+  # ═══ Pojmenovaná šablona, ne `#input=` v adrese ══════════════════
+  # Zdroj pak nemá mezery ani složené závorky, které se při dvojím
+  # průchodu kódováním (jednou do API, podruhé při rozboru `#`
+  # parametrů) můžou rozejít. V adrese zbyde `#input=playback`
+  # a je to čitelné i v logu.
+  playback: "-fflags nobuffer -flags low_delay -timeout 5000000 -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
 
 log:
   level: info

@@ -55,14 +55,43 @@ míň se ho dá napadnout skrz závislost.
 ## Nasazení
 
 ```bash
-rsync -av --exclude '.env' --exclude 'failed' \
+rsync -av --exclude '.env' --exclude 'failed' --exclude 'live-config' \
+  --exclude 'klipy-fronta' --exclude 'klipy-failed' \
   infra/sky-watcher/ root@49.13.69.91:/opt/sky-watcher/
-ssh root@49.13.69.91 'cd /opt/sky-watcher && docker compose up -d --build'
+ssh root@49.13.69.91 'cd /opt/sky-watcher && docker compose up -d --build --force-recreate'
 ```
 
 > `.env` žije **jen na serveru** a deploy na něj nesmí sáhnout — proto
 > `--exclude`. Že se to opravdu chytlo, ověří:
 > `docker inspect sky-watcher --format '{{json .Config.Env}}'`
+
+### `--force-recreate` tam není omylem
+
+Bez něj se nasazení tváří, že proběhlo, a služba jede dál po starém.
+Stálo nás to dvě kola ladění, obě u konfigurace přehrávání.
+
+`docker compose up -d` přestaví kontejner jen tehdy, když se změní
+jeho **definice** — obraz, proměnné, porty, svazky. Změna souboru,
+který je dovnitř jen připojený, definici nemění:
+
+| Co se změnilo | Co udělá `up -d` bez `--force-recreate` |
+|---|---|
+| `Caddyfile` | nic, „up-to-date" |
+| `playback-config/go2rtc.yaml` | nic, „up-to-date" |
+| `.env` | přestaví (ale spoléhat se na to nedá) |
+| kód služby | přestaví, obraz se změnil |
+
+A `docker compose restart` to nespraví celé: proces se sice zvedne
+a připojené soubory si přečte znovu, ale prostředí z `.env` zůstane
+takové, s jakým byl kontejner **vytvořen**.
+
+Force-recreate se dělá na **všechno**, ne jen na služby, které
+konfiguraci čtou. Jmenný seznam by se musel udržovat a přesně na tom
+se to láme — kdo si vzpomene, že `sky-go2rtc-playback` čte
+`playback-config/`, ale zapomene na `sky-caddy`, dostane tutéž tichou
+vadu. Přestavět všechno stojí pár vteřin výpadku a nemá jak selhat:
+watcher i klipy nechávají rozdělanou práci na disku a po startu ji
+doberou, events se sám připojí zpátky.
 
 Kamera musí být v portálu vedená se svým **sériovým číslem** a
 `ingest_mode = 'ftp'`. Bez toho vrátí ohlášení 404 a soubor skončí
@@ -289,7 +318,7 @@ vstupní šablona v `playback-config/go2rtc.yaml`:
 
 ```yaml
 ffmpeg:
-  playback: "-fflags nobuffer -flags low_delay -timeout {timeout} -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
+  playback: "-fflags nobuffer -flags low_delay -timeout 5000000 -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
 ```
 
 a zdroj se na ni jen odkáže:
@@ -306,6 +335,28 @@ můžou rozejít — a v logu je vidět `#input=playback` místo změti.
 Zbytek šablony je opsaný z výchozí schválně. `-timeout` je to, co
 odpojí mrtvou kameru místo věčného čekání; vlastní šablona ho jinak
 tiše zahodí.
+
+**Číslo, ne `{timeout}`.** Nasazená verze **1.9.9** dosazuje ve
+vlastních šablonách jedinou zástupnou hodnotu:
+
+```go
+return strings.Replace(template, "{input}", s, 1)
+```
+
+`{timeout}` je až z pozdějších verzí — ve vestavěné šabloně 1.9.9 je
+taky natvrdo `5000000`. Opsané z novější dokumentace dojde do ffmpegu
+doslova:
+
+```
+Error setting option timeout to value {timeout}
+```
+
+Proto v šabloně žádná jiná zástupná hodnota než `{input}` být nesmí
+a kontrola při startu to hlídá.
+
+> **Dokumentaci go2rtc čti na tagu, ne na masteru.** Obraz je připnutý
+> na `1.9.9` a tenhle rozdíl se dvakrát projevil jako závada, kterou
+> README slibovalo jako funkční.
 
 **Když go2rtc odmítne PUT, důvod je v TĚLE odpovědi**, ne v hlavičce
 (`http.Error(w, err.Error(), 400)`). `playback.py` ho proto čte
@@ -784,9 +835,14 @@ z něj přesto složí týž stream jako z nedělené předlohy.
 ### Změna nezabrala? Nejdřív ověř, že vůbec dorazila
 
 Skoro pokaždé jde o to, že nová hodnota **není v běžícím kontejneru** —
-ne o to, že by byla špatně. `.env` se čte při VYTVOŘENÍ kontejneru,
-`Caddyfile` je bind mount z disku serveru, a go2rtc si konfiguraci čte
-při startu. Restart samotný ani jedno nepřenačte.
+ne o to, že by byla špatně. `.env` se čte při VYTVOŘENÍ kontejneru;
+`Caddyfile` a `playback-config/go2rtc.yaml` jsou připojené soubory
+z disku serveru a čtou se při STARTU procesu.
+
+Zrádné na tom je, že `docker compose up -d` u změny připojeného
+souboru neudělá **nic** — definice kontejneru se nezměnila, tak hlásí
+„up-to-date". Proto se nasazuje s `--force-recreate`, viz Nasazení
+výš.
 
 ```bash
 # 1. Vidí služba proměnnou? První řádek logu vypisuje nastavení.
@@ -809,8 +865,9 @@ Když něco nesedí, v tomhle pořadí:
 rsync -av --exclude '.env' --exclude 'live-config' \
   infra/sky-watcher/ root@49.13.69.91:/opt/sky-watcher/
 
-# a teprve pak. --force-recreate kvůli .env: samotné `up -d`
-# u změny proměnných kontejner nemusí přestavět.
+# a teprve pak. --force-recreate proto, že `up -d` u změny .env ani
+# připojeného souboru kontejner přestavět nemusí — a pak se tváří,
+# že nasazení proběhlo.
 docker compose up -d --force-recreate sky-live caddy
 docker compose restart go2rtc
 ```

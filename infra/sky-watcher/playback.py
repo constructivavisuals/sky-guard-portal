@@ -269,6 +269,10 @@ def overit_konfiguraci() -> list[str]:
     Navenek to vypadá zdravě: PUT projde, proud se založí, websocket
     se naváže (101) a nic se nepřehraje.
 
+    A do třetice zástupné hodnoty: 1.9.9 dosazuje jen `{input}`,
+    takže `{timeout}` opsané z novější dokumentace dojde do ffmpegu
+    doslova a ten spadne.
+
     ═══ 2. Vypnutý RTSP server ════════════════════════════════════
     `ffmpeg:` zdroj si výstup z ffmpegu předává zpátky do go2rtc přes
     jeho VLASTNÍ RTSP server. Když je vypnutý, přijde po websocketu
@@ -291,11 +295,33 @@ def overit_konfiguraci() -> list[str]:
     # standardní knihovnu a na tyhle dvě otázky parser netřeba.
     nalezy: list[str] = []
 
-    if f"\n  {VSTUPNI_SABLONA}:" not in config:
+    radek = next(
+        (r for r in config.splitlines()
+         if r.strip().startswith(f"{VSTUPNI_SABLONA}:")), None,
+    )
+    if radek is None:
         nalezy.append(
             f"go2rtc nezná vstupní šablonu '{VSTUPNI_SABLONA}' — ffmpeg "
             f"nedostane vstupní adresu a nic se nepřehraje"
         )
+    else:
+        # ═══ 3. Nedosazená zástupná hodnota ════════════════════════
+        # go2rtc 1.9.9 dosazuje ve vlastních šablonách JEDINÉ
+        # `{input}`. Cokoli jiného ve složených závorkách dojde do
+        # ffmpegu doslova a ten na tom spadne — typicky `{timeout}`,
+        # opsané z dokumentace novější verze.
+        zbyle = {z for z in re.findall(r"\{[a-z_]+\}", radek) if z != "{input}"}
+        if zbyle:
+            nalezy.append(
+                f"šablona '{VSTUPNI_SABLONA}' obsahuje zástupné hodnoty, "
+                f"které go2rtc 1.9.9 nedosazuje: {', '.join(sorted(zbyle))} "
+                f"— dojdou do ffmpegu doslova a ten spadne"
+            )
+        if "{input}" not in radek:
+            nalezy.append(
+                f"šablona '{VSTUPNI_SABLONA}' nemá {{input}} — ffmpeg by "
+                f"nedostal adresu kamery"
+            )
 
     if re.search(r'^\s*listen:\s*(""|\'\'|)\s*$', config, re.MULTILINE) and (
         "rtsp:" in config

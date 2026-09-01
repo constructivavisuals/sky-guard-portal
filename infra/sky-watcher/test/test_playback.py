@@ -197,6 +197,10 @@ def test_vynucene_tcp(zkontroluj) -> None:
                radek.strip()[:120])
     zkontroluj("nezahodila -timeout — mrtvá kamera nemá viset donekonečna",
                "-timeout" in radek, radek.strip()[:120])
+    # 1.9.9 dosazuje jen {input}; cokoli jiného dojde do ffmpegu doslova.
+    zkontroluj("a nemá zástupnou hodnotu, kterou 1.9.9 nedosadí",
+               [z for z in __import__("re").findall(r"\{[a-z_]+\}", radek)] == ["{input}"],
+               radek.strip()[:120])
 
 
 def test_uklid_sezeni(zkontroluj) -> None:
@@ -293,7 +297,8 @@ def test_chyba_z_go2rtc_nese_duvod(zkontroluj, port: int) -> None:
 
 DOBRY_KONFIG = (
     "ffmpeg:\n"
-    f"  {playback.VSTUPNI_SABLONA}: \"-rtsp_transport tcp -i {{input}}\"\n"
+    f"  {playback.VSTUPNI_SABLONA}: "
+    f"\"-timeout 5000000 -rtsp_transport tcp -i {{input}}\"\n"
     "\n"
     "rtsp:\n"
     '  listen: "127.0.0.1:8554"\n'
@@ -348,6 +353,19 @@ def test_kontrola_konfigurace(zkontroluj, port: int) -> None:
     zkontroluj("prázdný listen u webrtc se za vadu nebere",
                playback.overit_konfiguraci() == [],
                str(playback.overit_konfiguraci()))
+
+    # Zástupná hodnota, kterou 1.9.9 nedosazuje. Přesně tohle se stalo:
+    # opsáno z dokumentace novější verze, ffmpeg to dostal doslova.
+    FakeGo2rtc.config = DOBRY_KONFIG.replace("-timeout 5000000",
+                                             "-timeout {timeout}")
+    nalezy = playback.overit_konfiguraci()
+    zkontroluj("nedosazené {timeout} se pozná",
+               any("{timeout}" in n for n in nalezy), str(nalezy))
+
+    FakeGo2rtc.config = DOBRY_KONFIG.replace(" -i {input}", "")
+    nalezy = playback.overit_konfiguraci()
+    zkontroluj("chybějící {input} se pozná",
+               any("{input}" in n for n in nalezy), str(nalezy))
 
     # A hlavně: konfigurák, který je v repu, musí projít TOUTÉŽ
     # kontrolou, jakou pak běží proti nasazenému go2rtc. Jinak by se
