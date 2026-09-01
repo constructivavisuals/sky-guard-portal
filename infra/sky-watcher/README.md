@@ -363,7 +363,21 @@ Když playback nevyjde, je záchrana: klip se vezme ze živého vedlejšího
 proudu dopředu. Přijde se o pre-roll, ale důkaz zůstane. Hlásí se to
 jako varování — je to zhoršený stav, ne rovnocenná cesta.
 
-#### Klipy jen v ostrém režimu
+#### Zkouška klipu nanečisto
+
+```bash
+docker compose exec sky-klipy python /app/klipy.py --zkouska BK024AAPAG7107B
+```
+
+Vytáhne z karty úsek přesně tak, jako by přišla detekce, a řekne
+velikost i délku — ale **do portálu nic nepošle**. Klip totiž jinak
+vzniká až u skutečné události, tedy v noci a bez lidí; bez tohohle by
+se případná vada našla až ve chvíli, kdy na ní záleží.
+
+Kdyby to hlásilo, že se klip vzal ze živého obrazu, znamená to, že
+playback z karty nefunguje a klipu chybí vteřiny PŘED detekcí.
+
+### Klipy jen v ostrém režimu
 
 Přes den se klipy nepořizují: na stavbě se pohybují lidé, kteří tam
 být mají, a záznam je stejně na kartě v kameře. Do Hetzneru patří jen

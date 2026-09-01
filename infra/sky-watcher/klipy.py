@@ -340,7 +340,73 @@ def prubeh() -> None:
             dalsi_pokus(cesta, str(exc))
 
 
+def zkouska(serial: str) -> int:
+    """
+    Vytáhne klip nanečisto: z karty ano, do portálu ne.
+
+    ═══ Proč to jde vyzkoušet jen takhle ══════════════════════════
+    Klip vzniká až u detekce, tedy v noci a bez lidí. Do té doby se
+    o téhle cestě neví nic — a je to zrovna ta, na jejímž konci je
+    důkaz. Čekat na první skutečnou událost znamená zjistit případnou
+    vadu ve chvíli, kdy na ní záleží.
+
+    Ohlášení ani nahrání se schválně NEDĚLÁ: v portálu by přibyl
+    záznam bez detekce, ke které patří. Ověří se to podstatné —
+    že se z karty dá stáhnout použitelné video.
+    """
+    logging.basicConfig(
+        level="INFO", format="%(asctime)s %(levelname)s %(message)s",
+        stream=sys.stdout,
+    )
+    if not playback.KAMERY.obnov():
+        print("Portál nevrátil seznam kamer.")
+        return 2
+
+    kamera = playback.KAMERY.najdi(serial)
+    if not kamera or not kamera.get("lan_ip"):
+        print(f"Kamera {serial} v portálu není nebo nemá adresu.")
+        return 2
+
+    # Dost dozadu, aby to kamera měla na kartě dopsané.
+    kdy = datetime.now(timezone.utc) - timedelta(seconds=PRE_SEC + POST_SEC + 60)
+    od = kdy - timedelta(seconds=PRE_SEC)
+    delka = PRE_SEC + POST_SEC
+
+    print(f"\nKlip nanečisto: {serial} ({kamera.get('name', '?')})")
+    print(f"  od {od.astimezone().strftime('%H:%M:%S')}, {delka} s\n")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mp4 = Path(tmp) / "klip.mp4"
+        for popis, zdroj in zdroje_klipu(kamera["lan_ip"], od, delka):
+            zacatek = time.monotonic()
+            chyba = stahni(zdroj, mp4, delka)
+            doba = time.monotonic() - zacatek
+            if chyba:
+                print(f"  {popis}: NEVYŠLO za {doba:.1f} s")
+                for radek in chyba.splitlines()[:3]:
+                    print(f"      {radek.strip()[:140]}")
+                continue
+
+            velikost = mp4.stat().st_size
+            skutecna = watcher.probe_duration(mp4)
+            print(f"  {popis}: OK za {doba:.1f} s")
+            print(f"      {velikost / 1_048_576:.1f} MB, délka {skutecna or 0:.1f} s")
+            if popis != "karta":
+                print("      POZOR: vzalo se to ze živého obrazu, ne z karty —")
+                print("      klipu by chyběly vteřiny PŘED detekcí.")
+            if skutecna and abs(skutecna - delka) > max(2.0, delka * 0.25):
+                print(f"      POZOR: délka nesedí, čekalo se {delka} s.")
+            print("\n  Do portálu se nic neposlalo (je to zkouška).")
+            return 0
+
+    print("\n  Klip se nepodařilo pořídit ani jednou cestou.")
+    return 1
+
+
 def main() -> int:
+    if len(sys.argv) > 2 and sys.argv[1] == "--zkouska":
+        return zkouska(sys.argv[2])
+
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(message)s",
