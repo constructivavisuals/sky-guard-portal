@@ -93,12 +93,40 @@ def stav(lan_ip: str) -> dict:
     telo, _ = cti(lan_ip, "/cgi-bin/configManager.cgi?action=getConfig&name=NTP")
     ven["ntp"] = hodnota(telo, "table.NTP.Enable")
     ven["ntp_server"] = hodnota(telo, "table.NTP.Address")
+    # Zóna bývá u NTP, na starších firmwarech u Locales. Bere se, co je.
+    ven["zona"] = hodnota(telo, "table.NTP.TimeZone")
+    if ven["zona"] is None:
+        telo2, _ = cti(
+            lan_ip, "/cgi-bin/configManager.cgi?action=getConfig&name=Locales")
+        ven["zona"] = hodnota(telo2, "table.Locales.TimeZone")
 
     return ven
 
 
-def oprav(lan_ip: str) -> tuple[bool, str]:
-    """Zapne NTP i letní čas. Vrací (povedlo se, popis)."""
+# Zóna, ve které dává evropské pravidlo letního času smysl. U Dahuy
+# je to index, ne posun v hodinách — středoevropský čas bývá 1.
+ZONA_STREDNI_EVROPA = {"1", "+1", "1.0", "UTC+01:00"}
+
+
+def oprav(lan_ip: str, zona: str | None) -> tuple[bool, str]:
+    """
+    Zapne NTP i letní čas. Vrací (povedlo se, popis).
+
+    ═══ Past, kvůli které se kontroluje zóna ══════════════════════
+    Kamera, které někdo srovnal čas posunutím ZÓNY na UTC+02:00
+    místo zapnutím letního času, ukazuje teď správně. Kdyby se jí
+    k tomu letní čas zapnul, sečetlo by se to a byla by o hodinu
+    napřed — z fungující kamery by se stala rozbitá.
+
+    Proto se na takovou nesahá a řekne se to nahlas: napřed jí patří
+    vrátit zónu na +1, teprve pak letní čas.
+    """
+    if zona is not None and zona not in ZONA_STREDNI_EVROPA:
+        return False, (
+            f"zóna je {zona}, ne středoevropská — zapnout k tomu letní čas "
+            "by kameru posunulo o hodinu NAPŘED. Srovnej nejdřív zónu "
+            "na UTC+01:00."
+        )
     parametry = dict(LETNI_CAS)
     parametry["NTP.Enable"] = "true"
     parametry["NTP.Address"] = NTP_SERVER
@@ -142,6 +170,11 @@ def popis_stavu(s: dict, ted: datetime) -> tuple[str, bool]:
     if ntp != "true":
         spatne = True
 
+    zona = s.get("zona")
+    kusy.append(f"zóna: {zona or '?'}")
+    if zona is not None and zona not in ZONA_STREDNI_EVROPA:
+        spatne = True
+
     return "  |  ".join(kusy), spatne
 
 
@@ -180,7 +213,7 @@ def main() -> int:
         print(f"{jmeno}\n  {radek}")
 
         if spatne and args.oprav:
-            povedlo, chyba = oprav(lan_ip)
+            povedlo, chyba = oprav(lan_ip, stav(lan_ip).get("zona"))
             if povedlo:
                 # Kamera si čas srovná až po dotazu na NTP; přečte se
                 # znovu, ať je vidět, jestli to zabralo.
