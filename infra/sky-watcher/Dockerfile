@@ -14,7 +14,7 @@ WORKDIR /app
 # takže se podpis nemůže rozejít mezi nimi — a live.py, takže se
 # nemůže rozejít ani ověřování lístků.
 COPY watcher.py events.py live.py playback.py klipy.py portal.py \
-     zkouska.py /app/
+     zkouska.py hodiny.py /app/
 
 # Nepouštět jako root: kontejner sahá na sdílený inbox a jediné, co
 # potřebuje, je číst a mazat vlastní soubory.

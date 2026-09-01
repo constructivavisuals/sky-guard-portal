@@ -608,7 +608,24 @@ Výchozí je proto `subtype=0`; přebít se dá proměnnou `PLAYBACK_SUBTYPE`.
 má. Když vrátí 404 na oba, ptá se dál — a v tomhle pořadí, protože
 tak se to na místě ukázalo:
 
-**1. Hodiny kamery.** Adresa playbacku nese `starttime` v čase KAMERY.
+**1. Hodiny kamery.** Na tohle je vlastní nástroj:
+
+```bash
+docker compose exec sky-playback python /app/hodiny.py          # jen zkontroluje
+docker compose exec sky-playback python /app/hodiny.py --oprav  # zapne NTP a letní čas
+```
+
+Změřeno na místě: dvě kamery z devíti měly přesně **−60 minut**. Zóna
+přitom byla správná (UTC+01:00) — vypnutý byl **letní čas**. Od konce
+března do konce října je u nás UTC+02:00, takže kamera poctivě
+ukazovala zimní čas.
+
+Ručním přestavením se to nespraví: v říjnu by byla o hodinu vedle na
+druhou stranu a bez NTP hodiny stejně pomalu ujíždějí. Nástroj proto
+zapíná obojí — NTP i letní čas podle evropského pravidla (poslední
+neděle v březnu a v říjnu).
+
+Podrobněji: Adresa playbacku nese `starttime` v čase KAMERY.
 Portál počítá v UTC a relay to převádí do zóny lokality, jenže kamera
 se řídí svými hodinami. Když jdou špatně, ptáme se na okamžik, který
 u ní nenastal — a ona odpoví 404, přestože je karta plná. Zvenčí je to
