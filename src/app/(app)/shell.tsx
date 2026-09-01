@@ -35,8 +35,20 @@ export function Shell({
   profile: CurrentProfile | null;
   capabilities: SiteCapabilities;
 }) {
+  // ═══ Stránka se neposouvá jako celek ═══════════════════════════
+  // `h-dvh` a skryté přetečení na VŠECH velikostech, ne jen nad lg.
+  // Posouvá se jen `main` uvnitř.
+  //
+  // S `min-h-dvh` byla stránka vysoká nejméně přes celou obrazovku
+  // a spodní odsazení pod fixní lištu se přičítalo NAD to — takže
+  // i krátký přehled šel o kus stáhnout dolů do prázdna. Na telefonu
+  // to člověk cítí jako nedodělek: obsah se pod prstem hne a není za
+  // čím jít.
+  //
+  // Vedlejší užitek: Safari nesbaluje při posouvání svůj panel, takže
+  // se výška okna během používání nemění.
   return (
-    <div className="flex min-h-dvh bg-[var(--bg)] lg:h-dvh lg:overflow-hidden">
+    <div className="flex h-dvh overflow-hidden bg-[var(--bg)]">
       <Sidebar profile={profile} capabilities={capabilities} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -56,7 +68,7 @@ export function Shell({
 
             `clip`, ne `hidden`: nezakládá posuvný kontejner, takže
             nekoliduje se svislým posouváním ani se `sticky` uvnitř. */}
-        <main className="flex flex-1 flex-col overflow-x-clip lg:overflow-y-auto">
+        <main className="flex flex-1 flex-col overflow-y-auto overflow-x-clip">
           {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg
               už žádná není. */}
           <div className="pb-20 lg:pb-0">{children}</div>

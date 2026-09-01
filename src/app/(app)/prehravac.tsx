@@ -7,7 +7,15 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Pause, Play, Volume2, VolumeX, WifiOff } from "lucide-react";
+import {
+  Maximize,
+  Minimize,
+  Pause,
+  Play,
+  Volume2,
+  VolumeX,
+  WifiOff,
+} from "lucide-react";
 
 import { Nacitani } from "@/components/nacitani.tsx";
 
@@ -273,11 +281,23 @@ export function Prehravac({
   // Přes useSyncExternalStore, ne přes useState s efektem: media query
   // JE vnější zdroj a tohle je přesně to, na co ten hook je. Serverový
   // snímek je `false`, takže se na serveru vykreslí normální okno.
-  const celaObrazovka = useSyncExternalStore(
+  const naLezato = useSyncExternalStore(
     odberOrientace,
     () => window.matchMedia(NALEZATO).matches,
     () => false,
   );
+
+  // ═══ Otočení nestačí, musí být i tlačítko ════════════════════════
+  // Aplikace přidaná na plochu má v manifestu `orientation: portrait`,
+  // takže se NEOTOČÍ — a s ní ani obraz. Totéž když má člověk
+  // zamčenou orientaci v ovládacím centru. Na otáčení se tedy spolehnout
+  // nedá a bez tlačítka by se do celé obrazovky nedostal vůbec.
+  //
+  // `null` znamená „rozhoduje otočení". Jakmile někdo sáhne na
+  // tlačítko, rozhoduje ono — dvě věci, které si přetahují tentýž
+  // stav, jsou horší než jasné pořadí.
+  const [rucne, setRucne] = useState<boolean | null>(null);
+  const celaObrazovka = rucne ?? naLezato;
 
   // Přiblížení platí jen v celé obrazovce: v malém okně se přiblížený
   // obraz nedá rozumně posouvat a člověk by nevěděl, čím to je.
@@ -729,9 +749,14 @@ export function Prehravac({
           <>
             <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3">
               <span className="text-sm font-medium text-white">{cameraName}</span>
-              <span className="ml-auto text-[11px] text-white/60">
-                otočením zpět zmenšíte
-              </span>
+              <button
+                type="button"
+                onClick={() => setRucne(false)}
+                aria-label="Zmenšit"
+                className="pointer-events-auto ml-auto flex h-9 w-9 items-center justify-center text-white/80 transition active:scale-95"
+              >
+                <Minimize className="h-5 w-5" aria-hidden="true" />
+              </button>
             </div>
 
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
@@ -774,10 +799,22 @@ export function Prehravac({
           </span>
         ) : null}
 
+        {/* Celá obrazovka tlačítkem, ne jen otočením: v aplikaci
+            přidané na plochu je orientace zamčená na výšku a otočení
+            se nekoná. Viz `rucne` výš. */}
+        <button
+          type="button"
+          onClick={() => setRucne(true)}
+          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+          aria-label="Na celou obrazovku"
+        >
+          <Maximize className="h-4 w-4" aria-hidden="true" />
+        </button>
+
         <button
           type="button"
           onClick={() => setZvuk((z) => !z)}
-          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
           aria-label={zvuk ? "Vypnout zvuk" : "Zapnout poslech"}
         >
           {zvuk ? (
