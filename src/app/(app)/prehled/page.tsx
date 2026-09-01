@@ -240,7 +240,13 @@ export default async function Page() {
 
   return (
     <>
-      <PageHeader title="Přehled" description={site.name} />
+      {/* Na telefonu skrytý: „Přehled" je vidět ve spodní liště jako
+          aktivní položka a lokalita v horní. Nadpis tedy neříká nic
+          navíc a zabírá výšku, kvůli které se poslední dlaždice
+          nevešly na obrazovku. */}
+      <div className="hidden sm:block">
+        <PageHeader title="Přehled" description={site.name} />
+      </div>
 
       {/* Dva sloupce až od lg, dělené svislou vlasovou linkou, která
           jde od horní hrany bloku k dolní — bez mezery, aby navázala
@@ -356,7 +362,7 @@ function StatusBar({
 
   return (
     <>
-      <Section className="relative">
+      <Section className="relative py-3 sm:py-6">
         {/* Svislý pruh v barvě stavu. Nahrazuje obarvený rámeček karty:
             rámeček by přerušil linku, pruh do mřížky zapadne. */}
         <span
@@ -378,7 +384,7 @@ function StatusBar({
             Stav střežení
           </p>
         </div>
-        <p className="mt-2.5 text-[17px] font-normal leading-snug tracking-tight sm:mt-3 sm:text-2xl">
+        <p className="mt-2 text-[16px] font-normal leading-snug tracking-tight sm:mt-3 sm:text-2xl">
           {sentence}
           {switchNote ? (
             <span className="text-[var(--text-muted)]"> {switchNote}</span>
@@ -421,7 +427,7 @@ function NaKamery({ pocet }: { pocet: number }) {
   return (
     <Link
       href="/kamery"
-      className="flex items-center gap-3 border-b border-[var(--line)] px-5 py-4 transition hover:bg-[var(--surface-2)] sm:px-6"
+      className="flex items-center gap-3 border-b border-[var(--line)] px-5 py-3 transition hover:bg-[var(--surface-2)] sm:px-6 sm:py-4"
     >
       <Video
         className="h-4 w-4 shrink-0 text-[var(--accent-bright)]"
@@ -474,7 +480,7 @@ function KameryABlok({
 }) {
   return (
     <>
-      <Section className="pb-0 sm:pb-0">
+      <Section className="py-3 pb-0 sm:py-6 sm:pb-0">
         <BlockTitle className="mb-0">Kamery</BlockTitle>
       </Section>
       <div className="hairline-grid grid-cols-2 sm:grid-cols-4">
@@ -692,17 +698,17 @@ function Numbers({
 
   return (
     <>
-      <Section className="pb-0 sm:pb-0">
+      <Section className="py-3 pb-0 sm:py-6 sm:pb-0">
         <BlockTitle className="mb-0">Dnes</BlockTitle>
       </Section>
       <div className="hairline-grid grid-cols-2">
         {cells.map((cell) => (
-          <div key={cell.label} className="px-5 py-5 sm:px-6">
+          <div key={cell.label} className="px-5 py-3 sm:px-6 sm:py-5">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
               {cell.label}
             </div>
             <div
-              className={`mt-2 text-3xl font-normal tabular-nums tracking-tight ${
+              className={`mt-1 text-2xl font-normal tabular-nums tracking-tight sm:mt-2 sm:text-3xl ${
                 cell.muted ? "text-[var(--text-muted)]" : "text-[var(--text)]"
               }`}
             >

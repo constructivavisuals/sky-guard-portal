@@ -10,6 +10,13 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Perimetrická ochrana dronem",
     lang: "cs",
     display: "standalone",
+    // Zamyká orientaci jen tam, kde to prohlížeč umí — tedy na
+    // Androidu. iOS pole `orientation` IGNORUJE i v aplikaci přidané
+    // na plochu a webu žádné API na zamčení nedává; kdo to na iPhonu
+    // chce, musí použít zámek otáčení v ovládacím centru.
+    //
+    // Proto má přehrávač na celou obrazovku vlastní tlačítko a
+    // nespoléhá na otočení.
     orientation: "portrait",
     theme_color: "#08090C",
     background_color: "#08090C",
