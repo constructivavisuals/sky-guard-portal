@@ -54,6 +54,36 @@ const KODEKY = [
 ];
 
 /**
+ * Která implementace MediaSource je k dispozici.
+ *
+ * ═══ Na iPhonu není `MediaSource` ══════════════════════════════════
+ * Safari na iOS ho nikdy nemělo; od iOS 17.1 nabízí `ManagedMediaSource`,
+ * kde o zahazování rozhoduje systém. Kód psaný jen proti `MediaSource`
+ * na telefonu spadne na `ReferenceError` — a spadne UVNITŘ obsluhy
+ * události `open`, tedy tam, kde ho nikdo nechytí. Websocket zůstane
+ * otevřený, kodeky se nepošlou a na obraze navěky svítí „připojuje
+ * se“. Přesně tak se to projevilo.
+ *
+ * Vrací `null`, když prohlížeč neumí ani jedno. Pak nemá cenu otevírat
+ * spojení: divák se má dozvědět, že to jeho prohlížeč nepřehraje, ne
+ * čekat na obraz, který nemůže přijít.
+ */
+function vyberMediaSource(): {
+  trida: typeof MediaSource;
+  rizena: boolean;
+} | null {
+  if (typeof window === "undefined") return null;
+  const okno = window as unknown as Record<string, unknown>;
+  if (typeof okno.ManagedMediaSource === "function") {
+    return { trida: okno.ManagedMediaSource as typeof MediaSource, rizena: true };
+  }
+  if (typeof okno.MediaSource === "function") {
+    return { trida: okno.MediaSource as typeof MediaSource, rizena: false };
+  }
+  return null;
+}
+
+/**
  * Jak daleko za živým okrajem se ještě toleruje.
  *
  * Prohlížeč po zadrhnutí sítě dohání zameškané, místo aby zahodil —
@@ -169,6 +199,15 @@ export function Prehravac({
     const prvek = video.current;
     if (!prvek) return;
 
+    const mse = vyberMediaSource();
+    if (!mse) {
+      // Bez MediaSource se obraz složit nedá. Spojení se ani neotevírá:
+      // viselo by a vypadalo jako výpadek kamery.
+      setStav("chyba");
+      setDuvod("Tenhle prohlížeč neumí přehrát živý obraz. Na iPhonu ho zvládne Safari od iOS 17.1.");
+      return;
+    }
+
     const ws = new WebSocket(konfigurace.url);
     ws.binaryType = "arraybuffer";
     socket.current = ws;
@@ -222,11 +261,21 @@ export function Prehravac({
     ws.addEventListener("open", () => {
       pokus.current = 0;
 
-      ms = new MediaSource();
-      adresaBlobu = URL.createObjectURL(ms);
-      // Obraz se do <video> dostává jako blob, ne z adresy — proto
-      // `media-src blob:` v CSP.
-      prvek.src = adresaBlobu;
+      ms = new mse.trida();
+      if (mse.rizena) {
+        // ManagedMediaSource (iOS 17.1+) chce `srcObject`, ne adresu
+        // blobu, a bez `disableRemotePlayback` se Safari pokusí proud
+        // poslat na AirPlay a obraz se nerozjede. Takhle to má
+        // i referenční klient go2rtc.
+        prvek.disableRemotePlayback = true;
+        prvek.srcObject = ms;
+      } else {
+        adresaBlobu = URL.createObjectURL(ms);
+        // Obraz se do <video> dostává jako blob, ne z adresy — proto
+        // `media-src blob:` v CSP.
+        prvek.src = adresaBlobu;
+        prvek.srcObject = null;
+      }
 
       ms.addEventListener(
         "sourceopen",
@@ -238,8 +287,11 @@ export function Prehravac({
           }
           // Relayi se řekne, co umíme; on vybere, co pošle, a co
           // nesedí, překóduje.
+          // Ptát se musí TÉ implementace, která se použila:
+          // ManagedMediaSource podporuje jinou množinu než MediaSource
+          // a odpověď z té druhé by neplatila.
           const podporovane = KODEKY.filter((kodek) =>
-            MediaSource.isTypeSupported(`video/mp4; codecs="${kodek}"`),
+            mse.trida.isTypeSupported(`video/mp4; codecs="${kodek}"`),
           );
           if (ws.readyState !== WebSocket.OPEN) return;
           ws.send(JSON.stringify({ type: "mse", value: podporovane.join(",") }));

@@ -3,20 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  DoorOpen,
-  FileText,
-  History,
-  LayoutDashboard,
   LogOut,
-  MapPin,
   MoreHorizontal,
-  Plane,
-  Route,
-  ScanEye,
-  Send,
   Settings,
   Users,
-  Video,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -25,7 +15,7 @@ import type { SiteCapabilities } from "@/lib/site.ts";
 
 import { visibleRoutes } from "@/lib/nav.ts";
 
-import type { NavItem } from "./sidebar.tsx";
+import { NAV_ITEMS, type NavItem } from "./sidebar.tsx";
 
 // Spodní navigace pro mobil, vzor převzatý z constructiva-portal.
 // Pět položek je strop, na který se na 375 px vejdou popisky — zbytek
@@ -34,22 +24,29 @@ import type { NavItem } from "./sidebar.tsx";
 // Co která položka potřebuje, je v NAV_NEEDS v lib/nav.ts. Tady ani
 // v sidebaru to vypsané není: dvě kopie téhož pravidla se rozešly
 // a nikdo si toho měsíc nevšiml.
-const PRIMARY = [
-  { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
-  { href: "/detekce", label: "Detekce", icon: ScanEye },
-  { href: "/zasahy", label: "Zásahy", icon: Send },
-  { href: "/lety", label: "Lety", icon: Plane },
-] as const satisfies readonly NavItem[];
+//
+// ═══ A seznam položek se odvozuje ze sidebaru ══════════════════════
+// Ze stejného důvodu, jen o patro výš: vypsaný zvlášť se rozešel taky.
+// „Živý obraz" tady CHYBĚL od chvíle, kdy vznikl — na mobilu se na něj
+// nedalo dostat vůbec a nikdo si toho nevšiml, protože sidebar ho měl.
+//
+// Teď se tu volí jediná věc: co se vejde do spodní lišty. Zbytek jde
+// pod „Více" sám a nová stránka se v mobilu objeví, aniž by se sem
+// muselo sahat.
+const PRIMARY_HREFS = new Set<string>([
+  "/prehled",
+  "/detekce",
+  "/zasahy",
+  "/lety",
+]);
 
-const SECONDARY = [
-  { href: "/hlidky", label: "Hlídky", icon: Route },
-  { href: "/arealy", label: "Areály", icon: MapPin },
-  { href: "/osa", label: "Časová osa", icon: History },
-  { href: "/zaznamy", label: "Záznamy", icon: Video },
-  { href: "/brana", label: "Brána", icon: DoorOpen },
-  { href: "/reporty", label: "Reporty", icon: FileText },
-  { href: "/nastaveni", label: "Nastavení", icon: Settings },
-] as const satisfies readonly NavItem[];
+// Pořadí zůstává podle sidebaru — jedno menu, jedno pořadí.
+const PRIMARY: readonly NavItem[] = NAV_ITEMS.filter((item) =>
+  PRIMARY_HREFS.has(item.href),
+);
+const SECONDARY: readonly NavItem[] = NAV_ITEMS.filter(
+  (item) => !PRIMARY_HREFS.has(item.href),
+);
 
 /** Jen pro administrátora; zámek je na stránce samotné. */
 const ADMIN_SECONDARY = [

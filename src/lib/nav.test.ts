@@ -131,6 +131,25 @@ const cesty = (caps: { drone: boolean; cameras: boolean }) =>
     caps,
   ).map((p) => p.href);
 
+describe("Stránky s obrazem", () => {
+  // Živý obraz, časová osa i záznamy stojí na kamerách. Kdyby některá
+  // z nich v NAV_NEEDS chyběla, routeNeeds() vrátí null a položka se
+  // ukáže i areálu bez kamer — tiše, protože výchozí hodnota míří na
+  // „radši navíc než chybět". Právě takhle se na /osa zapomnělo.
+  for (const href of ["/zive", "/osa", "/zaznamy"]) {
+    it(`${href} je vázaná na kamery`, () => {
+      assert.equal(routeNeeds(href), "cameras");
+    });
+
+    it(`${href} má pravidlo vypsané, ne odvozené z výchozí hodnoty`, () => {
+      assert.ok(
+        Object.hasOwn(NAV_NEEDS, href),
+        `${href} chybí v NAV_NEEDS — ukáže se všude`,
+      );
+    });
+  }
+});
+
 describe("NAV_NEEDS", () => {
   it("stavba bez dronu nemá zásahy, lety ani hlídky", () => {
     const out = cesty(siteCapabilities([stavba], stavba));
