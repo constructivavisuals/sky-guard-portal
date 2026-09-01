@@ -452,11 +452,24 @@ klíčový snímek — na tom se nic nezměnilo. Proto se během načítání
 ukazují skutečné fáze navazování v procentech: když se ukazatel
 zastaví na 35 %, stojí websocket a kodeky se neposlaly.
 
-**Volba `main` v živém obrazu zmizela.** Podle měření je hlavní proud
-přes tunel nepoužitelný, takže nabízet „Detailní“ znamenalo nabízet
-rozbitý obraz. Relay proud `<sériové>` pořád generuje — go2rtc se ke
-kameře připojí až když si o něj někdo řekne, takže nepoužitý nic
-nestojí — ale lístek se na něj nevydává, takže je nedosažitelný.
+**Volba `main` v živém obrazu je zpátky, ale jako volba.** Výchozí
+zůstává vedlejší proud.
+
+Měření, které hlavní proud kdysi vyřadilo, se dělalo `ffplay` po UDP —
+tam se ztracený paket neopakuje a přetížená linka vyrobí rozsypaný
+obraz. Do prohlížeče ale jde obraz přes go2rtc **po TCP**, kde se
+totéž přetížení projeví zadrháváním, ne rozpadem. Použitelný tedy být
+může; záleží na lince konkrétní stavby a to se z portálu nepozná.
+
+Proto je to tlačítko v záložce Živě (Plynulá / Detailní), volba se
+pamatuje v prohlížeči a výchozí je ta, která projde vždycky. Kdo si
+o detail řekne, ví, že si o něj řekl — obráceně by první dojem
+z živého obrazu byl zaseknutý obraz, a přesně proto ta volba jednou
+zmizela.
+
+Pro **přehrávání ze záznamu se nemění nic**: `PLAYBACK_PATH` má
+`subtype=1` natvrdo, protože karta drží vedlejší proud — tok se
+počítal právě na její kapacitu (viz MONTAZ.md).
 
 ### Co ještě zbývá
 
