@@ -2,18 +2,18 @@ import type { NextRequest } from "next/server";
 
 import { liveStreamConfig } from "@/lib/env.ts";
 import { issueLiveToken } from "@/lib/live/token.ts";
-import { liveSocketUrl, streamName } from "@/lib/live/stream.ts";
+import { isStreamQuality, liveSocketUrl, streamName } from "@/lib/live/stream.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
-// GET /api/kamery/<id>/zivy
+// GET /api/kamery/<id>/zivy?kvalita=sub|main
 //
 // Lístek na živý obraz jedné kamery.
 //
-// ═══ Kvalita se nevybírá ═══════════════════════════════════════════
-// Dřív se dal parametrem `kvalita` zvolit hlavní proud (4K). Změřeno
-// na místě, že se přes tunel rozpadá, takže ta volba zmizela — viz
-// streamName(). Starý parametr se mlčky ignoruje, aby uložený odkaz
-// nespadl; dostane vedlejší proud, tedy ten, který funguje.
+// ═══ Kvalita se vybírá, ale výchozí je vedlejší ════════════════════
+// Hlavní proud je 4K a přes tunel nemusí projít — záleží na lince
+// konkrétní stavby. Neznámá nebo chybějící hodnota proto padá na
+// vedlejší, ne na chybu: uložený odkaz se nemá rozbít a nikdo nemá
+// dostat 4K jen proto, že se překlepl.
 //
 // ═══ Proč to nejde přes portál ═════════════════════════════════════
 // Serverless funkce neudrží minutové spojení a video by teklo přes
@@ -52,10 +52,13 @@ function jsonError(status: number, error: string) {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   ctx: RouteContext<"/api/kamery/[id]/zivy">,
 ): Promise<Response> {
   const { id } = await ctx.params;
+
+  const kvalitaRaw = request.nextUrl.searchParams.get("kvalita");
+  const kvalita = isStreamQuality(kvalitaRaw) ? kvalitaRaw : "sub";
 
   let config;
   try {
@@ -91,7 +94,7 @@ export async function GET(
     return jsonError(409, "camera_without_serial");
   }
 
-  const stream = streamName(camera.serial_number);
+  const stream = streamName(camera.serial_number, kvalita);
   const { token, expiresIn } = issueLiveToken({ stream, secret: config.secret });
 
   console.info("Vydán lístek na živý obraz", {
@@ -102,6 +105,7 @@ export async function GET(
   return Response.json(
     {
       stream,
+      quality: kvalita,
       url: liveSocketUrl({ baseUrl: config.baseUrl, stream, token }),
       expires_in: expiresIn,
     },

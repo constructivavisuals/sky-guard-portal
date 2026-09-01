@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  isStreamQuality,
   liveSocketUrl,
   playbackSocketUrl,
   playbackStreamName,
@@ -11,8 +12,29 @@ import {
 const SERIAL = "BK024AAPAGB5592";
 
 describe("streamName", () => {
-  it("vždycky vedlejší proud — hlavní se přes tunel rozpadá", () => {
+  it("bez upřesnění vedlejší proud — ten projde i po slabší lince", () => {
     assert.equal(streamName(SERIAL), `${SERIAL}_sub`);
+  });
+
+  it("vedlejší má příponu _sub — musí sedět s live.py", () => {
+    assert.equal(streamName(SERIAL, "sub"), `${SERIAL}_sub`);
+  });
+
+  it("hlavní je holé sériové číslo", () => {
+    assert.equal(streamName(SERIAL, "main"), SERIAL);
+  });
+});
+
+describe("isStreamQuality", () => {
+  it("bere jen ty dvě hodnoty", () => {
+    assert.ok(isStreamQuality("sub"));
+    assert.ok(isStreamQuality("main"));
+  });
+
+  it("nesmysl neprojde — routa pak padá na vedlejší, ne na 4K", () => {
+    for (const x of ["4k", "", null, undefined, 1, "MAIN"]) {
+      assert.equal(isStreamQuality(x), false, String(x));
+    }
   });
 });
 

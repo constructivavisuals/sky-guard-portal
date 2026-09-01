@@ -3,28 +3,39 @@
 // Čisté, bez sítě: skládání adresy je přesně to, co se snadno rozejde
 // mezi portálem a relayem, a otestovat se to dá bez obojího.
 
+/** Který proud kamery. */
+export const STREAM_QUALITIES = ["sub", "main"] as const;
+export type StreamQuality = (typeof STREAM_QUALITIES)[number];
+
+export function isStreamQuality(value: unknown): value is StreamQuality {
+  return value === "sub" || value === "main";
+}
+
 /**
  * Jméno proudu v go2rtc pro ŽIVÝ obraz.
  *
  * Sériové číslo, ne UUID kamery: relay zná kamery podle sériového čísla
  * všude jinde (příjem záznamů, události) a druhý identifikátor by se
- * dřív nebo později rozešel.
+ * dřív nebo později rozešel. Přípona `_sub` musí sedět s live.py,
+ * které konfiguraci go2rtc generuje.
  *
- * ═══ Vždycky vedlejší proud ════════════════════════════════════════
- * Hlavní (4K) se dřív dal vybrat jako „Detailní“. Změřeno na místě, že
- * se přes tunel ROZPADÁ — živě i z karty. Není to vada kodeku, je to
- * víc dat, než linka unese. Volba tedy zmizela: nabízet ji znamenalo
- * nabízet rozbitý obraz.
+ * ═══ Výchozí je VEDLEJŠÍ proud, a to zůstává ═══════════════════════
+ * Hlavní (4K) se na místě změřil jako rozpadlý přes tunel. Měřilo se
+ * ale `ffplay` po UDP, kde se ztracený paket neopakuje — proud do
+ * prohlížeče jde přes go2rtc po TCP, kde se stejné přetížení projeví
+ * jako zadrhávání, ne jako rozsypaný obraz. Použitelný tedy být může.
  *
- * Relay proud `<sériové>` (bez přípony) pořád generuje — go2rtc se ke
- * kameře připojí až když si o proud někdo řekne, takže nepoužitý proud
- * nic nestojí. Lístek na něj se ale nevydává, takže je nedosažitelný.
- *
- * Přípona `_sub` musí sedět s live.py, které konfiguraci go2rtc
- * generuje.
+ * Záleží to na LINCE KONKRÉTNÍ STAVBY a to se z portálu nepozná. Proto
+ * je to volba diváka a ne nové výchozí nastavení: kdo si o detail
+ * řekne, ví, že si o něj řekl, a pozná i to, když se nerozjede. Opačné
+ * pořadí by znamenalo, že první dojem z živého obrazu je zaseknutý
+ * obraz — a přesně proto ta volba jednou zmizela.
  */
-export function streamName(serialNumber: string): string {
-  return `${serialNumber}_sub`;
+export function streamName(
+  serialNumber: string,
+  quality: StreamQuality = "sub",
+): string {
+  return quality === "main" ? serialNumber : `${serialNumber}_sub`;
 }
 
 /**

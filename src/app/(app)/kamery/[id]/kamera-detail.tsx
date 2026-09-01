@@ -32,6 +32,50 @@ const ZALOZKY = [
   { key: "udalosti" as const, label: "Události", icon: ScanEye },
 ];
 
+type Kvalita = "sub" | "main";
+
+/**
+ * Volba proudu, jako má DMSS tlačítko s rozlišením.
+ *
+ * ═══ Proč volba a ne nové výchozí nastavení ════════════════════════
+ * Hlavní proud je 4K a na místě se změřil jako nepoužitelný přes
+ * tunel. Měřilo se ale po UDP, kde se ztracený paket neopakuje —
+ * do prohlížeče jde obraz přes go2rtc po TCP, kde se stejné přetížení
+ * projeví zadrháváním, ne rozsypaným obrazem. Použitelný tedy být
+ * může a záleží to na lince konkrétní stavby, což portál nepozná.
+ *
+ * Kdo si o detail řekne, ví, že si o něj řekl. Obráceně by první
+ * dojem z živého obrazu byl zaseknutý obraz — a přesně proto tahle
+ * volba jednou zmizela.
+ */
+const KVALITY = [
+  { key: "sub" as const, label: "Plynulá", popis: "Vedlejší proud — projde i po slabší lince" },
+  { key: "main" as const, label: "Detailní", popis: "Hlavní proud v plném rozlišení" },
+];
+
+const ULOZISTE_KLIC = "sky-guard.kvalita-obrazu";
+
+/**
+ * Uložená volba. Selhání se ignoruje: v anonymním okně nebo
+ * s blokovaným úložištěm to vyhodí výjimku a kvůli předvolbě nemá
+ * spadnout celá stránka.
+ */
+function nactiKvalitu(): Kvalita {
+  try {
+    return localStorage.getItem(ULOZISTE_KLIC) === "main" ? "main" : "sub";
+  } catch {
+    return "sub";
+  }
+}
+
+function ulozKvalitu(kvalita: Kvalita): void {
+  try {
+    localStorage.setItem(ULOZISTE_KLIC, kvalita);
+  } catch {
+    // Nevadí; platí do konce sezení.
+  }
+}
+
 /** Kolik zpátky se otevírá záznam, když na něj člověk poprvé přepne. */
 const VYCHOZI_ZPET_MS = 3_600_000;
 
@@ -65,6 +109,22 @@ export function KameraDetail({
     () => true,
     () => false,
   );
+  // ═══ Uložená volba kvality ══════════════════════════════════════
+  // Přes useSyncExternalStore, ne přes useState s efektem: na serveru
+  // localStorage není, takže se serverový snímek drží na „sub" a po
+  // hydrataci se přečte skutečná volba. Efekt s setState by vyrobil
+  // kaskádový render navíc a React ho právem odmítá.
+  //
+  // `volba` je přepnutí v tomhle sezení; dokud nikdo nepřepnul, platí
+  // to uložené.
+  const ulozena = useSyncExternalStore(
+    () => () => {},
+    nactiKvalitu,
+    () => "sub" as Kvalita,
+  );
+  const [volba, setVolba] = useState<Kvalita | null>(null);
+  const kvalita = volba ?? ulozena;
+
   const [od, setOd] = useState(() => new Date(Date.now() - VYCHOZI_ZPET_MS));
   const [ted, setTed] = useState(() => Date.now());
 
@@ -114,8 +174,10 @@ export function KameraDetail({
         // Živě i u událostí: nad seznamem má běžet obraz, ne černá
         // plocha. Do nahydratování taky — vybraný čas ještě není.
         <Prehravac
-          key={`${cameraId}-zive`}
-          konfiguraceUrl={`/api/kamery/${cameraId}/zivy`}
+          // Kvalita je v klíči: jiný proud, ne přepnutí zdroje
+          // v běžícím <video>.
+          key={`${cameraId}-zive-${kvalita}`}
+          konfiguraceUrl={`/api/kamery/${cameraId}/zivy?kvalita=${kvalita}`}
           cameraName={cameraName}
         />
       ) : (
@@ -155,10 +217,40 @@ export function KameraDetail({
 
       {/* ── Obsah záložky ─────────────────────────────────────── */}
       {zalozka === "zive" ? (
-        <p className="px-4 py-4 text-xs text-[var(--text-muted)] sm:px-6">
-          Obraz jde přímo z kamery. Co bylo dřív, najdete v Přehrávání —
-          kamera drží zhruba {dosahDni} dní zpětně.
-        </p>
+        <div className="px-4 py-4 sm:px-6">
+          <div
+            className="flex items-center gap-2"
+            role="group"
+            aria-label="Kvalita obrazu"
+          >
+            <span className="text-xs text-[var(--text-muted)]">Kvalita</span>
+            {KVALITY.map(({ key, label, popis }) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={kvalita === key}
+                onClick={() => {
+                  setVolba(key);
+                  ulozKvalitu(key);
+                }}
+                title={popis}
+                className={`border px-3 py-1 text-xs transition ${
+                  kvalita === key
+                    ? "border-[var(--accent-bright)] text-[var(--accent-bright)]"
+                    : "border-[var(--line)] text-[var(--text-muted)] hover:border-[var(--line-strong)] hover:text-[var(--text)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
+            {kvalita === "main"
+              ? "Hlavní proud je v plném rozlišení a přes linku stavby nemusí stačit — když se obraz zadrhává, přepněte na plynulý."
+              : `Obraz jde přímo z kamery. Co bylo dřív, najdete v Přehrávání — kamera drží zhruba ${dosahDni} dní zpětně.`}
+          </p>
+        </div>
       ) : null}
 
       {zalozka === "zaznam" ? (
