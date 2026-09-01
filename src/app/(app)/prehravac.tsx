@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX, WifiOff } from "lucide-react";
 
+import { Nacitani } from "@/components/nacitani.tsx";
+
 // Přehrávač obrazu z kamery — živého i ze záznamu na její SD kartě.
 //
 // ═══ Jedna komponenta pro obojí ════════════════════════════════════
@@ -104,10 +106,35 @@ const TICHO_LIMIT_MS = 10_000;
 
 type Stav = "pripojuje" | "hraje" | "chyba";
 
+/**
+ * Kam se dostalo navazování. Ukazuje se jako procenta — viz Nacitani.
+ *
+ * Jsou to skutečné fáze, ne odpočet: když se ukazatel zastaví na 35 %,
+ * je jasné, že websocket stojí a kodeky se neposlaly. Přesně tuhle
+ * závadu jsme hledali nejdéle.
+ */
+const POSTUP = {
+  start: 5,
+  listek: 15,
+  socket: 35,
+  kodeky: 55,
+  data: 80,
+  hraje: 100,
+} as const;
+
 interface Odpoved {
   url: string;
   stream: string;
   expires_in: number;
+}
+
+/** Co se zrovna děje. Bez toho jsou procenta jen číslo. */
+function popisPostupu(postup: number, kamera: string): string {
+  if (postup >= POSTUP.data) return "Skládá se obraz";
+  if (postup >= POSTUP.kodeky) return "Čeká se na obraz z kamery";
+  if (postup >= POSTUP.socket) return "Domlouvá se formát";
+  if (postup >= POSTUP.listek) return `Připojuje se ke kameře ${kamera}`;
+  return "Ověřuje se přístup";
 }
 
 export function Prehravac({
@@ -130,6 +157,7 @@ export function Prehravac({
   const video = useRef<HTMLVideoElement>(null);
   const socket = useRef<WebSocket | null>(null);
   const [stav, setStav] = useState<Stav>("pripojuje");
+  const [postup, setPostup] = useState<number>(POSTUP.start);
   const [zvuk, setZvuk] = useState(false);
   const [duvod, setDuvod] = useState<string | null>(null);
 
@@ -157,6 +185,7 @@ export function Prehravac({
     // znamenala, že se obraz vrátí až večer.
     const prodleva = Math.min(30_000, 1000 * 2 ** (pokus.current - 1));
     setStav("pripojuje");
+    setPostup(POSTUP.start);
     casovac.current = setTimeout(() => pripojitRef.current(), prodleva);
   }, []);
 
@@ -189,6 +218,7 @@ export function Prehravac({
         return;
       }
       konfigurace = await odpoved.json();
+      setPostup(POSTUP.listek);
     } catch {
       setStav("chyba");
       setDuvod("Portál neodpovídá.");
@@ -260,6 +290,7 @@ export function Prehravac({
     // i referenční klient go2rtc.
     ws.addEventListener("open", () => {
       pokus.current = 0;
+      setPostup(POSTUP.socket);
 
       ms = new mse.trida();
       if (mse.rizena) {
@@ -295,6 +326,7 @@ export function Prehravac({
           );
           if (ws.readyState !== WebSocket.OPEN) return;
           ws.send(JSON.stringify({ type: "mse", value: podporovane.join(",") }));
+          setPostup(POSTUP.kodeky);
 
           // Hlídka: mlčící spojení vypadá stejně jako pomalé. Bez ní
           // zůstane na obraze „připojuje se“ i tehdy, když už je
@@ -326,6 +358,7 @@ export function Prehravac({
           // za sebe podle pořadí příchodu.
           sb.mode = "segments";
           sb.addEventListener("updateend", odbavit);
+          setPostup(POSTUP.data);
         } catch {
           setStav("chyba");
           setDuvod("Prohlížeč tenhle formát obrazu nepřehraje.");
@@ -381,7 +414,10 @@ export function Prehravac({
           muted={!zvuk}
           playsInline
           className="h-full w-full object-contain"
-          onPlaying={() => setStav("hraje")}
+          onPlaying={() => {
+            setStav("hraje");
+            setPostup(POSTUP.hraje);
+          }}
           onTimeUpdate={(e) => {
             // Doskočit na živý okraj. Bez tohohle se obraz po každém
             // zadrhnutí posune do minulosti a už se nesrovná.
@@ -396,15 +432,17 @@ export function Prehravac({
         />
 
         {stav !== "hraje" ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 px-4 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center backdrop-blur-[2px]">
             {stav === "chyba" ? (
-              <WifiOff className="h-5 w-5 text-[var(--text-muted)]" aria-hidden="true" />
-            ) : null}
-            <p className="text-sm text-[var(--text-muted)]">
-              {stav === "pripojuje"
-                ? `Připojuje se ke kameře ${cameraName}…`
-                : (duvod ?? "Obraz se nepodařilo načíst.")}
-            </p>
+              <>
+                <WifiOff className="h-6 w-6 text-[var(--text-muted)]" aria-hidden="true" />
+                <p className="max-w-xs text-sm text-[var(--text-muted)]">
+                  {duvod ?? "Obraz se nepodařilo načíst."}
+                </p>
+              </>
+            ) : (
+              <Nacitani cil={postup} popis={popisPostupu(postup, cameraName)} />
+            )}
           </div>
         ) : null}
       </div>

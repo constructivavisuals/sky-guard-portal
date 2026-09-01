@@ -1,0 +1,266 @@
+"use client";
+
+import Link from "next/link";
+import { useState, useSyncExternalStore } from "react";
+import { ChevronLeft, Radio, History, ScanEye } from "lucide-react";
+
+import { Prehravac } from "../../prehravac.tsx";
+import { CasovaOsa } from "./casova-osa.tsx";
+
+// Jedna kamera, tři pohledy na totéž — vzor převzatý z DMSS.
+//
+// ═══ Proč jedna stránka a ne tři ═══════════════════════════════════
+// Živý obraz, záznam a události byly tři položky v menu a člověk mezi
+// nimi musel přeskakovat s tím, že si pamatoval, o které kameře je
+// řeč. Přitom je to pořád jedna kamera a jedna otázka: co se tam
+// děje nebo dělo.
+//
+// Obraz proto zůstává NAHOŘE a nemění se; přepínají se jen záložky
+// pod ním. Přepnutí ze živého na záznam tedy není navigace, ale
+// změna toho, co se do téhož okna načítá.
+//
+// ═══ Záložky nejsou v adrese ═══════════════════════════════════════
+// Schválně: navigace na serveru by při každém přepnutí znovu načetla
+// stránku a obraz by se rozjížděl od nuly. Kamera v adrese je,
+// záložka ne — sdílený odkaz otevře kameru, což je to podstatné.
+
+type Zalozka = "zive" | "zaznam" | "udalosti";
+
+const ZALOZKY = [
+  { key: "zive" as const, label: "Živě", icon: Radio },
+  { key: "zaznam" as const, label: "Přehrávání", icon: History },
+  { key: "udalosti" as const, label: "Události", icon: ScanEye },
+];
+
+/** Kolik zpátky se otevírá záznam, když na něj člověk poprvé přepne. */
+const VYCHOZI_ZPET_MS = 3_600_000;
+
+export interface UdalostRow {
+  id: string;
+  detected_at: string;
+  object_class: string;
+  confidence: number | null;
+  ma_zaznam: boolean;
+}
+
+export function KameraDetail({
+  cameraId,
+  cameraName,
+  siteName,
+  dosahDni,
+  udalosti,
+}: {
+  cameraId: string;
+  cameraName: string;
+  siteName: string | null;
+  dosahDni: number;
+  udalosti: readonly UdalostRow[];
+}) {
+  const [zalozka, setZalozka] = useState<Zalozka>("zive");
+
+  // Čas se čte až po hydrataci — server jede v UTC a prohlížeč v místní
+  // zóně, takže vykreslený čas by se neshodl. Týž vzor jako jinde.
+  const hydratovano = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  const [od, setOd] = useState(() => new Date(Date.now() - VYCHOZI_ZPET_MS));
+  const [ted, setTed] = useState(() => Date.now());
+
+  const dostupneOd = new Date(ted - dosahDni * 86_400_000);
+  const nejpozdeji = new Date(ted);
+
+  function nastavCas(kdy: Date) {
+    const nyni = Date.now();
+    setTed(nyni);
+    const dolni = nyni - dosahDni * 86_400_000;
+    setOd(new Date(Math.min(Math.max(kdy.getTime(), dolni), nyni)));
+  }
+
+  /** Detekce vybraného dne — jen ty se na osu vejdou smysluplně. */
+  const denniDetekce = udalosti
+    .map((u) => new Date(u.detected_at))
+    .filter((d) => d.toDateString() === od.toDateString());
+
+  return (
+    <div className="flex flex-col">
+      {/* ── Hlavička ──────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 sm:px-6">
+        <Link
+          href="/kamery"
+          aria-label="Zpět na kamery"
+          className="-ml-2 flex h-9 w-9 items-center justify-center text-[var(--text-muted)] transition hover:text-[var(--text)] lg:hidden"
+        >
+          <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+        </Link>
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-medium tracking-tight text-[var(--text)]">
+            {cameraName}
+          </h1>
+          {siteName ? (
+            <p className="truncate text-xs text-[var(--text-muted)]">{siteName}</p>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ── Obraz ─────────────────────────────────────────────── */}
+      {/*
+        Klíč nese i vybraný čas: jiný okamžik je jiný proud, ne
+        přetočení běžícího. Bez něj by v <video> zůstala viset
+        MediaSource z minulého spojení.
+      */}
+      {zalozka !== "zaznam" || !hydratovano ? (
+        // Živě i u událostí: nad seznamem má běžet obraz, ne černá
+        // plocha. Do nahydratování taky — vybraný čas ještě není.
+        <Prehravac
+          key={`${cameraId}-zive`}
+          konfiguraceUrl={`/api/kamery/${cameraId}/zivy`}
+          cameraName={cameraName}
+        />
+      ) : (
+        <Prehravac
+          key={`${cameraId}-${Math.floor(od.getTime() / 1000)}`}
+          konfiguraceUrl={`/api/kamery/${cameraId}/zaznam?od=${encodeURIComponent(
+            od.toISOString(),
+          )}`}
+          cameraName={cameraName}
+        />
+      )}
+
+      {/* ── Záložky ───────────────────────────────────────────── */}
+      <div
+        role="tablist"
+        aria-label="Pohled na kameru"
+        className="flex border-b border-[var(--line)] bg-[var(--surface)]"
+      >
+        {ZALOZKY.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={zalozka === key}
+            onClick={() => setZalozka(key)}
+            className={`flex flex-1 flex-col items-center justify-center gap-1 py-3 text-xs transition sm:flex-row sm:gap-2 sm:text-sm ${
+              zalozka === key
+                ? "border-b-2 border-[var(--accent-bright)] text-[var(--accent-bright)]"
+                : "border-b-2 border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
+            }`}
+          >
+            <Icon className="h-4 w-4" aria-hidden="true" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Obsah záložky ─────────────────────────────────────── */}
+      {zalozka === "zive" ? (
+        <p className="px-4 py-4 text-xs text-[var(--text-muted)] sm:px-6">
+          Obraz jde přímo z kamery. Co bylo dřív, najdete v Přehrávání —
+          kamera drží zhruba {dosahDni} dní zpětně.
+        </p>
+      ) : null}
+
+      {zalozka === "zaznam" ? (
+        hydratovano ? (
+          <CasovaOsa
+            hodnota={od}
+            onZmena={nastavCas}
+            dostupneOd={dostupneOd}
+            nejpozdeji={nejpozdeji}
+            detekce={denniDetekce}
+          />
+        ) : (
+          <p className="px-4 py-6 text-xs text-[var(--text-muted)] sm:px-6">
+            Načítá se časová osa…
+          </p>
+        )
+      ) : null}
+
+      {zalozka === "udalosti" ? (
+        <SeznamUdalosti
+          udalosti={udalosti}
+          onSkok={(kdy) => {
+            nastavCas(kdy);
+            setZalozka("zaznam");
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const TRIDY: Record<string, string> = {
+  person: "Člověk",
+  vehicle: "Vozidlo",
+  unknown: "Neurčeno",
+};
+
+function SeznamUdalosti({
+  udalosti,
+  onSkok,
+}: {
+  udalosti: readonly UdalostRow[];
+  onSkok: (kdy: Date) => void;
+}) {
+  if (udalosti.length === 0) {
+    return (
+      <div className="px-4 py-10 text-center sm:px-6">
+        <ScanEye
+          className="mx-auto h-6 w-6 text-[var(--text-muted)]"
+          aria-hidden="true"
+        />
+        <p className="mt-3 text-sm text-[var(--text-muted)]">
+          Žádné události
+        </p>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Kamera hlásí, když u ní někdo projde.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ul>
+      {udalosti.map((u) => {
+        const kdy = new Date(u.detected_at);
+        return (
+          <li key={u.id}>
+            {/*
+              Klepnutí skočí na ten okamžik v záznamu. To je celý smysl
+              toho, že jsou události a přehrávání na jedné stránce:
+              jinak si člověk musel čas opsat a najít ho ručně.
+            */}
+            <button
+              type="button"
+              onClick={() => onSkok(kdy)}
+              className="flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition hover:bg-[var(--surface-2)] sm:px-6"
+            >
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--warning)]"
+                aria-hidden="true"
+              />
+              <span className="tabular-nums text-sm text-[var(--text)]">
+                {kdy.toLocaleTimeString("cs-CZ", { hour12: false })}
+              </span>
+              <span className="text-xs text-[var(--text-muted)]">
+                {kdy.toLocaleDateString("cs-CZ", {
+                  day: "numeric",
+                  month: "numeric",
+                })}
+              </span>
+              <span className="text-sm text-[var(--text-dim)]">
+                {TRIDY[u.object_class] ?? u.object_class}
+              </span>
+              {u.ma_zaznam ? (
+                <span className="ml-auto text-[10px] uppercase tracking-wider text-[var(--accent-bright)]">
+                  klip
+                </span>
+              ) : null}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

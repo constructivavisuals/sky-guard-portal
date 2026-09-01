@@ -42,6 +42,9 @@ export const NAV_NEEDS = {
   "/lety": "drone",
   "/hlidky": "drone",
   "/arealy": null,
+  "/kamery": "cameras",
+  // Staré adresy zůstávají jako přesměrování na /kamery — uložený
+  // odkaz nemá spadnout. V menu už nejsou.
   "/zive": "cameras",
   "/osa": "cameras",
   "/zaznamy": "cameras",

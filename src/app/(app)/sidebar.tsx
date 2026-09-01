@@ -5,12 +5,10 @@ import { usePathname } from "next/navigation";
 import {
   DoorOpen,
   FileText,
-  History,
   LayoutDashboard,
   LogOut,
   MapPin,
   Plane,
-  Radio,
   Route,
   ScanEye,
   Send,
@@ -44,9 +42,11 @@ export const NAV_ITEMS = [
   { href: "/lety", label: "Lety", icon: Plane },
   { href: "/hlidky", label: "Hlídky", icon: Route },
   { href: "/arealy", label: "Areály", icon: MapPin },
-  { href: "/zive", label: "Živý obraz", icon: Radio },
-  { href: "/osa", label: "Časová osa", icon: History },
-  { href: "/zaznamy", label: "Záznamy", icon: Video },
+  // Živý obraz, časová osa a záznamy bývaly tři položky. Byla to
+  // jedna otázka — co se na stavbě děje nebo dělo — rozdělená do tří
+  // stránek, mezi kterými si člověk musel pamatovat, o které kameře
+  // je řeč. Teď je to jedna sekce a přepíná se až uvnitř kamery.
+  { href: "/kamery", label: "Kamery", icon: Video },
   { href: "/brana", label: "Brána", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },

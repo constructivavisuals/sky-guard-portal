@@ -427,8 +427,10 @@ docker compose exec sky-klipy ls /failed-klipy    # co neprošlo
 
 ### Portálová strana
 
-Hotová. Lístky vydává `/api/kamery/<id>/zaznam?od=<ISO čas>` a časová
-osa je na `/osa`.
+Hotová. Lístky vydává `/api/kamery/<id>/zaznam?od=<ISO čas>`; obraz,
+záznam i události jsou v jedné sekci `/kamery/<id>`, kde se přepínají
+záložkami nad společným přehrávačem. Staré `/zive` a `/osa` tam
+přesměrovávají.
 
 Lístek se vydává **týmž kódem** jako na živý obraz — jen na jiné jméno
 proudu. Ověřuje ho `playback.py`, které si `overit_listek` importuje
@@ -441,10 +443,14 @@ rozdíl mezi „teď“ a „minulý čtvrtek ve tři“ je jen v tom, odkud si 
 lístek. Skládání obrazu je stejné, protože go2rtc posílá v obou
 případech totéž.
 
-Časová osa má **skoky, ne táhlo**. Je to úmyslné: každý posun znamená
-zavřít proud a otevřít nový, tedy nové spojení na kameru a čekání na
-klíčový snímek. Táhlo by slibovalo plynulost, kterou pod ním nikdo
-nemá.
+Časová osa je ve stylu DMSS: dá se posouvat tažením, přibližovat
+kolečkem nebo lupou (celý den až po pět minut) a klepnutím se skáče.
+Zeleně je vidět, kam sahá karta, oranžově detekce toho dne.
+
+Každý skok pořád znamená **nové spojení** na kameru a čekání na
+klíčový snímek — na tom se nic nezměnilo. Proto se během načítání
+ukazují skutečné fáze navazování v procentech: když se ukazatel
+zastaví na 35 %, stojí websocket a kodeky se neposlaly.
 
 **Volba `main` v živém obrazu zmizela.** Podle měření je hlavní proud
 přes tunel nepoužitelný, takže nabízet „Detailní“ znamenalo nabízet

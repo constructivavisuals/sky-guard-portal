@@ -136,7 +136,7 @@ describe("Stránky s obrazem", () => {
   // z nich v NAV_NEEDS chyběla, routeNeeds() vrátí null a položka se
   // ukáže i areálu bez kamer — tiše, protože výchozí hodnota míří na
   // „radši navíc než chybět". Právě takhle se na /osa zapomnělo.
-  for (const href of ["/zive", "/osa", "/zaznamy"]) {
+  for (const href of ["/kamery", "/zive", "/osa", "/zaznamy"]) {
     it(`${href} je vázaná na kamery`, () => {
       assert.equal(routeNeeds(href), "cameras");
     });
