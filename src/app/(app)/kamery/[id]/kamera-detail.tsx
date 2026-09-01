@@ -2,7 +2,22 @@
 
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
-import { ChevronLeft, Radio, History, ScanEye } from "lucide-react";
+import {
+  Camera,
+  ChevronLeft,
+  History,
+  Radio,
+  ScanEye,
+  Square,
+  Video as VideoIcon,
+} from "lucide-react";
+
+import {
+  umiNahravat,
+  vyfot,
+  zacniNahravat,
+  type Nahravani,
+} from "@/lib/media/zachyt.ts";
 
 import { Prehravac } from "../../prehravac.tsx";
 import { CasovaOsa } from "./casova-osa.tsx";
@@ -125,6 +140,7 @@ export function KameraDetail({
     () => "main" as Kvalita,
   );
   const [volba, setVolba] = useState<Kvalita | null>(null);
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const kvalita = volba ?? ulozena;
 
   const [od, setOd] = useState(() => new Date(Date.now() - VYCHOZI_ZPET_MS));
@@ -199,6 +215,8 @@ export function KameraDetail({
             od.toISOString(),
           )}`}
           cameraName={cameraName}
+          onVideo={setVideo}
+          zaznam={{ od, dostupneOd, nejpozdeji, onZmena: nastavCas }}
         />
       )}
 
@@ -238,7 +256,6 @@ export function KameraDetail({
             role="group"
             aria-label="Kvalita obrazu"
           >
-            <span className="text-xs text-[var(--text-muted)]">Kvalita</span>
             {KVALITY.map(({ key, label, popis }) => (
               <button
                 key={key}
@@ -270,6 +287,8 @@ export function KameraDetail({
 
       {zalozka === "zaznam" ? (
         hydratovano ? (
+          <>
+          <Zachyt video={video} cameraName={cameraName} />
           <CasovaOsa
             hodnota={od}
             onZmena={nastavCas}
@@ -277,6 +296,7 @@ export function KameraDetail({
             nejpozdeji={nejpozdeji}
             detekce={denniDetekce}
           />
+          </>
         ) : (
           <p className="px-4 py-6 text-xs text-[var(--text-muted)] sm:px-6">
             Načítá se časová osa…
@@ -294,6 +314,105 @@ export function KameraDetail({
         />
       ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Vyfotit snímek nebo natočit klip do telefonu — jako v DMSS.
+ *
+ * ═══ Nabízí se jen to, co prohlížeč umí ════════════════════════════
+ * Nahrávání stojí na `captureStream()` a `MediaRecorder`, které Safari
+ * na iOS nemá. Tlačítko se proto na iPhonu vůbec neukáže: mrtvé
+ * tlačítko je horší než chybějící, protože ho člověk zmáčkne, nic se
+ * nestane a hledá chybu u sebe.
+ *
+ * Focení umí každý prohlížeč — plátno a JPEG. Snímek se ukládá
+ * v nativním rozlišení proudu, ne v tom, jak je video velké na
+ * displeji.
+ */
+function Zachyt({
+  video,
+  cameraName,
+}: {
+  video: HTMLVideoElement | null;
+  cameraName: string;
+}) {
+  const [nahrava, setNahrava] = useState<Nahravani | null>(null);
+  const [hlaska, setHlaska] = useState<string | null>(null);
+
+  // Schopnosti prohlížeče se zjišťují až po hydrataci — na serveru
+  // není `document` a vykreslit tam tlačítko, které pak zmizí, by byla
+  // neshoda.
+  const umiKlip = useSyncExternalStore(
+    () => () => {},
+    umiNahravat,
+    () => false,
+  );
+
+  async function foto() {
+    if (!video) return;
+    try {
+      await vyfot(video, cameraName);
+      setHlaska("Snímek uložen.");
+    } catch (chyba) {
+      setHlaska(chyba instanceof Error ? chyba.message : "Nepodařilo se vyfotit.");
+    }
+  }
+
+  function klip() {
+    if (nahrava) {
+      nahrava.stop();
+      setNahrava(null);
+      return;
+    }
+    if (!video) return;
+    try {
+      setHlaska(null);
+      setNahrava(
+        zacniNahravat(video, cameraName, (chyba) =>
+          setHlaska(chyba ? chyba.message : "Klip uložen."),
+        ),
+      );
+    } catch (chyba) {
+      setHlaska(chyba instanceof Error ? chyba.message : "Nahrávání selhalo.");
+    }
+  }
+
+  const tlacitko =
+    "flex flex-1 flex-col items-center gap-1.5 py-3 text-[11px] transition " +
+    "text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-40";
+
+  return (
+    <div className="border-b border-[var(--line)]">
+      <div className="flex">
+        <button type="button" onClick={foto} disabled={!video} className={tlacitko}>
+          <Camera className="h-5 w-5" aria-hidden="true" />
+          Vyfotit
+        </button>
+
+        {umiKlip ? (
+          <button
+            type="button"
+            onClick={klip}
+            disabled={!video}
+            className={`${tlacitko} ${nahrava ? "text-[var(--danger)]" : ""}`}
+          >
+            {nahrava ? (
+              <Square className="h-5 w-5 fill-current" aria-hidden="true" />
+            ) : (
+              <VideoIcon className="h-5 w-5" aria-hidden="true" />
+            )}
+            {nahrava ? "Zastavit" : "Natočit"}
+          </button>
+        ) : null}
+      </div>
+
+      {hlaska ? (
+        <p className="px-4 pb-3 text-center text-xs text-[var(--text-muted)] sm:px-6">
+          {hlaska}
+        </p>
+      ) : null}
     </div>
   );
 }

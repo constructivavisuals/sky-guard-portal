@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 // Časová osa nad záznamem na SD kartě, ve stylu DMSS.
 //
@@ -72,6 +72,16 @@ export function CasovaOsa({
   const pas = useRef<HTMLDivElement>(null);
   const tah = useRef<{ x: number; stred: number; tazeno: boolean } | null>(null);
 
+  // ═══ Přiblížení dvěma prsty ══════════════════════════════════════
+  // Lupičky tu byly a zmizely: na telefonu je přirozené osu roztáhnout
+  // a stáhnout prsty, přesně jako mapu. Tlačítka navíc znamenala
+  // klepat pětkrát, než se z celého dne dostane na minuty.
+  //
+  // Drží se všechny prsty na ose, protože rozestup mezi nimi je to
+  // jediné, z čeho se dá poměr přiblížení spočítat.
+  const prsty = useRef(new Map<number, number>());
+  const stisk = useRef<{ rozestup: number; rozsah: number; stred: number } | null>(null);
+
   const den = zacatekDne(hodnota);
   // Přes useMemo, ať se při každém překreslení nevyrábí nové Date —
   // závisely by na něm hooky níž a přepočítávaly by se pořád.
@@ -124,16 +134,53 @@ export function CasovaOsa({
     return new Date(od.getTime() + p * rozsah);
   }
 
-  // ── Posun tažením ─────────────────────────────────────────────
+  // ── Posun tažením, přiblížení dvěma prsty ─────────────────────
   function zacniTah(e: React.PointerEvent) {
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    tah.current = { x: e.clientX, stred: stred.getTime(), tazeno: false };
+    prsty.current.set(e.pointerId, e.clientX);
+
+    if (prsty.current.size === 2) {
+      // Druhý prst ruší rozjeté tažení: co začalo jako posun, je od
+      // téhle chvíle přiblížení.
+      tah.current = null;
+      const [a, b] = [...prsty.current.values()];
+      stisk.current = {
+        rozestup: Math.max(Math.abs(a - b), 1),
+        rozsah,
+        stred: stred.getTime(),
+      };
+      return;
+    }
+
+    if (prsty.current.size === 1) {
+      tah.current = { x: e.clientX, stred: stred.getTime(), tazeno: false };
+    }
   }
 
   function tahni(e: React.PointerEvent) {
-    const t = tah.current;
     const prvek = pas.current;
-    if (!t || !prvek) return;
+    if (!prvek) return;
+    if (prsty.current.has(e.pointerId)) prsty.current.set(e.pointerId, e.clientX);
+
+    // Dva prsty: rozestup určuje, jak široký časový rámec je vidět.
+    const s = stisk.current;
+    if (s && prsty.current.size >= 2) {
+      const [a, b] = [...prsty.current.values()];
+      const rozestup = Math.max(Math.abs(a - b), 1);
+      const novy = Math.min(
+        DEN_MS,
+        Math.max(NEJUZSI_MS, (s.rozsah * s.rozestup) / rozestup),
+      );
+      setRozsah(novy);
+      // Střed drží místo mezi prsty, ať se pod nimi obraz osy nehýbe.
+      const r = prvek.getBoundingClientRect();
+      const podilStredu = ((a + b) / 2 - r.left) / r.width;
+      setStred(new Date(s.stred + (0.5 - podilStredu) * (novy - s.rozsah)));
+      return;
+    }
+
+    const t = tah.current;
+    if (!t) return;
     const posun = e.clientX - t.x;
     if (Math.abs(posun) > 3) t.tazeno = true;
     if (!t.tazeno) return;
@@ -142,11 +189,15 @@ export function CasovaOsa({
   }
 
   function skonciTah(e: React.PointerEvent) {
+    prsty.current.delete(e.pointerId);
+    if (prsty.current.size < 2) stisk.current = null;
+
     const t = tah.current;
     tah.current = null;
     // Klepnutí bez tažení = skok na místo. Tahle podmínka je celý
-    // rozdíl mezi „posouvám osu“ a „vybírám čas“.
-    if (t && !t.tazeno) {
+    // rozdíl mezi „posouvám osu“ a „vybírám čas“. Po přiblížení dvěma
+    // prsty se neskáče nikam — `tah` je v tu chvíli už zrušené.
+    if (t && !t.tazeno && prsty.current.size === 0) {
       const kdy = zXNaCas(e.clientX);
       if (kdy) onZmena(omez(kdy));
     }
@@ -214,24 +265,6 @@ export function CasovaOsa({
           </button>
         </div>
 
-        <div className="ml-auto flex items-center border border-[var(--line)]">
-          <button
-            type="button"
-            aria-label="Oddálit"
-            onClick={() => zoom(-1)}
-            className="px-2 py-1.5 text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-          >
-            <ZoomOut className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Přiblížit"
-            onClick={() => zoom(1, hodnota)}
-            className="px-2 py-1.5 text-[var(--text-muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-          >
-            <ZoomIn className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
       </div>
 
       {/* ── Bublina s vybraným časem ──────────────────────────── */}
@@ -247,7 +280,11 @@ export function CasovaOsa({
         onPointerDown={zacniTah}
         onPointerMove={tahni}
         onPointerUp={skonciTah}
-        onPointerCancel={() => (tah.current = null)}
+        onPointerCancel={(e) => {
+          prsty.current.delete(e.pointerId);
+          tah.current = null;
+          stisk.current = null;
+        }}
         onWheel={(e) => {
           const kdy = zXNaCas(e.clientX);
           zoom(e.deltaY < 0 ? 1 : -1, kdy ?? undefined);
@@ -338,8 +375,9 @@ export function CasovaOsa({
       </div>
 
       <p className="px-4 py-2 text-[11px] text-[var(--text-muted)] sm:px-6">
-        Tažením se osa posouvá, kolečkem nebo lupou přibližuje, klepnutím
-        se skáče. Zeleně je, kam sahá karta v kameře; oranžově detekce.
+        Tažením se osa posouvá, dvěma prsty (nebo kolečkem) přibližuje,
+        klepnutím se skáče. Zeleně je, kam sahá karta v kameře;
+        oranžově detekce.
       </p>
     </div>
   );

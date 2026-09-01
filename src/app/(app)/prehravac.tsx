@@ -1,7 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Volume2, VolumeX, WifiOff } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { Pause, Play, Volume2, VolumeX, WifiOff } from "lucide-react";
 
 import { Nacitani } from "@/components/nacitani.tsx";
 
@@ -128,6 +134,72 @@ interface Odpoved {
   expires_in: number;
 }
 
+/**
+ * Osa pro celou obrazovku — jen to nutné.
+ *
+ * Plná osa má popisky, rysky, značky detekcí a kalendář; na šířku
+ * telefonu by z ní zbyla tlačenice přes celý obraz. Tady stačí, kde
+ * v dosahu karty divák je a možnost se posunout — na přesné hledání
+ * je osa pod obrazem, po otočení zpátky.
+ */
+function OsaVCeleObrazovce({
+  od,
+  dostupneOd,
+  nejpozdeji,
+  onZmena,
+}: {
+  od: Date;
+  dostupneOd: Date;
+  nejpozdeji: Date;
+  onZmena: (kdy: Date) => void;
+}) {
+  const celek = nejpozdeji.getTime() - dostupneOd.getTime();
+  const podil = celek > 0 ? (od.getTime() - dostupneOd.getTime()) / celek : 0;
+
+  function skoc(e: React.PointerEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const p = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
+    onZmena(new Date(dostupneOd.getTime() + p * celek));
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="Čas záznamu"
+        aria-valuemin={dostupneOd.getTime()}
+        aria-valuemax={nejpozdeji.getTime()}
+        aria-valuenow={od.getTime()}
+        onPointerDown={skoc}
+        className="relative h-8 flex-1 cursor-pointer touch-none"
+      >
+        <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-white/25" />
+        <div
+          className="absolute top-1/2 h-1 -translate-y-1/2 bg-[var(--accent-bright)]"
+          style={{ left: 0, width: `${Math.min(Math.max(podil, 0), 1) * 100}%` }}
+        />
+        <div
+          className="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 bg-white"
+          style={{ left: `${Math.min(Math.max(podil, 0), 1) * 100}%` }}
+        />
+      </div>
+      <span className="shrink-0 text-xs tabular-nums text-white">
+        {od.toLocaleTimeString("cs-CZ", { hour12: false })}
+      </span>
+    </div>
+  );
+}
+
+/** Telefon naležato. Výška odděluje mobil od monitoru. */
+const NALEZATO = "(orientation: landscape) and (max-height: 500px)";
+
+function odberOrientace(zmena: () => void): () => void {
+  const dotaz = window.matchMedia(NALEZATO);
+  dotaz.addEventListener("change", zmena);
+  return () => dotaz.removeEventListener("change", zmena);
+}
+
 /** Co se zrovna děje. Bez toho jsou procenta jen číslo. */
 function popisPostupu(postup: number, kamera: string): string {
   if (postup >= POSTUP.data) return "Skládá se obraz";
@@ -140,6 +212,8 @@ function popisPostupu(postup: number, kamera: string): string {
 export function Prehravac({
   konfiguraceUrl,
   cameraName,
+  onVideo,
+  zaznam,
 }: {
   /**
    * Odkud si vzít lístek a adresu websocketu.
@@ -153,11 +227,61 @@ export function Prehravac({
    */
   konfiguraceUrl: string;
   cameraName: string;
+  /** Prvek videa ven — pro focení a nahrávání. */
+  onVideo?: (prvek: HTMLVideoElement | null) => void;
+  /**
+   * Jen u přehrávání ze záznamu: co má umět celá obrazovka navíc.
+   * U živého obrazu se posouvat ani zrychlovat nedá, tak se to
+   * nenabízí.
+   */
+  zaznam?: {
+    od: Date;
+    dostupneOd: Date;
+    nejpozdeji: Date;
+    onZmena: (kdy: Date) => void;
+  };
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const socket = useRef<WebSocket | null>(null);
   const [stav, setStav] = useState<Stav>("pripojuje");
   const [postup, setPostup] = useState<number>(POSTUP.start);
+  const [pozastaveno, setPozastaveno] = useState(false);
+  const [zrychleno, setZrychleno] = useState(false);
+  /** Přiblížení obrazu prsty: násobek a posun ve zlomcích plochy. */
+  const [lupa, setLupa] = useState({ merítko: 1, x: 0, y: 0 });
+  /**
+   * Leží na obraze prst?
+   *
+   * Ve stavu, ne v ref: během gesta se vypíná plynulý přechod, aby
+   * obraz šel přesně za prsty. Ref se při renderu číst nesmí a React
+   * to hlídá — a má pravdu, protože z něj vykreslené hodnoty by se
+   * neaktualizovaly.
+   */
+  const [gesto, setGesto] = useState(false);
+
+  // ═══ Otočení telefonu naležato = celá obrazovka ══════════════════
+  // Fullscreen API se nepoužívá schválně: Safari na iOS ho na jiném
+  // prvku než <video> nemá, a na <video> by převzalo obraz i ovládání
+  // svým přehrávačem — přišli bychom o osu i o tlačítka.
+  //
+  // Místo toho se roztáhne vlastní vrstva přes celé okno. Vypadá to
+  // stejně, funguje to všude a ovládání zůstává naše.
+  //
+  // Podmínka na výšku odděluje telefon naležato od monitoru: ten je
+  // taky „na šířku", ale nikdo tam obraz přes celou obrazovku nechce.
+  //
+  // Přes useSyncExternalStore, ne přes useState s efektem: media query
+  // JE vnější zdroj a tohle je přesně to, na co ten hook je. Serverový
+  // snímek je `false`, takže se na serveru vykreslí normální okno.
+  const celaObrazovka = useSyncExternalStore(
+    odberOrientace,
+    () => window.matchMedia(NALEZATO).matches,
+    () => false,
+  );
+
+  // Přiblížení platí jen v celé obrazovce: v malém okně se přiblížený
+  // obraz nedá rozumně posouvat a člověk by nevěděl, čím to je.
+  const zoom = celaObrazovka ? lupa : { merítko: 1, x: 0, y: 0 };
   const [zvuk, setZvuk] = useState(false);
   const [duvod, setDuvod] = useState<string | null>(null);
 
@@ -388,6 +512,12 @@ export function Prehravac({
     pripojitRef.current = () => void pripojit();
   }, [pripojit]);
 
+  // Prvek videa ven, ať se z něj dá vyfotit snímek nebo natočit klip.
+  useEffect(() => {
+    onVideo?.(video.current);
+    return () => onVideo?.(null);
+  }, [onVideo]);
+
   useEffect(() => {
     bezi.current = true;
     // Ne synchronně: stav se nesmí přepisovat přímo v efektu, jinak si
@@ -405,21 +535,121 @@ export function Prehravac({
     };
   }, [pripojit]);
 
+  // ═══ Přiblížení obrazu dvěma prsty ═══════════════════════════════
+  // Stejné gesto jako na ose, jen výsledkem je zvětšení obrazu.
+  // Prohlížeč by na to sám nešel: `<video>` roztáhnout dvěma prsty
+  // neumí a zoom celé stránky by zvětšil i ovládání.
+  const prsty = useRef(new Map<number, { x: number; y: number }>());
+  const stisk = useRef<{ rozestup: number; merítko: number } | null>(null);
+  const tazeni = useRef<{ x: number; y: number; poc: { x: number; y: number } } | null>(null);
+
+  function rozestupPrstu(): number {
+    const [a, b] = [...prsty.current.values()];
+    if (!a || !b) return 1;
+    return Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1);
+  }
+
+  function obrazDown(e: React.PointerEvent) {
+    prsty.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    setGesto(true);
+    if (prsty.current.size === 2) {
+      tazeni.current = null;
+      stisk.current = { rozestup: rozestupPrstu(), merítko: lupa.merítko };
+    } else if (prsty.current.size === 1 && lupa.merítko > 1) {
+      tazeni.current = { x: e.clientX, y: e.clientY, poc: { x: lupa.x, y: lupa.y } };
+    }
+  }
+
+  function obrazMove(e: React.PointerEvent) {
+    if (!prsty.current.has(e.pointerId)) return;
+    prsty.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const s = stisk.current;
+    if (s && prsty.current.size >= 2) {
+      const merítko = Math.min(6, Math.max(1, (s.merítko * rozestupPrstu()) / s.rozestup));
+      setLupa((l) => ({ ...l, merítko }));
+      return;
+    }
+
+    const t = tazeni.current;
+    if (t && lupa.merítko > 1) {
+      // Posun je omezený tak, aby se nedalo vytáhnout obraz mimo
+      // rámeček — jinak člověk skončí u černé plochy a neví proč.
+      const mez = (lupa.merítko - 1) / 2;
+      setLupa((l) => ({
+        ...l,
+        x: Math.min(mez, Math.max(-mez, t.poc.x + (e.clientX - t.x) / 300)),
+        y: Math.min(mez, Math.max(-mez, t.poc.y + (e.clientY - t.y) / 300)),
+      }));
+    }
+  }
+
+  function obrazUp(e: React.PointerEvent) {
+    prsty.current.delete(e.pointerId);
+    if (prsty.current.size < 2) stisk.current = null;
+    if (prsty.current.size === 0) {
+      setGesto(false);
+      tazeni.current = null;
+      // Zpátky na celý obraz, když se přiblížení skoro vrátilo —
+      // jinak zůstane o procento zvětšený a nejde srovnat.
+      if (lupa.merítko < 1.05) setLupa({ merítko: 1, x: 0, y: 0 });
+    }
+  }
+
+  /** Zrychlení podržením prstu vpravo — jako u videa na YouTube. */
+  function drzenimZrychli(drzet: boolean) {
+    const prvek = video.current;
+    if (!prvek) return;
+    setZrychleno(drzet);
+    prvek.playbackRate = drzet ? 4 : 1;
+  }
+
+  function prepniChod() {
+    const prvek = video.current;
+    if (!prvek) return;
+    if (prvek.paused) {
+      void prvek.play();
+      setPozastaveno(false);
+    } else {
+      prvek.pause();
+      setPozastaveno(true);
+    }
+  }
+
+  const obrazTridy = celaObrazovka
+    ? "fixed inset-0 z-50 bg-black"
+    : "relative aspect-video max-h-[75vh] bg-black";
+
   return (
-    <div className="border border-[var(--line)] bg-[var(--surface)]">
+    <div
+      className={
+        celaObrazovka ? "" : "border border-[var(--line)] bg-[var(--surface)]"
+      }
+    >
       {/*
         `max-h`: bez něj je na širokém monitoru 16:9 přes celou šířku
         vyšší než obrazovka a člověk musí rolovat, aby viděl spodek
         obrazu. Video uvnitř má object-contain, takže se jen olemuje
         černou, nic se neořízne. Platí i na mobilu na šířku.
       */}
-      <div className="relative aspect-video max-h-[75vh] bg-black">
+      <div
+        className={obrazTridy}
+        onPointerDown={obrazDown}
+        onPointerMove={obrazMove}
+        onPointerUp={obrazUp}
+        onPointerCancel={obrazUp}
+        style={celaObrazovka ? undefined : undefined}
+      >
         <video
           ref={video}
           autoPlay
           muted={!zvuk}
           playsInline
-          className="h-full w-full object-contain"
+          className="h-full w-full touch-none object-contain"
+          style={{
+            transform: `scale(${zoom.merítko}) translate(${zoom.x * 100}%, ${zoom.y * 100}%)`,
+            transition: gesto ? "none" : "transform 120ms ease-out",
+          }}
           onPlaying={() => {
             setStav("hraje");
             setPostup(POSTUP.hraje);
@@ -437,6 +667,27 @@ export function Prehravac({
           }}
         />
 
+        {/* ── Zrychlení podržením vpravo ─────────────────────────
+            Jen v celé obrazovce a jen u záznamu: u živého obrazu není
+            co dohánět. Plocha je vpravo, protože tam palec při držení
+            telefonu naležato leží. */}
+        {celaObrazovka && zaznam ? (
+          <div
+            className="absolute inset-y-0 right-0 w-1/3"
+            onPointerDown={() => drzenimZrychli(true)}
+            onPointerUp={() => drzenimZrychli(false)}
+            onPointerCancel={() => drzenimZrychli(false)}
+            onPointerLeave={() => drzenimZrychli(false)}
+            aria-hidden="true"
+          />
+        ) : null}
+
+        {zrychleno ? (
+          <div className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 border border-[var(--line-strong)] bg-black/70 px-3 py-1.5 text-sm font-medium text-[var(--text)]">
+            4× ▶▶
+          </div>
+        ) : null}
+
         {stav !== "hraje" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center backdrop-blur-[2px]">
             {stav === "chyba" ? (
@@ -450,6 +701,49 @@ export function Prehravac({
               <Nacitani cil={postup} popis={popisPostupu(postup, cameraName)} />
             )}
           </div>
+        ) : null}
+
+        {/* ── Ovládání v celé obrazovce ──────────────────────────
+            Nahoře jméno a východ, dole chod a zjednodušená osa.
+            Všechno v překryvu nad obrazem, protože na šířku telefonu
+            není kam jinam. */}
+        {celaObrazovka ? (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3">
+              <span className="text-sm font-medium text-white">{cameraName}</span>
+              <span className="ml-auto text-[11px] text-white/60">
+                otočením zpět zmenšíte
+              </span>
+            </div>
+
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={prepniChod}
+                  aria-label={pozastaveno ? "Přehrát" : "Zastavit"}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center border border-white/30 bg-black/40 text-white transition active:scale-95"
+                >
+                  {pozastaveno ? (
+                    <Play className="h-5 w-5" aria-hidden="true" />
+                  ) : (
+                    <Pause className="h-5 w-5" aria-hidden="true" />
+                  )}
+                </button>
+
+                {zaznam ? (
+                  <OsaVCeleObrazovce
+                    od={zaznam.od}
+                    dostupneOd={zaznam.dostupneOd}
+                    nejpozdeji={zaznam.nejpozdeji}
+                    onZmena={zaznam.onZmena}
+                  />
+                ) : (
+                  <span className="text-xs text-white/70">živě</span>
+                )}
+              </div>
+            </div>
+          </>
         ) : null}
       </div>
 
