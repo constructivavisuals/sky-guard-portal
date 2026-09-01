@@ -452,8 +452,8 @@ klíčový snímek — na tom se nic nezměnilo. Proto se během načítání
 ukazují skutečné fáze navazování v procentech: když se ukazatel
 zastaví na 35 %, stojí websocket a kodeky se neposlaly.
 
-**Volba `main` v živém obrazu je zpátky, ale jako volba.** Výchozí
-zůstává vedlejší proud.
+**Živý obraz jede na hlavním proudu.** Vedlejší zůstává jako volba pro
+linku, která na plné rozlišení nestačí.
 
 Měření, které hlavní proud kdysi vyřadilo, se dělalo `ffplay` po UDP —
 tam se ztracený paket neopakuje a přetížená linka vyrobí rozsypaný
@@ -461,11 +461,12 @@ obraz. Do prohlížeče ale jde obraz přes go2rtc **po TCP**, kde se
 totéž přetížení projeví zadrháváním, ne rozpadem. Použitelný tedy být
 může; záleží na lince konkrétní stavby a to se z portálu nepozná.
 
-Proto je to tlačítko v záložce Živě (Plynulá / Detailní), volba se
-pamatuje v prohlížeči a výchozí je ta, která projde vždycky. Kdo si
-o detail řekne, ví, že si o něj řekl — obráceně by první dojem
-z živého obrazu byl zaseknutý obraz, a přesně proto ta volba jednou
-zmizela.
+V provozu se ukázalo, že hlavní proud projde — pomohlo i to, že se
+do Hetzneru nesypou průběžná data. Je proto výchozí a v záložce Živě
+je tlačítko Detailní / Plynulá; volba se pamatuje v prohlížeči.
+
+Kdyby na některé stavbě obraz zadrhával, není to důvod měnit výchozí
+hodnotu pro všechny — divák si přepne a jeho volba mu zůstane.
 
 Pro **přehrávání ze záznamu se nemění nic**: `PLAYBACK_PATH` má
 `subtype=1` natvrdo, protože karta drží vedlejší proud — tok se

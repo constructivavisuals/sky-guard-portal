@@ -49,8 +49,8 @@ type Kvalita = "sub" | "main";
  * volba jednou zmizela.
  */
 const KVALITY = [
-  { key: "sub" as const, label: "Plynulá", popis: "Vedlejší proud — projde i po slabší lince" },
   { key: "main" as const, label: "Detailní", popis: "Hlavní proud v plném rozlišení" },
+  { key: "sub" as const, label: "Plynulá", popis: "Vedlejší proud — projde i po slabší lince" },
 ];
 
 const ULOZISTE_KLIC = "sky-guard.kvalita-obrazu";
@@ -62,9 +62,11 @@ const ULOZISTE_KLIC = "sky-guard.kvalita-obrazu";
  */
 function nactiKvalitu(): Kvalita {
   try {
-    return localStorage.getItem(ULOZISTE_KLIC) === "main" ? "main" : "sub";
+    // Jen výslovně uložená „sub" přebije výchozí. Prázdné úložiště
+    // znamená „nikdo nepřepínal", tedy plné rozlišení.
+    return localStorage.getItem(ULOZISTE_KLIC) === "sub" ? "sub" : "main";
   } catch {
-    return "sub";
+    return "main";
   }
 }
 
@@ -111,8 +113,8 @@ export function KameraDetail({
   );
   // ═══ Uložená volba kvality ══════════════════════════════════════
   // Přes useSyncExternalStore, ne přes useState s efektem: na serveru
-  // localStorage není, takže se serverový snímek drží na „sub" a po
-  // hydrataci se přečte skutečná volba. Efekt s setState by vyrobil
+  // localStorage není, takže se serverový snímek drží na výchozí
+  // hodnotě a po hydrataci se přečte skutečná volba. Efekt s setState by vyrobil
   // kaskádový render navíc a React ho právem odmítá.
   //
   // `volba` je přepnutí v tomhle sezení; dokud nikdo nepřepnul, platí
@@ -120,7 +122,7 @@ export function KameraDetail({
   const ulozena = useSyncExternalStore(
     () => () => {},
     nactiKvalitu,
-    () => "sub" as Kvalita,
+    () => "main" as Kvalita,
   );
   const [volba, setVolba] = useState<Kvalita | null>(null);
   const kvalita = volba ?? ulozena;
@@ -247,8 +249,8 @@ export function KameraDetail({
 
           <p className="mt-3 text-xs text-[var(--text-muted)]">
             {kvalita === "main"
-              ? "Hlavní proud je v plném rozlišení a přes linku stavby nemusí stačit — když se obraz zadrhává, přepněte na plynulý."
-              : `Obraz jde přímo z kamery. Co bylo dřív, najdete v Přehrávání — kamera drží zhruba ${dosahDni} dní zpětně.`}
+              ? `Plné rozlišení. Když se obraz zadrhává, přepněte na plynulý — volba se pamatuje. Co bylo dřív, najdete v Přehrávání; kamera drží zhruba ${dosahDni} dní zpětně.`
+              : `Vedlejší proud — nižší rozlišení, zato projde i po slabší lince. Co bylo dřív, najdete v Přehrávání; kamera drží zhruba ${dosahDni} dní zpětně.`}
           </p>
         </div>
       ) : null}

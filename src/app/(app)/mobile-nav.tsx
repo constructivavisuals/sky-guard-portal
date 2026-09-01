@@ -35,7 +35,9 @@ import { NAV_ITEMS, type NavItem } from "./sidebar.tsx";
 // muselo sahat.
 const PRIMARY_HREFS = new Set<string>([
   "/prehled",
-  "/detekce",
+  // Kamery dole místo detekcí: na stavbě se nejčastěji sahá po obraze,
+  // ne po seznamu, co se kdy hnulo. Detekce zůstávají pod „Více“.
+  "/kamery",
   "/zasahy",
   "/lety",
 ]);

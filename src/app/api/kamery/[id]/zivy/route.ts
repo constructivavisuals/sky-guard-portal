@@ -9,11 +9,9 @@ import { createClient } from "@/lib/supabase/server.ts";
 //
 // Lístek na živý obraz jedné kamery.
 //
-// ═══ Kvalita se vybírá, ale výchozí je vedlejší ════════════════════
-// Hlavní proud je 4K a přes tunel nemusí projít — záleží na lince
-// konkrétní stavby. Neznámá nebo chybějící hodnota proto padá na
-// vedlejší, ne na chybu: uložený odkaz se nemá rozbít a nikdo nemá
-// dostat 4K jen proto, že se překlepl.
+// ═══ Kvalita se vybírá, výchozí je hlavní proud ════════════════════
+// Neznámá nebo chybějící hodnota padá na výchozí, ne na chybu:
+// uložený odkaz se nemá rozbít kvůli překlepu v parametru.
 //
 // ═══ Proč to nejde přes portál ═════════════════════════════════════
 // Serverless funkce neudrží minutové spojení a video by teklo přes
@@ -58,7 +56,7 @@ export async function GET(
   const { id } = await ctx.params;
 
   const kvalitaRaw = request.nextUrl.searchParams.get("kvalita");
-  const kvalita = isStreamQuality(kvalitaRaw) ? kvalitaRaw : "sub";
+  const kvalita = isStreamQuality(kvalitaRaw) ? kvalitaRaw : "main";
 
   let config;
   try {

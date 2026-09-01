@@ -19,21 +19,23 @@ export function isStreamQuality(value: unknown): value is StreamQuality {
  * dřív nebo později rozešel. Přípona `_sub` musí sedět s live.py,
  * které konfiguraci go2rtc generuje.
  *
- * ═══ Výchozí je VEDLEJŠÍ proud, a to zůstává ═══════════════════════
- * Hlavní (4K) se na místě změřil jako rozpadlý přes tunel. Měřilo se
- * ale `ffplay` po UDP, kde se ztracený paket neopakuje — proud do
- * prohlížeče jde přes go2rtc po TCP, kde se stejné přetížení projeví
- * jako zadrhávání, ne jako rozsypaný obraz. Použitelný tedy být může.
+ * ═══ Výchozí je HLAVNÍ proud ═══════════════════════════════════════
+ * Kdysi se změřil jako rozpadlý přes tunel, ale měřilo se `ffplay` po
+ * UDP, kde se ztracený paket neopakuje. Do prohlížeče jde obraz přes
+ * go2rtc po TCP a v provozu se ukázalo, že projde — pomohlo i to, že
+ * se do Hetzneru nesypou průběžná data.
  *
- * Záleží to na LINCE KONKRÉTNÍ STAVBY a to se z portálu nepozná. Proto
- * je to volba diváka a ne nové výchozí nastavení: kdo si o detail
- * řekne, ví, že si o něj řekl, a pozná i to, když se nerozjede. Opačné
- * pořadí by znamenalo, že první dojem z živého obrazu je zaseknutý
- * obraz — a přesně proto ta volba jednou zmizela.
+ * Vedlejší proud zůstává jako volba pro linku, která na plné
+ * rozlišení nestačí. Pořadí je tedy obrácené než dřív: nabízí se to
+ * lepší a ustupuje se, když to nejde.
+ *
+ * Pokud se na nějaké stavbě obraz zadrhává, není to důvod měnit
+ * výchozí hodnotu pro všechny — divák si přepne a volba se mu
+ * v prohlížeči pamatuje.
  */
 export function streamName(
   serialNumber: string,
-  quality: StreamQuality = "sub",
+  quality: StreamQuality = "main",
 ): string {
   return quality === "main" ? serialNumber : `${serialNumber}_sub`;
 }

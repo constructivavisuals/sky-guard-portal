@@ -12,8 +12,8 @@ import {
 const SERIAL = "BK024AAPAGB5592";
 
 describe("streamName", () => {
-  it("bez upřesnění vedlejší proud — ten projde i po slabší lince", () => {
-    assert.equal(streamName(SERIAL), `${SERIAL}_sub`);
+  it("bez upřesnění hlavní proud — plné rozlišení je výchozí", () => {
+    assert.equal(streamName(SERIAL), SERIAL);
   });
 
   it("vedlejší má příponu _sub — musí sedět s live.py", () => {
