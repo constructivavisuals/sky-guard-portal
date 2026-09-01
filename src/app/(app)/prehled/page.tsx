@@ -5,9 +5,12 @@ import {
   BatteryMedium,
   ChevronRight,
   CloudSun,
+  Film,
   HardDrive,
+  History,
   LayoutDashboard,
   Plane,
+  ScanEye,
   ShieldCheck,
   Video,
 } from "lucide-react";
@@ -46,6 +49,7 @@ import {
   type SiteCapabilities,
   type SiteRow,
 } from "@/lib/selected-site.ts";
+import { PLAYBACK_REACH_DAYS } from "@/lib/live/stream.ts";
 import { isSiteAlwaysArmed, nextArmedTransition } from "@/lib/site-status.ts";
 import { visibleNavItems } from "@/lib/nav.ts";
 import { createClient } from "@/lib/supabase/server.ts";
@@ -104,6 +108,12 @@ export default async function Page() {
     announced: 0,
   };
   /** Pro varování o kamerách přes relay bez adresy v síti. */
+  let kamery = {
+    pocet: 0,
+    klipu: 0,
+    posledniDetekceAt: null as string | null,
+    posledniDetekceKamera: null as string | null,
+  };
   let failed = false;
 
   // Lokalita už přišla se seznamem v layoutu, včetně okna střežení
@@ -117,7 +127,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, passageCount, announcedCount, passageRows, patrolFlights] =
+      const [detections, dispatches, suppressed, flights, passageCount, announcedCount, passageRows, patrolFlights, cameraCount, posledniDetekce, klipCount] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -149,6 +159,24 @@ export default async function Page() {
             .not("started_at", "is", null)
             .order("started_at", { ascending: false }).limit(50)
             .returns<{ patrol_id: string | null; started_at: string }[]>(),
+          // ── Pro blok o kamerách ───────────────────────────────
+          // Kolik kamer lokalita má. `head: true` — jde jen o číslo.
+          supabase.from("cameras").select("id", { count: "exact", head: true })
+            .eq("site_id", site.id).neq("status", "decommissioned"),
+          // Poslední detekce, ať je vidět, kdy se naposled něco hnulo.
+          // Ne dnešní: na klidné stavbě je zajímavější „předevčírem
+          // v 6:12" než dnešní nula.
+          supabase.from("detections")
+            .select("detected_at, cameras(name)")
+            .eq("site_id", site.id)
+            .order("detected_at", { ascending: false }).limit(1)
+            .returns<{ detected_at: string; cameras: { name: string } | null }[]>(),
+          // Uložené klipy: kolik důkazů v úložišti opravdu leží.
+          supabase.from("camera_recordings")
+            .select("id, cameras!inner(site_id)", { count: "exact", head: true })
+            .eq("cameras.site_id", site.id)
+            .not("storage_path", "is", null)
+            .is("video_expired_at", null),
         ]);
 
       counts = {
@@ -164,6 +192,15 @@ export default async function Page() {
         unknownPlates: (passageRows.data ?? []).filter((row) =>
           isSiteArmed(site, new Date(row.passed_at)),
         ).length,
+      };
+
+      kamery = {
+        pocet: cameraCount.count ?? 0,
+        // Chybějící tabulka (nenasazená migrace) dá null, ne pád.
+        klipu: klipCount.error ? 0 : (klipCount.count ?? 0),
+        posledniDetekceAt: (posledniDetekce.data ?? [])[0]?.detected_at ?? null,
+        posledniDetekceKamera:
+          (posledniDetekce.data ?? [])[0]?.cameras?.name ?? null,
       };
 
       for (const flight of patrolFlights.data ?? []) {
@@ -235,7 +272,16 @@ export default async function Page() {
               hlášek, které se stejně řeší jinde. Detekce mají vlastní
               sekci, kamery taky. */}
 
-          {capabilities.cameras ? <NaKamery /> : null}
+          {capabilities.cameras ? (
+            <>
+              <NaKamery pocet={kamery.pocet} />
+              <KameryABlok
+                kamery={kamery}
+                timeZone={site.timezone}
+                dosahDni={PLAYBACK_REACH_DAYS}
+              />
+            </>
+          ) : null}
 
           <Numbers counts={counts} capabilities={capabilities} />
         </div>
@@ -371,7 +417,7 @@ function StatusBar({
  * telefonu dvě klepnutí navíc a na přehledu, který má být rozcestník,
  * zbytečně.
  */
-function NaKamery() {
+function NaKamery({ pocet }: { pocet: number }) {
   return (
     <Link
       href="/kamery"
@@ -381,8 +427,13 @@ function NaKamery() {
         className="h-4 w-4 shrink-0 text-[var(--accent-bright)]"
         aria-hidden="true"
       />
-      <span className="flex-1 text-sm text-[var(--text)]">Kamery</span>
-      <span className="text-xs text-[var(--text-muted)]">
+      <span className="flex-1 text-sm text-[var(--text)]">
+        Kamery
+        {pocet > 0 ? (
+          <span className="ml-2 text-xs text-[var(--text-muted)]">{pocet}</span>
+        ) : null}
+      </span>
+      <span className="hidden text-xs text-[var(--text-muted)] sm:inline">
         obraz, záznam, události
       </span>
       <ChevronRight
@@ -390,6 +441,85 @@ function NaKamery() {
         aria-hidden="true"
       />
     </Link>
+  );
+}
+
+/**
+ * Co je o kamerách vidět bez proklikávání.
+ *
+ * ═══ Proč zrovna tyhle čtyři údaje ═════════════════════════════════
+ * Blok „Dnes“ nad tím počítá dnešek, což na klidné stavbě znamená
+ * čtyři nuly a prázdnou obrazovku. Tyhle údaje naopak nemají jak být
+ * prázdné a každý odpovídá na otázku, kterou si klient klade:
+ *
+ *   Kamer               kolik jich vlastně mám
+ *   Poslední detekce    kdy se naposled něco hnulo (i když to bylo
+ *                       předevčírem — dnešní nula o tom nic neříká)
+ *   Záznam zpětně       jak daleko se můžu podívat
+ *   Uložených klipů     kolik důkazů v úložišti opravdu leží
+ */
+function KameryABlok({
+  kamery,
+  timeZone,
+  dosahDni,
+}: {
+  kamery: {
+    pocet: number;
+    klipu: number;
+    posledniDetekceAt: string | null;
+    posledniDetekceKamera: string | null;
+  };
+  timeZone: string;
+  dosahDni: number;
+}) {
+  return (
+    <>
+      <Section className="pb-0 sm:pb-0">
+        <BlockTitle className="mb-0">Kamery</BlockTitle>
+      </Section>
+      <div className="hairline-grid grid-cols-2 sm:grid-cols-4">
+        <Metric
+          label="Kamer"
+          icon={<Video className="h-3.5 w-3.5" aria-hidden="true" />}
+        >
+          {kamery.pocet}
+        </Metric>
+
+        <Metric
+          label="Poslední detekce"
+          icon={<ScanEye className="h-3.5 w-3.5" aria-hidden="true" />}
+        >
+          {kamery.posledniDetekceAt ? (
+            <span className="block">
+              <span className="block text-[15px] leading-snug sm:text-base">
+                {formatDateTime(kamery.posledniDetekceAt, timeZone)}
+              </span>
+              {kamery.posledniDetekceKamera ? (
+                <span className="mt-0.5 block text-xs font-normal text-[var(--text-muted)]">
+                  {kamery.posledniDetekceKamera}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            "Zatím žádná"
+          )}
+        </Metric>
+
+        <Metric
+          label="Záznam zpětně"
+          icon={<History className="h-3.5 w-3.5" aria-hidden="true" />}
+        >
+          {dosahDni} dní
+        </Metric>
+
+        <Metric
+          label="Uložených klipů"
+          icon={<Film className="h-3.5 w-3.5" aria-hidden="true" />}
+        >
+          {kamery.klipu}
+        </Metric>
+      </div>
+    </>
   );
 }
 

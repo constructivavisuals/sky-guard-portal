@@ -59,7 +59,7 @@ export function Shell({
         <main className="flex flex-1 flex-col overflow-x-clip lg:overflow-y-auto">
           {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg
               už žádná není. */}
-          <div className="pb-24 lg:pb-0">{children}</div>
+          <div className="pb-20 lg:pb-0">{children}</div>
 
           {/* Prázdné místo pod obsahem není prázdné — pokračují v něm
               svislé linky mřížky. Na mobilu ne: tam je plocha úzká
