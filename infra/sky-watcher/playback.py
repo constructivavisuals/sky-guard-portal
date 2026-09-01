@@ -97,6 +97,10 @@ PLAYBACK_PATH = os.environ.get(
 # otevřené okno zbytečně dlouho.
 OKNO_SEC = int(os.environ.get("PLAYBACK_WINDOW_SEC", "14400"))
 
+# Jméno vstupní šablony v playback-config/go2rtc.yaml. Vynucuje TCP —
+# viz go2rtc_zdroj() a komentář u té šablony.
+VSTUPNI_SABLONA = os.environ.get("PLAYBACK_INPUT_TEMPLATE", "playback")
+
 # Po jak dlouhé nečinnosti se proud zruší. Každý živý proud drží
 # spojení na kameru a ta zároveň píše na tutéž kartu, takže zapomenutý
 # proud stojí víc než místo v paměti.
@@ -173,15 +177,25 @@ def go2rtc_zdroj(rtsp: str) -> str:
 
     Nativní RTSP klient go2rtc přepínač transportu NEMÁ — `#transport=`
     umí jen WebSocket. Proto se jde přes `ffmpeg:` zdroj, kde se dá
-    `-rtsp_transport tcp` napsat výslovně. Dokumentace go2rtc tuhle
-    cestu sama doporučuje u proudů, které se rozpadají, a bez
-    překódování nestojí procesor nic navíc.
+    transport vynutit. Dokumentace go2rtc tuhle cestu sama doporučuje
+    u proudů, které se rozpadají, a bez překódování nestojí procesor
+    nic navíc.
 
-    Výslovně, i když je TCP u ffmpeg zdroje výchozí: záměr má být
-    v kódu vidět, ne schovaný ve výchozí hodnotě cizí knihovny, která
-    se může tiše změnit s další verzí.
+    Nestačí ale nechat výchozí chování: šablona `rtsp` v go2rtc má
+    `-rtsp_flags prefer_tcp`, což TCP jen PREFERUJE a při potížích
+    spadne na UDP — tedy přesně tam, kde se obraz rozpadá.
+
+    Odkazuje se na POJMENOVANOU šablonu z go2rtc.yaml, ne na argumenty
+    psané rovnou sem. Dva důvody:
+
+      * zdroj nemá mezery ani složené závorky, takže neprojde dvojím
+        kódováním (jednou do API, podruhé při rozboru `#` parametrů);
+      * v adrese i v logu zbyde `#input=playback`, což se dá přečíst.
+
+    Šablona sama je v playback-config/go2rtc.yaml. Když se přejmenuje
+    tam, musí se přejmenovat i tady — hlídá to test.
     """
-    return f"ffmpeg:{rtsp}#input=-rtsp_transport tcp -i {{input}}"
+    return f"ffmpeg:{rtsp}#input={VSTUPNI_SABLONA}"
 
 
 # ── go2rtc ───────────────────────────────────────────────────────
@@ -196,13 +210,30 @@ def _go2rtc(metoda: str, dotaz: dict) -> dict | None:
     naopak bere `name` i `src`. Splést si to znamená, že se maže něco
     jiného, než si člověk myslí — proto to volá tahle jediná funkce.
     """
-    url = f"{GO2RTC_API}/api/streams?" + urllib.parse.urlencode(dotaz)
+    # `quote` místo výchozího `quote_plus`: mezera se zakóduje jako
+    # %20, ne jako +. go2rtc hodnotu `src` rozebírá ještě jednou (dělí
+    # ji na `#` parametry) a `+` by se v tom druhém průchodu mohlo
+    # vyložit jinak. Dnes v adrese žádná mezera není, ale tohle je
+    # levnější než si na to vzpomenout, až tam bude.
+    url = f"{GO2RTC_API}/api/streams?" + urllib.parse.urlencode(
+        dotaz, quote_via=urllib.parse.quote
+    )
     request = urllib.request.Request(url, method=metoda)
     try:
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as odpoved:
             telo = odpoved.read()
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"go2rtc {metoda} {exc.code}") from exc
+        # Tělo odpovědi je to JEDINÉ, co říká PROČ. go2rtc vrací
+        # `http.Error(w, err.Error(), 400)`, tedy důvod v těle a nic
+        # v hlavičce — bez něj je z toho holé „400" a hádá se, jestli
+        # je špatně adresa, šablona, nebo zápis do konfiguráku.
+        try:
+            duvod = exc.read().decode("utf-8", "replace").strip()[:300]
+        except OSError:
+            duvod = ""
+        raise RuntimeError(
+            f"go2rtc {metoda} {exc.code}" + (f": {duvod}" if duvod else "")
+        ) from exc
     except (urllib.error.URLError, OSError) as exc:
         raise RuntimeError(f"go2rtc {metoda} nedostupné: {exc}") from exc
 

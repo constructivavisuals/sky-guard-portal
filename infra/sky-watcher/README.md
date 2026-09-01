@@ -280,14 +280,37 @@ ose se prohlížeč na chvíli odpojí a okamžité rušení by znamenalo nové
 spojení na kameru po každém šťouchnutí.
 
 Vynucení TCP jde přes `ffmpeg:` zdroj, protože nativní RTSP klient
-go2rtc přepínač transportu **nemá** (`#transport=` umí jen WebSocket):
+go2rtc přepínač transportu **nemá** (`#transport=` umí jen WebSocket).
+
+Výchozí chování ale nestačí: šablona `rtsp` v go2rtc má
+`-rtsp_flags prefer_tcp`, což TCP jen **preferuje** a při potížích
+spadne na UDP — tedy přesně tam, kde se obraz rozpadá. Proto vlastní
+vstupní šablona v `playback-config/go2rtc.yaml`:
+
+```yaml
+ffmpeg:
+  playback: "-fflags nobuffer -flags low_delay -timeout {timeout} -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
+```
+
+a zdroj se na ni jen odkáže:
 
 ```
-ffmpeg:rtsp://...#input=-rtsp_transport tcp -i {input}
+ffmpeg:rtsp://...#input=playback
 ```
 
-Napsané výslovně, i když je TCP u ffmpeg zdroje výchozí — záměr má být
-v kódu vidět, ne schovaný ve výchozí hodnotě cizí knihovny.
+Pojmenovaná šablona, ne argumenty psané rovnou do adresy, ze dvou
+důvodů: zdroj pak nemá mezery ani složené závorky, které se při dvojím
+průchodu kódováním (jednou do API, podruhé při rozboru `#` parametrů)
+můžou rozejít — a v logu je vidět `#input=playback` místo změti.
+
+Zbytek šablony je opsaný z výchozí schválně. `-timeout` je to, co
+odpojí mrtvou kameru místo věčného čekání; vlastní šablona ho jinak
+tiše zahodí.
+
+**Když go2rtc odmítne PUT, důvod je v TĚLE odpovědi**, ne v hlavičce
+(`http.Error(w, err.Error(), 400)`). `playback.py` ho proto čte
+a dává do logu — bez něj je z toho holé „400" a hádá se, jestli je
+špatně adresa, šablona, nebo zápis do konfiguráku.
 
 ### Klipy kolem detekcí
 

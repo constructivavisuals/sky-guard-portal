@@ -21,6 +21,22 @@ rtsp:
 webrtc:
   listen: ""
 
+ffmpeg:
+  # ═══ Vlastní vstupní šablona: vynucené TCP ═══════════════════════
+  # Výchozí šablona `rtsp` v go2rtc má `-rtsp_flags prefer_tcp`, což
+  # TCP jen PREFERUJE — při potížích spadne na UDP. Změřeno na místě,
+  # že UDP se přes tunel rozpadá (ztracený paket se neopakuje), takže
+  # „preferovat" nestačí a musí se vynutit.
+  #
+  # Zbytek je opsaný z výchozí šablony schválně, ať se neztratí:
+  # `-timeout` je to, co odpojí mrtvou kameru místo věčného čekání.
+  #
+  # Jako pojmenovaná šablona, ne jako `#input=` přímo v adrese: zdroj
+  # pak nemá mezery ani složené závorky, které se při dvojím průchodu
+  # kódováním (jednou do API, podruhé při rozboru `#` parametrů) můžou
+  # rozejít. V adrese zbyde `#input=playback` a je to čitelné i v logu.
+  playback: "-fflags nobuffer -flags low_delay -timeout {timeout} -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
+
 log:
   level: info
 

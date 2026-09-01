@@ -50,6 +50,7 @@ class FakeGo2rtc(BaseHTTPRequestHandler):
 
     proudy: dict = {}
     volani: list = []
+    odmitat: str = ""
 
     def log_message(self, *args):
         return
@@ -77,6 +78,13 @@ class FakeGo2rtc(BaseHTTPRequestHandler):
     def do_PUT(self):
         dotaz = self._dotaz()
         FakeGo2rtc.volani.append(("PUT", dotaz))
+        if FakeGo2rtc.odmitat:
+            telo = FakeGo2rtc.odmitat.encode("utf-8")
+            self.send_response(400)
+            self.send_header("Content-Length", str(len(telo)))
+            self.end_headers()
+            self.wfile.write(telo)
+            return
         FakeGo2rtc.proudy[dotaz["name"]] = {"producers": [], "consumers": []}
         self._telo({})
 
@@ -145,19 +153,40 @@ def test_adresa_playbacku(zkontroluj) -> None:
 
 def test_vynucene_tcp(zkontroluj) -> None:
     """
-    UDP se změřeně rozpadá. TCP musí být v adrese vidět.
+    UDP se změřeně rozpadá. TCP musí být vynucené, ne jen preferované.
 
-    Nativní RTSP klient go2rtc přepínač transportu nemá, proto se jde
-    přes ffmpeg zdroj. Kdyby tenhle test spadl, znamená to, že proud
-    může jet po UDP — a to vyrobí rozsypaný obraz, který přitom
-    vypadá jako platný.
+    Výchozí šablona `rtsp` v go2rtc má `-rtsp_flags prefer_tcp`, což
+    při potížích spadne na UDP — tedy tam, kde se obraz rozpadá. Proto
+    vlastní šablona. Kdyby tenhle test spadl, znamená to, že proud
+    může jet po UDP a vyrobit rozsypaný obraz, který vypadá platně.
     """
     zdroj = playback.go2rtc_zdroj("rtsp://10.0.0.5/cam/playback?channel=1")
     zkontroluj("jde se přes ffmpeg zdroj", zdroj.startswith("ffmpeg:"), zdroj)
-    zkontroluj("a TCP je napsané výslovně",
-               "-rtsp_transport tcp" in zdroj, zdroj)
+    zkontroluj("odkazuje se na vstupní šablonu",
+               zdroj.endswith(f"#input={playback.VSTUPNI_SABLONA}"), zdroj)
     zkontroluj("adresa zůstala uvnitř",
                "rtsp://10.0.0.5/cam/playback?channel=1" in zdroj, zdroj)
+
+    # Zdroj nesmí obsahovat nic, co se při dvojím průchodu kódováním
+    # (jednou do API go2rtc, podruhé při rozboru `#` parametrů) může
+    # rozejít. Právě na tomhle se to lámalo.
+    zkontroluj("a nemá mezery ani složené závorky",
+               " " not in zdroj and "{" not in zdroj, zdroj)
+
+    # Šablona bydlí v konfiguráku go2rtc a jméno se musí trefit. Kdyby
+    # se přejmenovala tam a ne tady, projeví se to jako 400 z go2rtc.
+    konfig = (KOREN / "playback-config" / "go2rtc.yaml").read_text(encoding="utf-8")
+    zkontroluj("šablona v go2rtc.yaml existuje",
+               f"\n  {playback.VSTUPNI_SABLONA}:" in konfig,
+               f"hledalo se '{playback.VSTUPNI_SABLONA}:'")
+    radek = next(
+        (r for r in konfig.splitlines()
+         if r.strip().startswith(f"{playback.VSTUPNI_SABLONA}:")), "")
+    zkontroluj("a vynucuje TCP, ne jen preferuje",
+               "-rtsp_transport tcp" in radek and "prefer_tcp" not in radek,
+               radek.strip()[:120])
+    zkontroluj("nezahodila -timeout — mrtvá kamera nemá viset donekonečna",
+               "-timeout" in radek, radek.strip()[:120])
 
 
 def test_uklid_sezeni(zkontroluj) -> None:
@@ -205,8 +234,8 @@ def test_brana(zkontroluj, port: int) -> None:
                playback.zajisti_proud(jmeno) is None and jmeno in FakeGo2rtc.proudy)
 
     puts = [d for m, d in FakeGo2rtc.volani if m == "PUT"]
-    zkontroluj("proud se založil s vynuceným TCP",
-               puts and "-rtsp_transport tcp" in puts[0]["src"],
+    zkontroluj("proud se založil přes šablonu s vynuceným TCP",
+               puts and puts[0]["src"].endswith(f"#input={playback.VSTUPNI_SABLONA}"),
                str(puts[:1]))
 
     FakeGo2rtc.volani = []
@@ -226,6 +255,30 @@ def test_brana(zkontroluj, port: int) -> None:
     zkontroluj("přes strop souběžných přehrávání se nepustí",
                playback.zajisti_proud(playback.jmeno_proudu(SERIAL, 1788009999))
                == "too_many_streams")
+
+
+def test_chyba_z_go2rtc_nese_duvod(zkontroluj, port: int) -> None:
+    """
+    Když go2rtc odmítne, musí být v logu PROČ.
+
+    Vrací `http.Error(w, err.Error(), 400)`, tedy důvod v těle a nic
+    v hlavičce. Bez něj je z toho holé „400" a hádá se, jestli je
+    špatně adresa, šablona, nebo zápis do konfiguráku — což stálo
+    jedno kolo ladění.
+    """
+    playback.GO2RTC_API = f"http://127.0.0.1:{port}"
+    FakeGo2rtc.odmitat = "unsupported source type"
+    try:
+        chyba = ""
+        try:
+            playback.zaloz_proud("BK-pb-1788000000", "ffmpeg:rtsp://x")
+        except RuntimeError as exc:
+            chyba = str(exc)
+        zkontroluj("chyba nese stavový kód", "400" in chyba, chyba)
+        zkontroluj("a hlavně důvod od go2rtc",
+                   "unsupported source type" in chyba, chyba)
+    finally:
+        FakeGo2rtc.odmitat = ""
 
 
 def test_listek_je_vazany_na_cas(zkontroluj) -> None:
@@ -293,6 +346,7 @@ def main() -> int:
     test_vynucene_tcp(zkontroluj)
     test_uklid_sezeni(zkontroluj)
     test_brana(zkontroluj, port)
+    test_chyba_z_go2rtc_nese_duvod(zkontroluj, port)
     test_listek_je_vazany_na_cas(zkontroluj)
     test_fronta_klipu(zkontroluj)
 
