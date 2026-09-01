@@ -4,6 +4,10 @@ import { ChevronRight, Video } from "lucide-react";
 
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
 import { getSiteSelection } from "@/lib/selected-site.ts";
+import {
+  CAMERA_STATUS_LABELS,
+  type CameraStatus,
+} from "@/types/database.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
 export const metadata: Metadata = { title: "Kamery" };
@@ -16,6 +20,20 @@ export const metadata: Metadata = { title: "Kamery" };
 // Přitom je to jedna otázka: co se na té stavbě děje nebo dělo.
 // Vzor je DMSS — kamera se otevře a v ní se přepínají pohledy.
 //
+// ═══ Kolečko ukazuje STAV KAMERY, ne kdy se naposled ozvala ════════
+// Dřív se počítalo z `last_seen_at` a byla to past: ten sloupec se
+// zapisuje jedině tehdy, když něco DORAZÍ — detekce, klip nebo vjezd.
+// Zdravá kamera, u které půl hodiny nikdo neprošel, tedy zšedla
+// a tvrdila „neozvala se“. V noci na klidné stavbě zšedly všechny.
+//
+// Teď se bere `cameras.status`, tedy administrativní stav: v jakém
+// je kamera provozu. Totéž ukazuje seznam kamer v Areálech, takže si
+// dvě místa v portálu neprotiřečí.
+//
+// Živost by musel hlásit relay — ten na kamerách drží spojení a ví
+// to. Do portálu to zatím neposílá, a než to bude posílat, je poctivé
+// tvrdit míň.
+//
 // ═══ Jeden sloupec, ne mřížka náhledů ══════════════════════════════
 // Mřížka živých náhledů vypadá dobře a stojí devět spojení na kamery,
 // které zároveň píšou na vlastní kartu. Náhled se proto načte až
@@ -27,23 +45,13 @@ interface CameraRow {
   id: string;
   name: string;
   serial_number: string | null;
-  status: string;
-  last_seen_at: string | null;
+  status: CameraStatus;
   sites: { name: string } | null;
 }
-
-/** Po jaké době bez ozvání se kamera bere za tichou. */
-const TICHO_MINUT = 30;
 
 export default async function Page() {
   const { selected } = await getSiteSelection();
 
-  // Jednou pro celý průchod. Je to serverová komponenta, takže se
-  // vykreslí jednou za požadavek a „teď“ je tu legitimní údaj —
-  // pravidlo proti nečistým voláním míří na opakované renderování
-  // v prohlížeči, které se tady neděje.
-  // eslint-disable-next-line react-hooks/purity
-  const ted = Date.now();
 
   let cameras: CameraRow[] = [];
   let failed = false;
@@ -52,7 +60,7 @@ export default async function Page() {
     const supabase = await createClient();
     let query = supabase
       .from("cameras")
-      .select("id, name, serial_number, status, last_seen_at, sites(name)")
+      .select("id, name, serial_number, status, sites(name)")
       .eq("ingest_mode", "ftp")
       .neq("status", "decommissioned")
       .order("name");
@@ -99,39 +107,37 @@ export default async function Page() {
         />
       ) : (
         <ul className="border-t border-[var(--line)]">
-          {dostupne.map((row) => {
-            const ticha =
-              !row.last_seen_at ||
-              ted - Date.parse(row.last_seen_at) > TICHO_MINUT * 60_000;
-            return (
-              <li key={row.id}>
-                <Link
-                  href={`/kamery/${row.id}`}
-                  className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-4 transition hover:bg-[var(--surface-2)] sm:px-6"
-                >
-                  <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${
-                      ticha ? "bg-[var(--text-muted)]" : "bg-[var(--success)]"
-                    }`}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-[var(--text)]">
-                      {row.name}
-                    </span>
-                    <span className="block truncate text-xs text-[var(--text-muted)]">
-                      {row.sites?.name ?? "—"}
-                      {ticha ? " · neozvala se" : ""}
-                    </span>
+          {dostupne.map((row) => (
+            <li key={row.id}>
+              <Link
+                href={`/kamery/${row.id}`}
+                className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-4 transition hover:bg-[var(--surface-2)] sm:px-6"
+              >
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${
+                    row.status === "online"
+                      ? "bg-[var(--success)] shadow-[var(--glow-success)]"
+                      : row.status === "offline"
+                        ? "bg-[var(--danger)]"
+                        : "bg-[var(--warning)]"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-[var(--text)]">
+                    {row.name}
                   </span>
-                  <ChevronRight
-                    className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
-                    aria-hidden="true"
-                  />
-                </Link>
-              </li>
-            );
-          })}
+                  <span className="block truncate text-xs text-[var(--text-muted)]">
+                    {row.sites?.name ?? "—"} · {CAMERA_STATUS_LABELS[row.status]}
+                  </span>
+                </span>
+                <ChevronRight
+                  className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
+                  aria-hidden="true"
+                />
+              </Link>
+            </li>
+          ))}
         </ul>
       )}
 

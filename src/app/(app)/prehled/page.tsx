@@ -46,7 +46,7 @@ import {
   type SiteCapabilities,
   type SiteRow,
 } from "@/lib/selected-site.ts";
-import { nextArmedTransition } from "@/lib/site-status.ts";
+import { isSiteAlwaysArmed, nextArmedTransition } from "@/lib/site-status.ts";
 import { visibleNavItems } from "@/lib/nav.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
@@ -292,9 +292,17 @@ function StatusBar({
   dockFacts: ReactNode;
   hasDrone: boolean;
 }) {
-  const sentence = armed ? "Areál je právě střežený." : "Areál právě nestřeží.";
+  // Nepřetržité střežení se hlásí rovnou a bez dovětku: okno 00:00 až
+  // 23:59 sice formálně jednu minutu denně nestřeží, ale „střežení se
+  // vypne ve 23:59“ by o stavu areálu tvrdilo něco, co není pravda.
+  const nepretrzite = isSiteAlwaysArmed(site);
+  const sentence = nepretrzite
+    ? "Areál je střežený nepřetržitě."
+    : armed
+      ? "Areál je právě střežený."
+      : "Areál právě nestřeží.";
   const switchNote =
-    until && becomes
+    !nepretrzite && until && becomes
       ? becomes === "armed"
         ? `Střežení se zapne ${until}.`
         : `Střežení se vypne ${until}.`

@@ -15,6 +15,32 @@ export interface ArmedSchedule {
   armed_days: IsoWeekday[];
 }
 
+/**
+ * Střeží lokalita nepřetržitě?
+ *
+ * ═══ Proč to jde poznat jen odhadem ════════════════════════════════
+ * Model to neumí říct rovnou. `armed_from = armed_to` znamená PRÁZDNÉ
+ * okno, tedy „nikdy“ — ne „pořád“ (viz isSiteArmed a jeho protějšek
+ * site_is_armed() v SQL). Nepřetržitý provoz se proto zapisuje jako
+ * okno přes celý den, 00:00 až 23:59, na všechny dny v týdnu.
+ *
+ * Zbývá v něm minuta denně, kdy lokalita formálně nestřeží. Je to
+ * artefakt modelu, ne záměr, a v hlášce o stavu by z toho bylo
+ * matoucí „střežení se vypne ve 23:59“. Tahle funkce takové okno
+ * pozná, aby se dalo napsat rovnou, že se střeží nepřetržitě.
+ *
+ * Poctivé řešení je sloupec, který nepřetržitý provoz řekne výslovně
+ * — pak zmizí i ta minuta. Do té doby je tohle to nejbližší, co jde
+ * udělat bez migrace.
+ */
+export function isSiteAlwaysArmed(site: ArmedSchedule): boolean {
+  if (site.armed_days.length < 7) return false;
+  const from = toMinutes(site.armed_from);
+  const to = toMinutes(site.armed_to);
+  // Okno musí pokrývat celý den až na poslední minutu.
+  return from === 0 && to >= 23 * 60 + 59;
+}
+
 export interface ArmedTransition {
   at: Date;
   /** Do jakého stavu se přepne. */

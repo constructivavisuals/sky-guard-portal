@@ -1,8 +1,9 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
+import type { IsoWeekday } from "../types/database.ts";
 import { zonedTimeToUtc } from "./patrols/schedule.ts";
-import { nextArmedTransition, type ArmedSchedule } from "./site-status.ts";
+import { isSiteAlwaysArmed, nextArmedTransition, type ArmedSchedule } from "./site-status.ts";
 
 const PRAGUE = "Europe/Prague";
 
@@ -151,5 +152,52 @@ describe("nextArmedTransition — předaný výchozí stav", () => {
     const at = zonedTimeToUtc(2026, 8, 29, 7, 0, PRAGUE);
     // Do pondělí je to víc než den, s horizontem 1 se nic nenajde.
     assert.equal(nextArmedTransition(nocni, at, { horizonDays: 1 }), null);
+  });
+});
+
+describe("isSiteAlwaysArmed", () => {
+  const zaklad = {
+    timezone: "Europe/Prague",
+    armed_days: [1, 2, 3, 4, 5, 6, 7] as IsoWeekday[],
+  };
+
+  it("okno přes celý den na všechny dny je nepřetržité", () => {
+    assert.equal(
+      isSiteAlwaysArmed({ ...zaklad, armed_from: "00:00:00", armed_to: "23:59:00" }),
+      true,
+    );
+  });
+
+  it("i s vteřinami do konce dne", () => {
+    assert.equal(
+      isSiteAlwaysArmed({ ...zaklad, armed_from: "00:00:00", armed_to: "23:59:59" }),
+      true,
+    );
+  });
+
+  it("noční okno nepřetržité NENÍ", () => {
+    assert.equal(
+      isSiteAlwaysArmed({ ...zaklad, armed_from: "18:00:00", armed_to: "06:00:00" }),
+      false,
+    );
+  });
+
+  it("chybějící den ho ruší — o víkendu by se nestřežilo", () => {
+    assert.equal(
+      isSiteAlwaysArmed({
+        ...zaklad,
+        armed_days: [1, 2, 3, 4, 5] as IsoWeekday[],
+        armed_from: "00:00:00",
+        armed_to: "23:59:00",
+      }),
+      false,
+    );
+  });
+
+  it("prázdné okno taky ne — to znamená nikdy, ne pořád", () => {
+    assert.equal(
+      isSiteAlwaysArmed({ ...zaklad, armed_from: "00:00:00", armed_to: "00:00:00" }),
+      false,
+    );
   });
 });
