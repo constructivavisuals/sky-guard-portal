@@ -263,6 +263,38 @@ def probe_duration(src: Path) -> float | None:
         return None
 
 
+def probe_frame_rate(src: Path) -> str | None:
+    """
+    Snímková frekvence jako zlomek („15/1"), nebo None.
+
+    Bere se `avg_frame_rate`, protože u DHAV pochází přímo z rozšířené
+    hlavičky kontejneru (pole 0x81), kam ji píše kamera. `r_frame_rate`
+    je odhad ffmpegu z časových značek a u .dav vychází dvojnásobný.
+
+    Potřebuje ji dvoufázový remux: druhá fáze čte holý Annex-B, který
+    žádné časování nenese, takže se jí musí říct.
+    """
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=avg_frame_rate", "-of", "csv=p=0", str(src)],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    hodnota = (out.stdout or "").strip().splitlines()
+    if not hodnota:
+        return None
+    zlomek = hodnota[0].strip()
+    try:
+        citatel, jmenovatel = zlomek.split("/")
+        if int(citatel) <= 0 or int(jmenovatel) <= 0:
+            return None
+    except ValueError:
+        return None
+    return zlomek
+
+
 def tag_args(codec: str | None) -> list[str]:
     """
     Argumenty ffmpegu pro čtyřznakový kód video stopy.
@@ -318,6 +350,35 @@ def remux_to_mp4(
     překódovací farmu a obraz by se tím i zhoršil; co kamera natočí, to
     klient vidí — proto se kodek řeší v kameře, ne tady.
 
+    ═══ Proč dvě fáze a ne prosté `-i .dav -c copy out.mp4` ═══════
+    Protože demuxer DHAV ve ffmpegu neskládá dělené snímky. Kamera
+    velký snímek — u 4K typicky I-snímek — rozdělí do několika úseků
+    kontejneru se stejným číslem snímku a rostoucím PODČÍSLEM. Jenže
+    `libavformat/dhav.c` podčíslo načte do struktury a víc s ním
+    neudělá nic:
+
+        dhav->frame_subnumber = avio_r8(s->pb);   // a dál nikde
+
+    Z každého úseku tedy vznikne samostatný paket a z něj samostatný
+    vzorek MP4. Dekodér pak dostane půlku řezu a hlásí
+
+        error while decoding MB 54 16, bytestream -5
+
+    Soubor přitom vypadá zdravě: jedna stopa, `avc1`, správné
+    rozlišení i délka, časové značky sedí. Rozbitá jsou jen obrazová
+    data. Ověřeno na syntetickém DHAV — viz test_watcher.py, kde se
+    tahle vada vyrábí na povel.
+
+    Kód je v ffmpegu 5.1 (co běží na relayi) i v současném masteru
+    bajt po bajtu stejný, takže upgrade s tím nepohne.
+
+    Řešení: fáze 1 vytáhne z kontejneru holý Annex-B, fáze 2 ho zabalí
+    do MP4. Rámování ve druhé fázi se dělá podle STARTOVACÍCH ZNAČEK,
+    ne podle paketů kontejneru — a tím se rozdělené kusy složí zpátky
+    do celých snímků. Ověřeno: obrazový stream z opraveného souboru
+    je bajt po bajtu shodný s tím z nedělené předlohy, takže se ani
+    nic neztrácí, ani nepřidává.
+
     `+faststart` dá moov dopředu, aby šlo přehrávat od začátku stahování.
 
     ═══ `-an`: zvuk se zahazuje, jinak remux vůbec neprojde ═══════
@@ -349,8 +410,29 @@ def remux_to_mp4(
             "MONTAZ.md.", src.name,
         )
 
-    # .dav bývá holý Annex-B stream. Když ho ffmpeg neuhodne, zkusí se
-    # vnutit formát podle kodeku.
+    surovy = "hevc" if kodek in {"hevc", "h265"} else "h264"
+    frekvence = probe_frame_rate(src)
+
+    # Hlavní cesta: přes elementární stream, aby se snímky složily celé.
+    if frekvence:
+        chyba = remux_pres_elementarni(src, dst, surovy, frekvence, tag)
+        if chyba is None:
+            zkontroluj_vysledek(src, dst, [], ocekavana_delka)
+            return
+        log.warning(
+            "Dvoufázový remux selhal (%s), zkouší se přímé přebalení: %s",
+            chyba, src.name,
+        )
+    else:
+        log.warning(
+            "Nezjistila se snímková frekvence, dvoufázový remux se "
+            "přeskakuje: %s. Dělené snímky se pak nesloží.", src.name,
+        )
+
+    # Záchrana: přímé přebalení. Rámování paketů zůstane takové, jaké ho
+    # dá demuxer — u DHAV to znamená riziko rozdělených snímků, ale je to
+    # pořád lepší než žádný soubor. Vnucený formát je poslední možnost
+    # pro soubory, u kterých se kontejner vůbec nerozpozná.
     pokusy = [[], ["-f", "h264"], ["-f", "hevc"]]
     posledni = ""
     for vstup in pokusy:
@@ -365,6 +447,68 @@ def remux_to_mp4(
         dst.unlink(missing_ok=True)
 
     raise RuntimeError(f"remux selhal: {posledni}")
+
+
+def remux_pres_elementarni(
+    src: Path, dst: Path, surovy: str, frekvence: str, tag: list[str]
+) -> str | None:
+    """
+    Dvoufázový remux. Vrací None při úspěchu, jinak popis chyby.
+
+    Fáze 1 vytáhne z kontejneru holý Annex-B, fáze 2 ho zabalí do MP4.
+    Mezi nimi se stream NErámuje podle paketů kontejneru, ale podle
+    startovacích značek — a právě tím se rozdělené snímky složí zpátky.
+
+    Roury se propojují přímo, aby se nikde nedržel celý soubor v paměti:
+    záznamy mají stovky MB. Chybové výstupy jdou do souborů, protože
+    roura s chybami by se při delším běhu mohla zaplnit a obě fáze by
+    se o sebe zasekly.
+
+    `-r` na vstupu druhé fáze: holý Annex-B žádné časování nenese,
+    takže by ffmpeg jinak dosadil svých 25/1. Frekvence je z hlavičky
+    kontejneru, tedy od kamery. Výsledek je konstantní; jestli sedí,
+    ověří kontrola délky proti názvu souboru.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        err1 = Path(tmp) / "faze1.err"
+        err2 = Path(tmp) / "faze2.err"
+        try:
+            with err1.open("wb") as e1, err2.open("wb") as e2:
+                faze1 = subprocess.Popen(
+                    ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                     "-i", str(src), "-map", "0:v:0", "-c", "copy",
+                     "-f", surovy, "-"],
+                    stdout=subprocess.PIPE, stderr=e1,
+                )
+                try:
+                    faze2 = subprocess.Popen(
+                        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                         "-r", frekvence, "-f", surovy, "-i", "pipe:0",
+                         "-c", "copy", "-an", *tag,
+                         "-movflags", "+faststart", str(dst)],
+                        stdin=faze1.stdout, stderr=e2,
+                    )
+                finally:
+                    # Rouru musí zavřít i tenhle proces, jinak by první
+                    # fáze nikdy nedostala signál, že druhá skončila.
+                    faze1.stdout.close()
+
+                kod2 = faze2.wait(timeout=1800)
+                kod1 = faze1.wait(timeout=60)
+        except (OSError, subprocess.SubprocessError) as exc:
+            dst.unlink(missing_ok=True)
+            return f"nepodařilo se spustit: {exc}"
+
+        if kod1 != 0 or kod2 != 0:
+            dst.unlink(missing_ok=True)
+            hlaska = (err1.read_bytes() + b" | " + err2.read_bytes())
+            return hlaska.decode("utf-8", "replace").strip()[:300]
+
+    if not dst.exists() or dst.stat().st_size == 0:
+        dst.unlink(missing_ok=True)
+        return "výsledek je prázdný"
+
+    return None
 
 
 def zkontroluj_vysledek(

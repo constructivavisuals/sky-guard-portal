@@ -488,6 +488,80 @@ z kontejneru, jak má. Nic se tím neztrácí: zvuk se v portálu
 nikde nepřehrává. Hlídá to `test/test_watcher.py` — bez `-an` ten
 test neprojde.
 
+To ale byla jen první ze dvou vad. Po ní záznam prošel rozpoznaným
+kontejnerem a **pořád se nepřehrál** — viz dál.
+
+### Dělené snímky: demuxer DHAV je neskládá zpátky
+
+Tohle byla ta druhá vada a příčina rozpadlého obrazu.
+
+Kamera velký snímek — u 4K typicky I-snímek — rozdělí do několika
+úseků kontejneru. Mají stejné číslo snímku a rostoucí **podčíslo**.
+Jenže `libavformat/dhav.c` podčíslo načte a víc s ním neudělá nic:
+
+```c
+dhav->frame_subnumber = avio_r8(s->pb);   // a dál nikde
+```
+
+Z každého úseku tedy vznikne samostatný paket a z něj samostatný
+vzorek MP4. Dekodér dostane půlku řezu:
+
+```
+error while decoding MB 54 16, bytestream -5
+```
+
+Soubor přitom vypadá zdravě: jedna stopa, `avc1`, 3840×2160, správný
+počet snímků, délka sedí, časové značky sedí. Rozbitá jsou **jen
+obrazová data**. Proto to tak dlouho vypadalo na kodek — a proto RTSP
+nahrávka z téže kamery hraje: ta přes DHAV vůbec nejde.
+
+`read_chunk`, `dhav_read_packet` i `parse_ext` jsou v ffmpegu 5.1
+(běží na relayi) a v současném masteru bajt po bajtu **stejné**.
+Upgrade s tím tedy nepohne.
+
+#### Oprava: dvoufázový remux
+
+```
+.dav ──[fáze 1: demuxer DHAV]──> holý Annex-B ──[fáze 2]──> MP4
+```
+
+Ve druhé fázi se stream rámuje podle **startovacích značek**, ne podle
+paketů kontejneru — a tím se rozdělené kusy složí zpátky do celých
+snímků. Roury se propojují přímo, takže se nikde nedrží celý záznam
+v paměti.
+
+Druhá fáze potřebuje `-r`: holý Annex-B žádné časování nenese a ffmpeg
+by jinak dosadil svých 25/1. Frekvence se bere z `avg_frame_rate`, což
+u DHAV pochází z pole `0x81` rozšířené hlavičky, tedy od kamery.
+(`r_frame_rate` je odhad z časových značek a vychází dvojnásobný.)
+
+Ověřeno: obrazový stream z opraveného souboru je **bajt po bajtu
+shodný** s tím z nedělené předlohy. Nic se neztrácí ani nepřidává.
+
+Přímé přebalení zůstává jako záchrana, když dvoufázový remux selže —
+lepší vadný záznam než žádný.
+
+#### Rozbor konkrétního souboru
+
+```bash
+python3 infra/sky-watcher/dav-rozbor.py zaznam.dav
+```
+
+Čte DHAV **nezávisle na ffmpegu** a řekne, co v souboru je: rozpis
+typů úseků, kolik snímků je dělených, jestli sedí rámování, a nakonec
+porovná svoje čtení s tím, co z téhož souboru vyleze demuxeru ffmpegu.
+
+Hledá dvě věci, obě vidět ve zdrojáku demuxeru:
+
+| Nález | Co to znamená |
+|---|---|
+| úseky nezačínající startovací značkou | dělené snímky, demuxer je neskládá — viz výš |
+| úseky jiného typu než `0xfd`/`0xfc`/`0xf0` | spadnou do obrazové stopy, protože demuxer posílá do obrazu všechno, co není `0xf0` |
+
+Vadu umí vyrobit i test: `test_delene_snimky` postaví syntetický DHAV
+s dělenými snímky, ověří, že přímé přebalení je rozbité, a že watcher
+z něj přesto složí týž stream jako z nedělené předlohy.
+
 ### Změna nezabrala? Nejdřív ověř, že vůbec dorazila
 
 Skoro pokaždé jde o to, že nová hodnota **není v běžícím kontejneru** —

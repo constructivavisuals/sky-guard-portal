@@ -220,6 +220,152 @@ def test_kontrola_vysledku(zkontroluj) -> None:
         watcher.log.removeHandler(sber)
 
 
+def _dhav_usek(typ: int, podcislo: int, cislo: int, naklad: bytes, ext: bytes) -> bytes:
+    """Jeden úsek DHAV kontejneru — tak, jak ho píše kamera."""
+    delka = 24 + len(ext) + len(naklad) + 8
+    # datum: sec | min<<6 | hod<<12 | den<<17 | měsíc<<22 | (rok-2000)<<26
+    datum = (0) | (0 << 6) | (12 << 12) | (1 << 17) | (9 << 22) | (26 << 26)
+    hlavicka = (
+        b"DHAV"
+        + bytes([typ, 0x00, 0x00, podcislo])
+        + cislo.to_bytes(4, "little")
+        + delka.to_bytes(4, "little")
+        + datum.to_bytes(4, "little")
+        + int(cislo * 1000 / 15).to_bytes(2, "little")   # značka času
+        + bytes([len(ext), 0x00])                        # délka ext + kontrola
+    )
+    return hlavicka + ext + naklad + b"dhav" + (delka - 8).to_bytes(4, "little")
+
+
+def vyrob_dhav(zdroj: Path, cil: Path, delit_nad: int | None) -> int:
+    """
+    Postaví DHAV kontejner z Annex-B streamu.
+
+    `delit_nad` napodobí, co dělá kamera s velkými snímky: rozdělí je
+    do víc úseků se stejným číslem a rostoucím podčíslem. Právě tohle
+    demuxer ffmpegu neskládá zpátky.
+
+    Syntetické `.dav` v ostatních testech je holý stream bez kontejneru,
+    takže tuhle cestu vůbec neprojde — proto se DHAV staví ručně.
+    """
+    data = zdroj.read_bytes()
+
+    # Hranice přístupových jednotek: nový snímek začíná SPS (7) nebo
+    # řezem, jehož první makroblok je nula.
+    znacky = []
+    poz = 0
+    while (i := data.find(b"\x00\x00\x01", poz)) != -1:
+        znacky.append(i)
+        poz = i + 3
+    zacatky = []
+    for z in znacky:
+        nal = data[z + 3] & 0x1F
+        if nal == 7 or (nal in (1, 5) and (data[z + 4] & 0x80)):
+            zacatky.append(z)
+    snimky = [data[a:b] for a, b in zip(zacatky, zacatky[1:] + [len(data)])]
+
+    # 0x80 = rozměry (osminy), 0x81 = kodek (4 = H.264) a frekvence.
+    ext = bytes([0x80, 0x00, 1280 // 8, 720 // 8, 0x81, 0x00, 0x04, 15])
+
+    ven = bytearray()
+    for n, snimek in enumerate(snimky):
+        typ = 0xFD if b"\x00\x00\x01\x65" in snimek[:64] or (snimek[3] & 0x1F) == 7 else 0xFC
+        if delit_nad and len(snimek) > delit_nad:
+            kusy = [snimek[i:i + delit_nad] for i in range(0, len(snimek), delit_nad)]
+            for k, kus in enumerate(kusy):
+                ven += _dhav_usek(typ, k, n, kus, ext)
+        else:
+            ven += _dhav_usek(typ, 0, n, snimek, ext)
+
+    cil.write_bytes(bytes(ven))
+    return len(snimky)
+
+
+def dekoduje_ciste(soubor: Path) -> str:
+    """Projede soubor dekodérem. Vrací chyby, prázdný řetězec = čisté."""
+    proc = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-v", "error", "-i", str(soubor), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=600, check=False,
+    )
+    radky = [r for r in (proc.stderr or "").splitlines()
+             if r.strip() and "to muxer" not in r and not r.startswith("[null @")]
+    return "\n".join(radky)[:400]
+
+
+def obrazovy_stream(soubor: Path, cil: Path) -> bytes:
+    """Obrazová data z MP4 jako holý Annex-B — na porovnání, co se ztratilo."""
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-v", "error", "-y", "-i", str(soubor),
+         "-c", "copy", "-f", "h264", str(cil)],
+        capture_output=True, timeout=600, check=False,
+    )
+    return cil.read_bytes() if cil.exists() else b""
+
+
+def test_delene_snimky(zkontroluj) -> None:
+    """
+    Snímek rozdělený do víc úseků DHAV se musí složit zpátky.
+
+    Demuxer ffmpegu podčíslo úseku (`frame_subnumber`) načte a zahodí,
+    takže z každého kusu udělá samostatný paket a muxer samostatný
+    vzorek MP4. Dekodér pak dostane půlku řezu:
+
+        error while decoding MB 54 16, bytestream -5
+
+    Výsledek přitom vypadá zdravě — jedna stopa, avc1, správná délka,
+    časování sedí. Rozbitá jsou jen obrazová data, a to je přesně ta
+    vada, kvůli které se záznamy nepřehrávaly.
+
+    Test staví obojí: nedělený kontejner jako předlohu a dělený jako
+    vadu. Oba musí dát TÝŽ obrazový stream.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp)
+        zdroj = t / "zdroj.h264"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=15:duration=4",
+             "-c:v", "libx264", "-g", "15", "-bf", "0", "-f", "h264", str(zdroj)],
+            check=True, timeout=180,
+        )
+
+        cele, delene = t / "cele.dav", t / "delene.dav"
+        pocet = vyrob_dhav(zdroj, cele, None)
+        vyrob_dhav(zdroj, delene, 4096)
+        zkontroluj("syntetický DHAV má snímky", pocet > 30, str(pocet))
+
+        # Kontrola, že se vada opravdu vyrobila: bez dvoufázového remuxu
+        # musí dělený soubor dopadnout rozbitě.
+        primy = t / "primy.mp4"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(delene),
+             "-c", "copy", "-an", "-tag:v", "avc1", str(primy)],
+            capture_output=True, timeout=600, check=False,
+        )
+        zkontroluj("kontrola testu: přímé přebalení děleného DHAV je rozbité",
+                   "bytestream" in dekoduje_ciste(primy),
+                   dekoduje_ciste(primy)[:120] or "(dekódovalo se čistě)")
+
+        # A teď watcher.
+        z_celeho, z_deleneho = t / "cele.mp4", t / "delene.mp4"
+        watcher.remux_to_mp4(cele, z_celeho, 4.0)
+        watcher.remux_to_mp4(delene, z_deleneho, 4.0)
+
+        chyby = dekoduje_ciste(z_deleneho)
+        zkontroluj("watcher složí dělené snímky zpátky", not chyby, chyby)
+        zkontroluj("a nedělený soubor tím nepokazí",
+                   not dekoduje_ciste(z_celeho), dekoduje_ciste(z_celeho))
+
+        a = obrazovy_stream(z_celeho, t / "a.h264")
+        b = obrazovy_stream(z_deleneho, t / "b.h264")
+        zkontroluj("obrazový stream je bajt po bajtu týž jako z nedělené předlohy",
+                   a == b and len(a) > 0, f"{len(a)} B proti {len(b)} B")
+
+        zkontroluj("a délka zůstala",
+                   abs((watcher.probe_duration(z_deleneho) or 0) - 4.0) < 0.35,
+                   str(watcher.probe_duration(z_deleneho)))
+
+
 def test_zvuk_nebrani_remuxu(zkontroluj) -> None:
     """
     Zvuková stopa nesmí shodit remux.
@@ -313,6 +459,7 @@ def main() -> int:
     test_tag_args(zkontroluj)
     test_kontrola_vysledku(zkontroluj)
     test_zvuk_nebrani_remuxu(zkontroluj)
+    test_delene_snimky(zkontroluj)
 
     with tempfile.TemporaryDirectory() as tmp:
         inbox = Path(tmp) / "inbox"
