@@ -97,9 +97,17 @@ PLAYBACK_PATH = os.environ.get(
 # otevřené okno zbytečně dlouho.
 OKNO_SEC = int(os.environ.get("PLAYBACK_WINDOW_SEC", "14400"))
 
-# Jméno vstupní šablony v playback-config/go2rtc.yaml. Vynucuje TCP —
-# viz go2rtc_zdroj() a komentář u té šablony.
+# Jméno vstupní šablony v playback-config/go2rtc.yaml. Platí jen pro
+# záchrannou cestu přes ffmpeg — viz go2rtc_zdroj().
 VSTUPNI_SABLONA = os.environ.get("PLAYBACK_INPUT_TEMPLATE", "playback")
+
+# Jít na kameru přes ffmpeg místo nativního klienta go2rtc. Vypnuté:
+# ffmpeg do cesty přidával spuštění procesu, analýzu vstupu a druhé
+# RTSP navázání, a TCP zaručuje nativní klient sám.
+PRES_FFMPEG = os.environ.get("PLAYBACK_PRES_FFMPEG", "0") == "1"
+
+# Po kolika vteřinách se nativní klient vzdá mrtvé kamery.
+ZDROJ_TIMEOUT = int(os.environ.get("PLAYBACK_SOURCE_TIMEOUT_SEC", "10"))
 
 # Po jak dlouhé nečinnosti se proud zruší. Každý živý proud drží
 # spojení na kameru a ta zároveň píše na tutéž kartu, takže zapomenutý
@@ -166,36 +174,42 @@ def playback_url(lan_ip: str, od_epoch: int, okno_sec: int = OKNO_SEC) -> str:
 
 def go2rtc_zdroj(rtsp: str) -> str:
     """
-    Zabalí adresu tak, aby go2rtc šlo přes TCP.
+    Adresa proudu pro go2rtc.
 
-    ═══ Tohle NENÍ kosmetika ══════════════════════════════════════
-    Změřeno na kameře: vedlejší proud přes UDP se rozpadal stejně
-    jako 4K, přes TCP je čistý. UDP při ztrátě paketu nic neopakuje
-    a přes tunel se pakety ztrácejí — obraz z toho vyjde rozsypaný,
-    ale soubor i proud vypadají platně. Přesně ta třída závady, na
-    které tenhle projekt už dvakrát pohořel.
+    ═══ Nativní klient, ne ffmpeg ═════════════════════════════════
+    Přehrávání dřív chodilo přes `ffmpeg:` zdroj. Jediný důvod bylo
+    vynutit TCP — přes UDP se obraz změřeně rozpadá, protože se
+    ztracený paket neopakuje.
 
-    Nativní RTSP klient go2rtc přepínač transportu NEMÁ — `#transport=`
-    umí jen WebSocket. Proto se jde přes `ffmpeg:` zdroj, kde se dá
-    transport vynutit. Dokumentace go2rtc tuhle cestu sama doporučuje
-    u proudů, které se rozpadají, a bez překódování nestojí procesor
-    nic navíc.
+    Jenže nativní RTSP klient go2rtc UDP VŮBEC NEUMÍ. Žádá
+    `RTP/AVP/TCP;unicast;interleaved=…` a když kamera odpoví bez
+    `interleaved`, skončí chybou:
 
-    Nestačí ale nechat výchozí chování: šablona `rtsp` v go2rtc má
-    `-rtsp_flags prefer_tcp`, což TCP jen PREFERUJE a při potížích
-    spadne na UDP — tedy přesně tam, kde se obraz rozpadá.
+        if !strings.Contains(transport, ";interleaved=") {
+            return 0, fmt.Errorf("wrong transport: %s", transport)
+        }
 
-    Odkazuje se na POJMENOVANOU šablonu z go2rtc.yaml, ne na argumenty
-    psané rovnou sem. Dva důvody:
+    TCP je tedy zaručené i bez ffmpegu — a ten mezistupeň stál dost:
 
-      * zdroj nemá mezery ani složené závorky, takže neprojde dvojím
-        kódováním (jednou do API, podruhé při rozboru `#` parametrů);
-      * v adrese i v logu zbyde `#input=playback`, což se dá přečíst.
+      * spuštění procesu na každé otevření,
+      * analýza vstupu, než ffmpeg pustí první bajt na výstup
+        (změřeno ~3 s na streamu bez hlavičky),
+      * DRUHÉ RTSP navázání, protože si ffmpeg výstup podává zpátky
+        do go2rtc přes jeho vnitřní RTSP server.
 
-    Šablona sama je v playback-config/go2rtc.yaml. Když se přejmenuje
-    tam, musí se přejmenovat i tady — hlídá to test.
+    U živého obrazu, který nativní klient používá odjakživa, se proud
+    rozjede skoro hned. U záznamu to trvalo dvacet vteřin a tohle byl
+    ten rozdíl.
+
+    `#timeout=` je počet vteřin, po kterých se mrtvá kamera vzdá.
+    Nativní klient ho zná; nahrazuje `-timeout` z ffmpeg šablony.
     """
-    return f"ffmpeg:{rtsp}#input={VSTUPNI_SABLONA}"
+    if PRES_FFMPEG:
+        # Záchranná cesta, kdyby si nativní klient s adresou playbacku
+        # neporadil. Zapíná se proměnnou, ne kódem — ať se to dá na
+        # místě přepnout bez nasazení.
+        return f"ffmpeg:{rtsp}#input={VSTUPNI_SABLONA}"
+    return f"{rtsp}#timeout={ZDROJ_TIMEOUT}"
 
 
 # ── go2rtc ───────────────────────────────────────────────────────
@@ -294,6 +308,11 @@ def overit_konfiguraci() -> list[str]:
     # Hrubě, bez YAML parseru: relay nemá jedinou závislost mimo
     # standardní knihovnu a na tyhle dvě otázky parser netřeba.
     nalezy: list[str] = []
+
+    if not PRES_FFMPEG:
+        # Bez ffmpegu nehraje ani šablona, ani vnitřní RTSP server
+        # roli — proud jde z kamery rovnou nativním klientem.
+        return nalezy
 
     radek = next(
         (r for r in config.splitlines()

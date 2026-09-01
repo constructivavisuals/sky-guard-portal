@@ -70,7 +70,11 @@ ffmpeg:
   # průchodu kódováním (jednou do API, podruhé při rozboru `#`
   # parametrů) můžou rozejít. V adrese zbyde `#input=playback`
   # a je to čitelné i v logu.
-  playback: "-fflags nobuffer -flags low_delay -timeout 5000000 -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
+  # `-analyzeduration`/`-probesize`: bez nich ffmpeg čeká, než si vstup
+  # ohledá, a teprve pak pustí první bajt. Na streamu bez hlavičky to
+  # změřeno na ~3 s — u přehrávání ze záznamu je to čistá prodleva,
+  # protože kodek stejně známe (H.264, viz MONTAZ.md).
+  playback: "-fflags nobuffer -flags low_delay -analyzeduration 300000 -probesize 300000 -timeout 5000000 -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
 
 log:
   level: info

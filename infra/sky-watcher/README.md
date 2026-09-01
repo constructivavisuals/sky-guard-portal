@@ -308,55 +308,38 @@ Proud bez diváka se po minutě ruší, ale ne hned: při posunu na časové
 ose se prohlížeč na chvíli odpojí a okamžité rušení by znamenalo nové
 spojení na kameru po každém šťouchnutí.
 
-Vynucení TCP jde přes `ffmpeg:` zdroj, protože nativní RTSP klient
-go2rtc přepínač transportu **nemá** (`#transport=` umí jen WebSocket).
+### Nativní klient, ne ffmpeg
 
-Výchozí chování ale nestačí: šablona `rtsp` v go2rtc má
-`-rtsp_flags prefer_tcp`, což TCP jen **preferuje** a při potížích
-spadne na UDP — tedy přesně tam, kde se obraz rozpadá. Proto vlastní
-vstupní šablona v `playback-config/go2rtc.yaml`:
+Přehrávání dřív chodilo přes `ffmpeg:` zdroj. Jediný důvod bylo vynutit
+TCP — přes UDP se obraz změřeně rozpadá.
 
-```yaml
-ffmpeg:
-  playback: "-fflags nobuffer -flags low_delay -timeout 5000000 -user_agent go2rtc/ffmpeg -rtsp_transport tcp -i {input}"
-```
-
-a zdroj se na ni jen odkáže:
-
-```
-ffmpeg:rtsp://...#input=playback
-```
-
-Pojmenovaná šablona, ne argumenty psané rovnou do adresy, ze dvou
-důvodů: zdroj pak nemá mezery ani složené závorky, které se při dvojím
-průchodu kódováním (jednou do API, podruhé při rozboru `#` parametrů)
-můžou rozejít — a v logu je vidět `#input=playback` místo změti.
-
-Zbytek šablony je opsaný z výchozí schválně. `-timeout` je to, co
-odpojí mrtvou kameru místo věčného čekání; vlastní šablona ho jinak
-tiše zahodí.
-
-**Číslo, ne `{timeout}`.** Nasazená verze **1.9.9** dosazuje ve
-vlastních šablonách jedinou zástupnou hodnotu:
+**Jenže nativní RTSP klient go2rtc UDP vůbec neumí.** Žádá
+`RTP/AVP/TCP;unicast;interleaved=…` a když kamera odpoví bez
+`interleaved`, skončí chybou:
 
 ```go
-return strings.Replace(template, "{input}", s, 1)
+if !strings.Contains(transport, ";interleaved=") {
+    return 0, fmt.Errorf("wrong transport: %s", transport)
+}
 ```
 
-`{timeout}` je až z pozdějších verzí — ve vestavěné šabloně 1.9.9 je
-taky natvrdo `5000000`. Opsané z novější dokumentace dojde do ffmpegu
-doslova:
+TCP je tedy zaručené i bez ffmpegu. Ten mezistupeň přitom stál:
 
-```
-Error setting option timeout to value {timeout}
-```
+| co | kolik |
+|---|---|
+| spuštění procesu na každé otevření | desítky ms |
+| analýza vstupu, než pustí první bajt | **~3 s** (změřeno na streamu bez hlavičky) |
+| druhé RTSP navázání (ffmpeg → vnitřní server go2rtc) | další kolo |
 
-Proto v šabloně žádná jiná zástupná hodnota než `{input}` být nesmí
-a kontrola při startu to hlídá.
+U živého obrazu, který nativní klient používá odjakživa, se proud
+rozjede skoro hned. U záznamu to trvalo dvacet vteřin — a tohle byl
+ten rozdíl.
 
-> **Dokumentaci go2rtc čti na tagu, ne na masteru.** Obraz je připnutý
-> na `1.9.9` a tenhle rozdíl se dvakrát projevil jako závada, kterou
-> README slibovalo jako funkční.
+Zdroj je teď `rtsp://…#timeout=10`. Cesta přes ffmpeg zůstává jako
+záchrana pod `PLAYBACK_PRES_FFMPEG=1`, kdyby si nativní klient
+s adresou playbacku neporadil; její šablona má nově
+`-analyzeduration`/`-probesize`, aby tu analýzu nedělala zbytečně
+dlouho.
 
 **Když go2rtc odmítne PUT, důvod je v TĚLE odpovědi**, ne v hlavičce
 (`http.Error(w, err.Error(), 400)`). `playback.py` ho proto čte

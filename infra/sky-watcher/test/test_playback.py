@@ -180,11 +180,12 @@ def test_vynucene_tcp(zkontroluj) -> None:
     může jet po UDP a vyrobit rozsypaný obraz, který vypadá platně.
     """
     zdroj = playback.go2rtc_zdroj("rtsp://10.0.0.5/cam/playback?channel=1")
-    zkontroluj("jde se přes ffmpeg zdroj", zdroj.startswith("ffmpeg:"), zdroj)
-    zkontroluj("odkazuje se na vstupní šablonu",
-               zdroj.endswith(f"#input={playback.VSTUPNI_SABLONA}"), zdroj)
-    zkontroluj("adresa zůstala uvnitř",
-               "rtsp://10.0.0.5/cam/playback?channel=1" in zdroj, zdroj)
+    zkontroluj("jde se nativním klientem, ne přes ffmpeg",
+               not zdroj.startswith("ffmpeg:"), zdroj)
+    zkontroluj("adresa zůstala celá",
+               zdroj.startswith("rtsp://10.0.0.5/cam/playback?channel=1"), zdroj)
+    zkontroluj("a má strop na mrtvou kameru",
+               f"#timeout={playback.ZDROJ_TIMEOUT}" in zdroj, zdroj)
 
     # Zdroj nesmí obsahovat nic, co se při dvojím průchodu kódováním
     # (jednou do API go2rtc, podruhé při rozboru `#` parametrů) může
@@ -192,8 +193,8 @@ def test_vynucene_tcp(zkontroluj) -> None:
     zkontroluj("a nemá mezery ani složené závorky",
                " " not in zdroj and "{" not in zdroj, zdroj)
 
-    # Šablona bydlí v konfiguráku go2rtc a jméno se musí trefit. Kdyby
-    # se přejmenovala tam a ne tady, projeví se to jako 400 z go2rtc.
+    # Záchranná cesta přes ffmpeg musí zůstat funkční, kdyby si nativní
+    # klient s adresou playbacku neporadil.
     konfig = (KOREN / "playback-config" / "go2rtc.yaml").read_text(encoding="utf-8")
     zkontroluj("šablona v go2rtc.yaml existuje",
                f"\n  {playback.VSTUPNI_SABLONA}:" in konfig,
@@ -257,9 +258,8 @@ def test_brana(zkontroluj, port: int) -> None:
                playback.zajisti_proud(jmeno) is None and jmeno in FakeGo2rtc.proudy)
 
     puts = [d for m, d in FakeGo2rtc.volani if m == "PUT"]
-    zkontroluj("proud se založil přes šablonu s vynuceným TCP",
-               puts and puts[0]["src"].endswith(f"#input={playback.VSTUPNI_SABLONA}"),
-               str(puts[:1]))
+    zkontroluj("proud se založil nativním klientem",
+               puts and not puts[0]["src"].startswith("ffmpeg:"), str(puts[:1]))
 
     FakeGo2rtc.volani = []
     zkontroluj("druhé otevření téhož času proud NEzakládá znovu",
@@ -334,6 +334,11 @@ def test_kontrola_konfigurace(zkontroluj, port: int) -> None:
     """
     playback.GO2RTC_API = f"http://127.0.0.1:{port}"
 
+    # Kontroly se týkají jen záchranné cesty přes ffmpeg; bez ní
+    # šablona ani vnitřní RTSP server roli nehrají.
+    puvodni = playback.PRES_FFMPEG
+    playback.PRES_FFMPEG = True
+
     FakeGo2rtc.config = DOBRY_KONFIG
     zkontroluj("správný konfigurák projde bez nálezu",
                playback.overit_konfiguraci() == [],
@@ -384,6 +389,11 @@ def test_kontrola_konfigurace(zkontroluj, port: int) -> None:
     ).read_text(encoding="utf-8")
     nalezy = playback.overit_konfiguraci()
     zkontroluj("konfigurák v repu projde", nalezy == [], str(nalezy))
+
+    playback.PRES_FFMPEG = False
+    zkontroluj("bez ffmpegu se šablona nekontroluje",
+               playback.overit_konfiguraci() == [])
+    playback.PRES_FFMPEG = puvodni
 
 
 def test_listek_je_vazany_na_cas(zkontroluj) -> None:
