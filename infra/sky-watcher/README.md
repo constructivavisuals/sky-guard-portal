@@ -589,8 +589,23 @@ s navazováním, ne po něm.
 method DESCRIBE failed: 404 Not Found
 ```
 
-**Není to vada spojení.** Kamera odpovídá (TCP na 554 projde), jen
-z požadované doby na kartě nemá záznam. Typicky:
+**Není to vada spojení** a nemusí to být ani vada karty. Kamera
+odpovídá a karta může být v pořádku a plná záznamu.
+
+Nejčastější příčina je `subtype`. **U playbacku znamená něco jiného než
+u živého obrazu**: nevybírá si, který proud chci, ale který byl
+NAHRANÝ. Kamera, která vedlejší proud na kartu nepíše, na
+`subtype=1` odpoví 404.
+
+Měření na devíti kamerách to ukázalo z obou stran: sedm vrátilo na
+`subtype=1` obraz 3840×2160, tedy rozlišení HLAVNÍHO proudu — ty si
+parametru nevšímají a posílají, co mají. Dvě odpověděly 404, protože
+ho berou vážně.
+
+Výchozí je proto `subtype=0`; přebít se dá proměnnou `PLAYBACK_SUBTYPE`.
+
+`zkouska.py` na 404 zkusí i ten druhý proud a řekne, který ta kamera
+má. Když vrátí 404 na oba, teprve pak je to karta nebo rozvrh:
 
 - karta chybí, je plná bez přepisu, nebo selhala,
 - nahrávání není nastavené na 24/7 (viz MONTAZ.md),

@@ -237,6 +237,34 @@ def krok_kamera(s: Sesit, kamera: dict, rezimy: list[str], pred_sec: int) -> Non
 
             # ── Přímo ffmpegem, mimo go2rtc ───────────────────────
             doba, popis, chyba = prvni_snimek(url, Path(tmp) / f"{rezim}.jpg")
+
+            # ═══ 404 u záznamu ještě nemusí být konec ═════════════
+            # `subtype` u playbacku znamená „který proud byl NAHRANÝ".
+            # Kamera, která vedlejší na kartu nepíše, na něj odpoví
+            # 404 — přestože karta je v pořádku a plná. Zkusí se tedy
+            # ten druhý a řekne se, který ta kamera má.
+            if chyba and rezim == "zaznam" and "404" in chyba:
+                druhy = "1" if playback.PLAYBACK_SUBTYPE == "0" else "0"
+                url2 = playback.playback_url(lan_ip, od, subtype=druhy)
+                doba2, popis2, chyba2 = prvni_snimek(
+                    url2, Path(tmp) / f"{rezim}-2.jpg")
+                if not chyba2:
+                    s.chyba(
+                        f"na subtype={playback.PLAYBACK_SUBTYPE} vrací 404, "
+                        f"ale na subtype={druhy} obraz JE",
+                        "kamera nahrává na kartu jiný proud než ostatní — "
+                        f"nastav jí PLAYBACK_SUBTYPE={druhy}",
+                    )
+                    url, doba, popis, chyba = url2, doba2, popis2, chyba2
+                    jmeno = playback.jmeno_proudu(serial, od)
+                else:
+                    s.chyba(
+                        "na kartě není záznam z té doby (404 na obou proudech)",
+                        "kamera odpovídá, ale požadovaný čas na kartě nemá — "
+                        "zkontroluj rozvrh nahrávání a dosah karty",
+                    )
+                    continue
+
             if chyba:
                 s.chyba(f"přímo ffmpegem snímek nedorazil ({doba:.1f} s)", chyba)
                 # Přes go2rtc to pak nemá jak fungovat a hláška by jen
@@ -249,6 +277,8 @@ def krok_kamera(s: Sesit, kamera: dict, rezimy: list[str], pred_sec: int) -> Non
             zalozeno = False
             if zalozit:
                 try:
+                    # Ta adresa, která právě prošla — včetně případně
+                    # opraveného subtype.
                     playback.zaloz_proud(jmeno, playback.go2rtc_zdroj(url))
                     zalozeno = True
                 except RuntimeError as exc:

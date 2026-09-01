@@ -75,18 +75,28 @@ CAMERA_TZ = ZoneInfo(os.environ.get("CAMERA_TZ", "Europe/Prague"))
 
 # Tvar adresy playbacku. `{od}` a `{do}` se nahradí časem kamery.
 #
-# ═══ Změřeno na skutečné kameře přes tunel ═════════════════════════
-# Tenhle tvar funguje, čas sedí a `endtime` zabírá. `subtype=1` je
-# tam POVINNĚ, ne pro úsporu: hlavní proud (4K) se přes tunel
-# rozpadá — jak živý, tak z karty. Vedlejší je čistý. Není to vada
-# kodeku ani kontejneru, je to prostě víc dat, než linka unese.
+# ═══ `subtype` u playbacku znamená něco jiného než u živého ════════
+# U živého obrazu si `subtype` vybírá, KTERÝ proud chci. U playbacku
+# si vybírá, který proud byl NAHRANÝ — a když ho kamera na kartě nemá,
+# odpoví 404, i když karta je v pořádku a plná záznamu.
+#
+# Měření na devíti kamerách to ukázalo dvakrát: sedm kamer vrátilo na
+# `subtype=1` obraz 3840x2160, tedy rozlišení HLAVNÍHO proudu — ty si
+# parametru nevšímají a posílají, co mají. Dvě odpověděly 404, protože
+# ho berou vážně a vedlejší proud na kartu nenahrávají.
+#
+# Výchozí je proto `subtype=0`: karta u Dahuy nahrává hlavní proud
+# a je to i to, co ve skutečnosti chodilo zpátky.
 #
 # Držené zvlášť od RTSP_MAIN_PATH schválně: tohle je jiná větev kódu
 # v kameře než živý obraz a mezi firmwary se liší nejvíc.
 PLAYBACK_PATH = os.environ.get(
     "PLAYBACK_PATH",
-    "/cam/playback?channel=1&subtype=1&starttime={od}&endtime={do}",
+    "/cam/playback?channel=1&subtype={subtype}&starttime={od}&endtime={do}",
 )
+
+# Který nahraný proud chtít. 0 = hlavní, 1 = vedlejší.
+PLAYBACK_SUBTYPE = os.environ.get("PLAYBACK_SUBTYPE", "0").strip()
 
 # Jak daleko dopředu se otevře okno záznamu.
 #
@@ -161,7 +171,12 @@ def rozeber_jmeno(jmeno: str) -> tuple[str, int] | None:
     return shoda.group(1), int(shoda.group(2))
 
 
-def playback_url(lan_ip: str, od_epoch: int, okno_sec: int = OKNO_SEC) -> str:
+def playback_url(
+    lan_ip: str,
+    od_epoch: int,
+    okno_sec: int = OKNO_SEC,
+    subtype: str | None = None,
+) -> str:
     """
     Adresa playbacku pro daný čas.
 
@@ -171,7 +186,11 @@ def playback_url(lan_ip: str, od_epoch: int, okno_sec: int = OKNO_SEC) -> str:
     od = datetime.fromtimestamp(od_epoch, timezone.utc).astimezone(CAMERA_TZ)
     do = od + timedelta(seconds=okno_sec)
     tvar = "%Y_%m_%d_%H_%M_%S"
-    cesta = PLAYBACK_PATH.format(od=od.strftime(tvar), do=do.strftime(tvar))
+    cesta = PLAYBACK_PATH.format(
+        od=od.strftime(tvar),
+        do=do.strftime(tvar),
+        subtype=subtype if subtype is not None else PLAYBACK_SUBTYPE,
+    )
     return live.rtsp_url(lan_ip, cesta)
 
 

@@ -166,8 +166,14 @@ def test_adresa_playbacku(zkontroluj) -> None:
     zkontroluj("zimní čas taky (13:00, ne 14:00)",
                "starttime=2026_01_15_13_00_00" in url_zima, url_zima)
 
-    zkontroluj("bere se VEDLEJŠÍ proud — hlavní se přes tunel rozpadá",
-               "subtype=1" in url_leto, url_leto)
+    # `subtype` u playbacku znamená „který proud byl NAHRANÝ", ne
+    # „který chci". Karta u Dahuy nahrává hlavní proud a kamera, která
+    # parametr bere vážně, odpoví na vedlejší 404 — změřeno na dvou
+    # z devíti kamer.
+    zkontroluj("výchozí je nahraný (hlavní) proud",
+               f"subtype={playback.PLAYBACK_SUBTYPE}" in url_leto, url_leto)
+    zkontroluj("a dá se přebít, kdyby kamera nahrávala vedlejší",
+               "subtype=1" in playback.playback_url("10.0.0.5", leto, subtype="1"))
 
 
 def test_vynucene_tcp(zkontroluj) -> None:
