@@ -90,16 +90,15 @@ export function MobileNav({
 
       <nav
         aria-label="Mobilní navigace"
-        // pb: nad domovský indikátor iPhonu, ale se STROPEM. Safari na
-        // iOS umí v `env(safe-area-inset-bottom)` vrátit i výšku své
-        // spodní lišty, a lišta se tím odsunula o hezkých pár
-        // centimetrů nahoru — pod ní zbyl pruh prázdna. `min()` to
-        // usekne na 1,5 rem, což domovskému indikátoru bohatě stačí.
+        // pb: nad domovský indikátor iPhonu. Bez stropu a bez triků —
+        // `viewport-fit: cover` v layoutu zařídí, že `env()` vrací
+        // skutečnou hodnotu, a ta je správně. Strop tu chvíli byl
+        // jako léčba příznaku, který měl jinou příčinu.
         //
         // pl/pr: krajní ikony jinak lezou pod zaoblení displeje a na
         // šířku pod výřez — spodní inset tenhle problém neřeší, je
         // svislý.
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur-lg pt-2 pb-[max(0.5rem,min(env(safe-area-inset-bottom),1.5rem))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur-lg pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]"
       >
         {primary.map(({ href, label, icon: Icon }) => (
           <Link

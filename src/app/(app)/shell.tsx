@@ -35,20 +35,17 @@ export function Shell({
   profile: CurrentProfile | null;
   capabilities: SiteCapabilities;
 }) {
-  // ═══ Stránka se neposouvá jako celek ═══════════════════════════
-  // `h-dvh` a skryté přetečení na VŠECH velikostech, ne jen nad lg.
-  // Posouvá se jen `main` uvnitř.
+  // ═══ `min-h-dvh`, ne `h-dvh` ═══════════════════════════════════
+  // Pevná výška se tu jednou zkoušela a udělala horší věc, než
+  // opravila: v aplikaci spuštěné z plochy se `dvh` vyhodnotí ještě
+  // během náběhu, kdy okno nemá konečnou velikost — a se skrytým
+  // přetečením se to pak nemělo jak srovnat. Projevilo se to přesně
+  // takhle: „po prvním otevření je lišta posunutá".
   //
-  // S `min-h-dvh` byla stránka vysoká nejméně přes celou obrazovku
-  // a spodní odsazení pod fixní lištu se přičítalo NAD to — takže
-  // i krátký přehled šel o kus stáhnout dolů do prázdna. Na telefonu
-  // to člověk cítí jako nedodělek: obsah se pod prstem hne a není za
-  // čím jít.
-  //
-  // Vedlejší užitek: Safari nesbaluje při posouvání svůj panel, takže
-  // se výška okna během používání nemění.
+  // Krátká stránka se neposouvá proto, že je krátká, ne proto, že by
+  // se jí to zakázalo.
   return (
-    <div className="flex h-dvh overflow-hidden bg-[var(--bg)]">
+    <div className="flex min-h-dvh bg-[var(--bg)] lg:h-dvh lg:overflow-hidden">
       <Sidebar profile={profile} capabilities={capabilities} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -68,7 +65,7 @@ export function Shell({
 
             `clip`, ne `hidden`: nezakládá posuvný kontejner, takže
             nekoliduje se svislým posouváním ani se `sticky` uvnitř. */}
-        <main className="flex flex-1 flex-col overflow-y-auto overflow-x-clip">
+        <main className="flex flex-1 flex-col overflow-x-clip lg:overflow-y-auto">
           {/* Spodní odsazení uvolní místo pod fixní navigací; nad lg
               už žádná není. */}
           <div className="pb-20 lg:pb-0">{children}</div>

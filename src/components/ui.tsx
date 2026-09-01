@@ -215,7 +215,7 @@ export function Metric({
   } as const;
 
   return (
-    <div className={`min-w-0 px-5 py-3 sm:px-6 sm:py-5 ${className}`}>
+    <div className={`min-w-0 px-5 py-4 sm:px-6 sm:py-5 ${className}`}>
       <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
         {icon ? (
           <span className="text-[var(--text-muted)]" aria-hidden="true">

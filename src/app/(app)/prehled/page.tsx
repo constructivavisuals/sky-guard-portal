@@ -362,7 +362,7 @@ function StatusBar({
 
   return (
     <>
-      <Section className="relative py-3 sm:py-6">
+      <Section className="relative py-4 sm:py-6">
         {/* Svislý pruh v barvě stavu. Nahrazuje obarvený rámeček karty:
             rámeček by přerušil linku, pruh do mřížky zapadne. */}
         <span
@@ -384,7 +384,7 @@ function StatusBar({
             Stav střežení
           </p>
         </div>
-        <p className="mt-2 text-[16px] font-normal leading-snug tracking-tight sm:mt-3 sm:text-2xl">
+        <p className="mt-2.5 text-[17px] font-normal leading-snug tracking-tight sm:mt-3 sm:text-2xl">
           {sentence}
           {switchNote ? (
             <span className="text-[var(--text-muted)]"> {switchNote}</span>
@@ -427,7 +427,7 @@ function NaKamery({ pocet }: { pocet: number }) {
   return (
     <Link
       href="/kamery"
-      className="flex items-center gap-3 border-b border-[var(--line)] px-5 py-3 transition hover:bg-[var(--surface-2)] sm:px-6 sm:py-4"
+      className="flex items-center gap-3 border-b border-[var(--line)] px-5 py-4 transition hover:bg-[var(--surface-2)] sm:px-6"
     >
       <Video
         className="h-4 w-4 shrink-0 text-[var(--accent-bright)]"
@@ -703,12 +703,12 @@ function Numbers({
       </Section>
       <div className="hairline-grid grid-cols-2">
         {cells.map((cell) => (
-          <div key={cell.label} className="px-5 py-3 sm:px-6 sm:py-5">
+          <div key={cell.label} className="px-5 py-4 sm:px-6 sm:py-5">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
               {cell.label}
             </div>
             <div
-              className={`mt-1 text-2xl font-normal tabular-nums tracking-tight sm:mt-2 sm:text-3xl ${
+              className={`mt-1.5 text-[28px] font-normal tabular-nums tracking-tight sm:mt-2 sm:text-3xl ${
                 cell.muted ? "text-[var(--text-muted)]" : "text-[var(--text)]"
               }`}
             >
