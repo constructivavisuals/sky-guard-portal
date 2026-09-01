@@ -463,6 +463,52 @@ nestojí — ale lístek se na něj nevydává, takže je nedosažitelný.
   karta doopravdy drží. Je to jen mez pro časovou osu, ne pravda o
   kartě — postup výpočtu je v MONTAZ.md.
 
+### Zkouška celé cesty jedním během
+
+```bash
+docker compose exec sky-playback python /app/zkouska.py
+```
+
+Projde cestu od konfigurace k obrázku a řekne, kde stojí:
+
+| Krok | Co ověří |
+|---|---|
+| 1 | konfigurace go2rtc — šablona, RTSP modul, zástupné hodnoty |
+| 2 | seznam kamer z portálu (odpovídá a bere náš podpis?) |
+| 3 | spojení na kameru na portu 554 |
+| 4 | první snímek **přímo ffmpegem**, mimo go2rtc |
+| 5 | první snímek **přes go2rtc**, tedy cestou diváka |
+
+Podstatný je rozdíl mezi 4 a 5:
+
+- **projde 4, neprojde 5** → vada je v go2rtc nebo jeho konfiguraci,
+  ne v kameře ani v lince, i když to tak vypadá;
+- **neprojde 4** → dál se hledat nemusí, je to kamera nebo síť;
+- **neprojde 3** → tunel nebo adresa, ne obraz.
+
+Krok 5 u záznamu měří i **čas do prvního snímku** — to je cena jednoho
+posunu na časové ose, tedy číslo, které se jinak jen odhaduje.
+
+```bash
+# jedna kamera
+docker compose exec sky-playback python /app/zkouska.py --kamera BK024AAPAGB5592
+
+# jen jeden režim
+docker compose exec sky-playback python /app/zkouska.py --rezim zaznam
+
+# jak daleko zpátky zkoušet záznam (výchozí 10 minut)
+docker compose exec sky-playback python /app/zkouska.py --pred 3600
+```
+
+Nic nemění a nic po sobě nenechává: proud, který si pro zkoušku
+založí, zase zruší. Vrací nenulový kód, když něco selhalo, takže se
+dá pověsit i na hlídače.
+
+**Pusť to po každém nasazení nové lokality.** Ta cesta má šest článků
+a každý z nich umí selhat tak, že to vypadá jako vada toho vedlejšího
+— tenhle skript vznikl po šesti kolech, kdy se pokaždé hledalo o vrstvu
+jinde, než kde to bylo.
+
 ### Když se proud založí a nic se nepřehraje
 
 Signatura: lístek se vydá, `sky-playback` hlásí „Přehrávání otevřeno",

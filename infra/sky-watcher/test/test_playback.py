@@ -52,6 +52,7 @@ class FakeGo2rtc(BaseHTTPRequestHandler):
     volani: list = []
     odmitat: str = ""
     config: str = ""
+    snimek: bytes = b""
 
     def log_message(self, *args):
         return
@@ -75,6 +76,14 @@ class FakeGo2rtc(BaseHTTPRequestHandler):
     def do_GET(self):
         import urllib.parse as _up
         cesta = _up.urlparse(self.path).path
+        if cesta == "/api/frame.jpeg":
+            telo = FakeGo2rtc.snimek
+            self.send_response(200 if telo else 404)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(telo)))
+            self.end_headers()
+            self.wfile.write(telo)
+            return
         if cesta == "/api/config":
             telo = FakeGo2rtc.config.encode("utf-8")
             self.send_response(200)
@@ -455,6 +464,47 @@ def test_fronta_klipu(zkontroluj) -> None:
         zkontroluj("nečitelný úkol se pozná", klipy.nacti_ukol(zly) is None)
 
 
+def test_zkouska(zkontroluj, port: int) -> None:
+    """
+    Zkušební nástroj: rozbor výstupu ffmpegu a snímek z go2rtc.
+
+    Celý průchod se bez kamery vyzkoušet nedá, ale dvě věci, na kterých
+    stojí jeho výpověď, ano: jestli z ffmpegu vyčte kodek a rozlišení,
+    a jestli pozná snímek od hlášky.
+    """
+    import zkouska
+
+    # ── Rozbor toho, co ffmpeg vypíše o vstupu ────────────────────
+    vzorek = (
+        "Input #0, rtsp, from 'rtsp://10.0.0.5/cam/realmonitor':\n"
+        "  Duration: N/A, start: 0.000000, bitrate: N/A\n"
+        "  Stream #0:0: Video: h264 (Main), yuv420p(progressive), "
+        "1920x1080, 15 fps, 15 tbr, 90k tbn\n"
+    )
+    shoda = zkouska.ROZBOR_STREAMU.search(vzorek)
+    zkontroluj("z výpisu ffmpegu se vyčte kodek i rozlišení",
+               shoda and shoda.group(1) == "h264"
+               and (shoda.group(2), shoda.group(3)) == ("1920", "1080"),
+               str(shoda.groups() if shoda else None))
+
+    # ── Snímek přes go2rtc ────────────────────────────────────────
+    api = f"http://127.0.0.1:{port}"
+    FakeGo2rtc.snimek = b"\xff\xd8" + b"x" * 4000
+    doba, bajtu, chyba = zkouska.snimek_z_go2rtc(api, "CAM-pb-1788000000")
+    zkontroluj("platný JPEG se vezme jako snímek",
+               not chyba and bajtu > 1000, chyba or str(bajtu))
+    zkontroluj("a změří se, jak dlouho trval", doba >= 0)
+
+    # Krátká odpověď bez hlavičky JPEG není snímek, i když přijde s 200.
+    FakeGo2rtc.snimek = b"not an image"
+    _, _, chyba = zkouska.snimek_z_go2rtc(api, "CAM-pb-1788000000")
+    zkontroluj("hláška místo obrázku se za snímek nevydá", bool(chyba), chyba)
+
+    FakeGo2rtc.snimek = b""
+    _, _, chyba = zkouska.snimek_z_go2rtc(api, "CAM-pb-1788000000")
+    zkontroluj("a 404 taky ne", bool(chyba), chyba)
+
+
 def main() -> int:
     server = HTTPServer(("127.0.0.1", 0), FakeGo2rtc)
     port = server.server_port
@@ -476,6 +526,7 @@ def main() -> int:
     test_brana(zkontroluj, port)
     test_chyba_z_go2rtc_nese_duvod(zkontroluj, port)
     test_kontrola_konfigurace(zkontroluj, port)
+    test_zkouska(zkontroluj, port)
     test_listek_je_vazany_na_cas(zkontroluj)
     test_zapisovatelnost_fronty(zkontroluj)
     test_fronta_klipu(zkontroluj)

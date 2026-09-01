@@ -13,7 +13,8 @@ WORKDIR /app
 # ověřuje lístky na živý obraz a playback na záznam. Sdílí portal.py,
 # takže se podpis nemůže rozejít mezi nimi — a live.py, takže se
 # nemůže rozejít ani ověřování lístků.
-COPY watcher.py events.py live.py playback.py klipy.py portal.py /app/
+COPY watcher.py events.py live.py playback.py klipy.py portal.py \
+     zkouska.py /app/
 
 # Nepouštět jako root: kontejner sahá na sdílený inbox a jediné, co
 # potřebuje, je číst a mazat vlastní soubory.
