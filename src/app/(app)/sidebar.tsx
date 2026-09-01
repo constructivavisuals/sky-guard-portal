@@ -37,16 +37,14 @@ import { USER_ROLE_LABELS } from "@/types/database.ts";
  */
 export const NAV_ITEMS = [
   { href: "/prehled", label: "Přehled", icon: LayoutDashboard },
+  // Kamery hned druhé: sahá se po nich nejčastěji. Na mobilu jsou
+  // ze stejného důvodu ve spodní liště.
+  { href: "/kamery", label: "Kamery", icon: Video },
   { href: "/detekce", label: "Detekce", icon: ScanEye },
   { href: "/zasahy", label: "Zásahy", icon: Send },
   { href: "/lety", label: "Lety", icon: Plane },
   { href: "/hlidky", label: "Hlídky", icon: Route },
   { href: "/arealy", label: "Areály", icon: MapPin },
-  // Živý obraz, časová osa a záznamy bývaly tři položky. Byla to
-  // jedna otázka — co se na stavbě děje nebo dělo — rozdělená do tří
-  // stránek, mezi kterými si člověk musel pamatovat, o které kameře
-  // je řeč. Teď je to jedna sekce a přepíná se až uvnitř kamery.
-  { href: "/kamery", label: "Kamery", icon: Video },
   { href: "/brana", label: "Vjezdy", icon: DoorOpen },
   { href: "/reporty", label: "Reporty", icon: FileText },
   { href: "/nastaveni", label: "Nastavení", icon: Settings },

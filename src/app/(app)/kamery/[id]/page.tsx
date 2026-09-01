@@ -33,21 +33,33 @@ interface DetectionRow {
 /** Kolik událostí se ukazuje. Víc se na telefonu stejně neprohledá. */
 const LIMIT_UDALOSTI = 60;
 
+/**
+ * Jak daleko zpátky hledat klipy k událostem.
+ *
+ * Odpovídá lhůtě záznamů (`sites.clip_retention_days`). Starší klip
+ * v úložišti není, takže se na něj nemá cenu ptát.
+ */
+const LHUTA_DNI = 14;
+
 export default async function Page({ params }: PageProps<"/kamery/[id]">) {
   const { id } = await params;
   const supabase = await createClient();
 
+  // ═══ Všechny tři dotazy najednou ═══════════════════════════════
+  // Dřív se čekalo na kameru a teprve pak se šlo pro detekce a klipy.
+  // Byla to dvě kola po síti za sebou, ačkoli druhé dvě potřebují jen
+  // `id` z adresy — to je k dispozici hned. Na mobilní síti je jedno
+  // ušetřené kolo znát víc než cokoli v prohlížeči.
+  //
   // Pod RLS: kdo na lokalitu nevidí, dostane prázdno a z něj 404 —
-  // stejnou odpověď jako na kameru, která neexistuje.
-  const { data: camera } = await supabase
-    .from("cameras")
-    .select("id, name, serial_number, sites(name)")
-    .eq("id", id)
-    .maybeSingle<CameraRow>();
-
-  if (!camera) notFound();
-
-  const [{ data: detekce }, { data: zaznamy }] = await Promise.all([
+  // stejnou odpověď jako na kameru, která neexistuje. Že se přitom
+  // zbytečně zeptáme i na detekce, nevadí: RLS je zamítne stejně.
+  const [{ data: camera }, { data: detekce }, { data: zaznamy }] = await Promise.all([
+    supabase
+      .from("cameras")
+      .select("id, name, serial_number, sites(name)")
+      .eq("id", id)
+      .maybeSingle<CameraRow>(),
     supabase
       .from("detections")
       .select("id, detected_at, object_class, confidence")
@@ -58,16 +70,24 @@ export default async function Page({ params }: PageProps<"/kamery/[id]">) {
     // Klipy u detekcí. Neváže se to na sebe cizím klíčem, takže se
     // páruje časem — klip začíná dřív než detekce (pre-roll), proto
     // se hledá překryv, ne shoda.
+    //
+    // Omezené na lhůtu záznamů: starší klip nemůže patřit k detekci,
+    // kterou ukazujeme, protože ta je nejvýš stejně stará. Bez toho
+    // se táhlo dvojnásobek řádků jen proto, aby se skoro všechny
+    // zahodily.
     supabase
       .from("camera_recordings")
       .select("started_at, ended_at")
       .eq("camera_id", id)
+      .gte("started_at", new Date(Date.now() - LHUTA_DNI * 86_400_000).toISOString())
       .not("storage_path", "is", null)
       .is("video_expired_at", null)
       .order("started_at", { ascending: false })
-      .limit(LIMIT_UDALOSTI * 2)
+      .limit(LIMIT_UDALOSTI)
       .returns<{ started_at: string; ended_at: string }[]>(),
   ]);
+
+  if (!camera) notFound();
 
   const useky = (zaznamy ?? []).map((z) => ({
     od: Date.parse(z.started_at),

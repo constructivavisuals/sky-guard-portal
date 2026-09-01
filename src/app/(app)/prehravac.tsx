@@ -407,7 +407,13 @@ export function Prehravac({
 
   return (
     <div className="border border-[var(--line)] bg-[var(--surface)]">
-      <div className="relative aspect-video bg-black">
+      {/*
+        `max-h`: bez něj je na širokém monitoru 16:9 přes celou šířku
+        vyšší než obrazovka a člověk musí rolovat, aby viděl spodek
+        obrazu. Video uvnitř má object-contain, takže se jen olemuje
+        černou, nic se neořízne. Platí i na mobilu na šířku.
+      */}
+      <div className="relative aspect-video max-h-[75vh] bg-black">
         <video
           ref={video}
           autoPlay

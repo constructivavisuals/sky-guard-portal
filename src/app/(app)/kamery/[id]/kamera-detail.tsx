@@ -146,8 +146,18 @@ export function KameraDetail({
     .filter((d) => d.toDateString() === od.toDateString());
 
   return (
-    <div className="flex flex-col">
-      {/* ── Hlavička ──────────────────────────────────────────── */}
+    /*
+      ═══ Na velkém displeji dva sloupce ═══════════════════════════
+      Na mobilu jde všechno pod sebe, jak to má DMSS. Na monitoru by
+      ale stejné pořadí znamenalo obraz přes celou šířku a časovou osu
+      až pod ním, mimo obrazovku — člověk by při hledání v záznamu
+      rolovat nahoru a dolů mezi osou a obrazem.
+      Vedle sebe je vidět obojí najednou, což je přesně to, co
+      prohledávání záznamu potřebuje.
+    */
+    <div className="lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)] lg:items-start">
+      <div className="lg:sticky lg:top-0 lg:border-r lg:border-[var(--line)]">
+        {/* ── Hlavička ──────────────────────────────────────────── */}
       <div className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 sm:px-6">
         <Link
           href="/kamery"
@@ -192,6 +202,9 @@ export function KameraDetail({
         />
       )}
 
+      </div>
+
+      <div className="min-w-0">
       {/* ── Záložky ───────────────────────────────────────────── */}
       <div
         role="tablist"
@@ -280,6 +293,7 @@ export function KameraDetail({
           }}
         />
       ) : null}
+      </div>
     </div>
   );
 }
