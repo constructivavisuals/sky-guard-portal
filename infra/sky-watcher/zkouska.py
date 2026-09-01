@@ -53,6 +53,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import events
+import hodiny
 import live
 import playback
 
@@ -188,12 +189,12 @@ def cas_kamery(lan_ip: str) -> tuple[datetime | None, str]:
     except Exception as exc:  # noqa: BLE001
         return None, str(exc)[:120]
 
-    # Odpověď: `result=2026-09-01 21:11:02`
-    shoda = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})", telo)
-    if not shoda:
+    # Odpověď: `result=2026-09-01 21:11:02`. Pořadí se ale mezi
+    # firmwary liší podle nastaveného formátu, takže se nespoléhá.
+    kdy = hodiny.rozeber_cas(telo)
+    if kdy is None:
         return None, f"nesrozumitelná odpověď: {telo.strip()[:60]}"
-    r, m, d, h, mi, sec = (int(x) for x in shoda.groups())
-    return datetime(r, m, d, h, mi, sec, tzinfo=playback.CAMERA_TZ), ""
+    return kdy, ""
 
 
 REZIMY_NAHRAVANI = {

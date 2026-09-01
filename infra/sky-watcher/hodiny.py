@@ -70,6 +70,38 @@ def cti(lan_ip: str, dotaz: str) -> tuple[str, str]:
         return "", str(exc)[:150]
 
 
+def rozeber_cas(telo: str) -> datetime | None:
+    """
+    Čas z odpovědi kamery, ať ho píše v jakémkoli pořadí.
+
+    ═══ Proč se to nespoléhá na jedno pořadí ══════════════════════
+    `getCurrentTime` sice vrací `RRRR-MM-DD`, ale kamery mají v
+    nastavení i „Formát času" (DD-MM-RRRR a další) a mezi firmwary se
+    liší, co všechno se jím řídí. Kdyby některá vrátila den napřed,
+    přísný vzor by buď nic nenašel, nebo — hůř — přečetl den jako rok
+    a tiše lhal.
+    #
+    Rozliší se to podle toho, které číslo má čtyři cifry.
+    """
+    shoda = re.search(
+        r"(\d{2,4})[-/](\d{1,2})[-/](\d{2,4})[ T](\d{1,2}):(\d{2}):(\d{2})",
+        telo,
+    )
+    if not shoda:
+        return None
+    a, b, c, h, mi, sec = (int(x) for x in shoda.groups())
+    if len(shoda.group(1)) == 4:
+        rok, mesic, den = a, b, c
+    elif len(shoda.group(3)) == 4:
+        den, mesic, rok = a, b, c
+    else:
+        return None
+    try:
+        return datetime(rok, mesic, den, h, mi, sec, tzinfo=playback.CAMERA_TZ)
+    except ValueError:
+        return None
+
+
 def hodnota(telo: str, klic: str) -> str | None:
     shoda = re.search(rf"^{re.escape(klic)}=(.*)$", telo, re.MULTILINE)
     return shoda.group(1).strip() if shoda else None
@@ -82,10 +114,7 @@ def stav(lan_ip: str) -> dict:
     telo, chyba = cti(lan_ip, "/cgi-bin/global.cgi?action=getCurrentTime")
     if chyba:
         return {"chyba": chyba}
-    shoda = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})", telo)
-    if shoda:
-        r, m, d, h, mi, sec = (int(x) for x in shoda.groups())
-        ven["cas"] = datetime(r, m, d, h, mi, sec, tzinfo=playback.CAMERA_TZ)
+    ven["cas"] = rozeber_cas(telo)
 
     telo, _ = cti(lan_ip, "/cgi-bin/configManager.cgi?action=getConfig&name=Locales")
     ven["letni_cas"] = hodnota(telo, "table.Locales.DSTEnable")
