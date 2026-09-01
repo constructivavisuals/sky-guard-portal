@@ -77,7 +77,6 @@ OBJECT_CLASS = os.environ.get("EVENT_CLASS", "person")
 # Kam se kladou úkoly na klipy. Sdílený svazek s sky-klipy — tahle
 # služba do něj jen píše, druhá z něj bere.
 KLIPY_FRONTA = Path(os.environ.get("KLIPY_FRONTA_DIR", "/fronta"))
-
 # Kolik nejméně vteřin mezi dvěma hlášeními téže kamery a téhož kódu.
 # Člověk procházející záběrem vyvolá událost každou vteřinu; bez tohohle
 # by z deseti minut práce na place bylo šest set řádků v evidenci.
@@ -355,6 +354,21 @@ def posli_detekci(kamera: dict, udalost: dict, snimek: bytes | None) -> None:
     # tahle služba mezitím musí poslouchat další události. Detekce je
     # rychlá cesta, klip pomalá — proto jsou to dvě služby.
     #
+    # ═══ O tom, JESTLI klip vůbec, rozhoduje portál ════════════════
+    # Přes den se klipy nepořizují: na stavbě se pohybují lidé, kteří
+    # tam být mají. Okno ostrého režimu má ale zónu, dny v týdnu
+    # a přesahuje půlnoc — počítat si to tady by znamenalo druhý zdroj
+    # pravdy, který se jednou rozejde. Portál to tedy řekne rovnou
+    # v odpovědi na detekci.
+    #
+    # Chybějící `klip` v odpovědi se bere jako NE. Starší portál
+    # o klipech neví a nemá se stát, že relay po nasazení začne
+    # stahovat klipy nepřetržitě, protože si mlčení vyložil jako ano.
+    if not odpoved.get("klip"):
+        log.debug("Klip se u detekce z %s nepořizuje (mimo ostrý režim)",
+                  kamera["name"])
+        return
+
     # Selhání zápisu NESMÍ shodit detekci: ta už je odeslaná a je
     # důležitější než klip.
     try:
@@ -502,6 +516,19 @@ def main() -> int:
         REPORTED_CODES,
         SUBSCRIBE_CODES,
     )
+
+    # Fronta klipů: nezapisovatelná se jinak pozná až tím, že klipy
+    # prostě nejsou — služba přitom běží a detekce chodí dál.
+    duvod = klipy.fronta_je_zapisovatelna(KLIPY_FRONTA)
+    if duvod:
+        log.error(
+            "Do fronty klipů (%s) SE NEDÁ ZAPSAT: %s. Detekce půjdou "
+            "dál, ale žádný klip nevznikne. Obvykle je to svazek, který "
+            "vyrobil Docker jako root — kontejner běží pod uid 10001.",
+            KLIPY_FRONTA, duvod,
+        )
+    else:
+        log.info("Fronta klipů: %s", KLIPY_FRONTA)
 
     stop = threading.Event()
     cooldown = Cooldown(COOLDOWN_SEC)

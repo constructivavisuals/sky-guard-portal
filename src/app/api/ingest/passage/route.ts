@@ -19,6 +19,7 @@ import { verifyForCamera } from "@/lib/ingest/verify-camera.ts";
 import { resolvePlate } from "@/lib/plates/escalate.ts";
 import { readPlateFromImage, type PlateReading } from "@/lib/plates/reader.ts";
 import { PASSAGE_BUCKET, passageImagePath } from "@/lib/plates/storage.ts";
+import { isSiteArmedNow } from "@/lib/site-armed.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
 // POST /api/ingest/passage
@@ -43,35 +44,6 @@ export const dynamic = "force-dynamic";
 // Čtení značky přes Claude běží až za odpovědí, ale pořád v téhle
 // funkci — výchozí limit by ji uťal.
 export const maxDuration = 60;
-
-/**
- * Střeží lokalita? Ptáme se jen kvůli vyhodnocení ohlášení, protože
- * to samo rozhodnutí o zásahu nedělá — od toho je runDispatch.
- *
- * Když se stav nepodaří zjistit, bere se jako STŘEŽENO. Ohlášení pak
- * kryje jen s night_ok, což je ta přísnější varianta: neznámý stav
- * nemá odbavovat auta.
- */
-async function isSiteArmedNow(
-  db: ReturnType<typeof supabaseAdmin>,
-  siteId: string,
-  at: Date,
-): Promise<boolean> {
-  const { data, error } = await db.rpc("site_is_armed", {
-    p_site_id: siteId,
-    p_at: at.toISOString(),
-  });
-
-  if (error) {
-    console.warn("Režim střežení pro vyhodnocení ohlášení se nezjistil", {
-      site_id: siteId,
-      message: error.message,
-    });
-    return true;
-  }
-
-  return data === true;
-}
 
 /**
  * Strop na celé tělo. Snímek smí mít MAX_IMAGE_BYTES; base64 ho
@@ -360,7 +332,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         siteTimezone: camera.sites?.timezone ?? "Europe/Prague",
         // Ostrý režim ke chvíli PŘIJETÍ, ne k času z těla. Stejně
         // jako u rozhodnutí o zásahu: hlášený čas si určuje odesílatel.
-        armed: await isSiteArmedNow(db, camera.site_id, receivedAt),
+        armed: await isSiteArmedNow(db, camera.site_id, receivedAt, "ohlášení"),
         plate: reading.plate,
         confidence: reading.confidence,
         at: receivedAt,

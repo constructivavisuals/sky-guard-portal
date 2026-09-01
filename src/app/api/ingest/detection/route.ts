@@ -11,6 +11,7 @@ import { DETECTION_BUCKET } from "@/lib/detections/storage.ts";
 import { ingestImagePath, MAX_IMAGE_BYTES } from "@/lib/ingest/image.ts";
 import { publicFailureReason } from "@/lib/ingest/signature.ts";
 import { verifyForCamera } from "@/lib/ingest/verify-camera.ts";
+import { isSiteArmedNow } from "@/lib/site-armed.ts";
 import { supabaseAdmin } from "@/lib/supabase-admin.ts";
 
 // POST /api/ingest/detection
@@ -343,13 +344,31 @@ export async function POST(request: NextRequest): Promise<Response> {
     receivedAt,
   };
 
+  // ── Má se k téhle detekci pořídit klip? ────────────────────────
+  //
+  // Rozhoduje PORTÁL, ne relay. Okno ostrého režimu má zónu, dny
+  // v týdnu a přesahuje půlnoc; kdyby si to relay počítal sám, byl by
+  // to druhý zdroj pravdy a jednou by se rozešly. Relay se ptát
+  // nemusí — odpověď dostane rovnou tady, na volání, které stejně
+  // dělá.
+  //
+  // Přes den se klipy nepořizují: na stavbě se pohybují lidé, kteří
+  // tam být mají, a záznam je stejně na kartě v kameře. Do Hetzneru
+  // patří jen to, co se stalo, když tam nikdo být neměl.
+  //
+  // Jen u stavebních kamer: ty ostatní klipy nepořizují vůbec.
+  const klip =
+    camera.ingest_mode === "ftp"
+      ? await isSiteArmedNow(db, camera.site_id, receivedAt, "klip u detekce")
+      : false;
+
   // Stavební kamera bez zóny zásah nespouští. runDispatch by to sám
   // přeskočil, ale zapsal by přitom varování „detekce bez zóny“ —
   // u stavby je to normální stav, ne závada, a varování na každé
   // události by přehlušilo ta skutečná.
   if (camera.ingest_mode === "ftp" && !camera.zone_id) {
     return Response.json(
-      { detection_id: detection.id, dispatch: "skipped" },
+      { detection_id: detection.id, dispatch: "skipped", klip },
       { status: 200 },
     );
   }
@@ -367,7 +386,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   });
 
   return Response.json(
-    { detection_id: detection.id, dispatch: "pending" },
+    { detection_id: detection.id, dispatch: "pending", klip },
     { status: 200 },
   );
 }

@@ -398,6 +398,38 @@ def test_listek_je_vazany_na_cas(zkontroluj) -> None:
                live.overit_listek(SERIAL, listek(a)) == "bad_signature")
 
 
+def test_zapisovatelnost_fronty(zkontroluj) -> None:
+    """
+    Nezapisovatelná fronta se musí ozvat při startu.
+
+    Přesně tohle nás stálo dvě hodiny: svazek vyrobil Docker jako
+    root, kontejner běží pod uid 10001, zápis selhal — a služba
+    přitom běžela dál, detekce chodily a klipy nevznikaly.
+
+    Zkouší se ZÁPISEM, ne existencí adresáře: ta by prošla.
+    """
+    import stat as _stat
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dobra = Path(tmp) / "dobra"
+        zkontroluj("zapisovatelná fronta projde",
+                   klipy.fronta_je_zapisovatelna(dobra) is None)
+        zkontroluj("a založí se, když ještě není", dobra.is_dir())
+
+        if os.geteuid() == 0:
+            print("ok    (kontrola práv přeskočena — běží pod rootem)")
+            return
+
+        zla = Path(tmp) / "zla"
+        zla.mkdir()
+        zla.chmod(_stat.S_IRUSR | _stat.S_IXUSR)  # jen čtení
+        try:
+            zkontroluj("nezapisovatelná se pozná",
+                       klipy.fronta_je_zapisovatelna(zla) is not None)
+        finally:
+            zla.chmod(0o700)
+
+
 def test_fronta_klipu(zkontroluj) -> None:
     """Úkoly na klipy: stabilní jméno a počítadlo pokusů."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -445,6 +477,7 @@ def main() -> int:
     test_chyba_z_go2rtc_nese_duvod(zkontroluj, port)
     test_kontrola_konfigurace(zkontroluj, port)
     test_listek_je_vazany_na_cas(zkontroluj)
+    test_zapisovatelnost_fronty(zkontroluj)
     test_fronta_klipu(zkontroluj)
 
     print()

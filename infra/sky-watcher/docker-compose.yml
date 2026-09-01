@@ -35,7 +35,14 @@ services:
       # Jediný svazek: fronta úkolů na klipy. K úložišti tahle služba
       # pořád nemá co mít — jen sem POLOŽÍ lístek papíru, že se něco
       # stalo, a video z něj vyrobí sky-klipy.
-      - ./klipy-fronta:/fronta
+      #
+      # POJMENOVANÝ svazek, ne cesta na hostiteli: ten si převezme
+      # vlastníka z obrazu, kde je adresář založený pod `watcher`.
+      # Vazba na hostitele by se vyrobila jako `root` a kontejner
+      # pod uid 10001 by do ní nezapsal — služba by běžela, detekce
+      # chodily a klipy nevznikaly. Nikdo tu frontu z hostitele
+      # číst nepotřebuje; je to vnitřní stav dvou služeb.
+      - klipy-fronta:/fronta
     environment:
       KLIPY_FRONTA_DIR: /fronta
 
@@ -53,8 +60,10 @@ services:
     env_file: .env
     command: /app/klipy.py
     volumes:
-      - ./klipy-fronta:/fronta
-      - ./klipy-failed:/failed-klipy
+      # Pojmenované, ze stejného důvodu jako u sky-events výš.
+      # Do karantény se kouká přes `docker compose exec`.
+      - klipy-fronta:/fronta
+      - klipy-failed:/failed-klipy
     environment:
       KLIPY_FRONTA_DIR: /fronta
       KLIPY_FAILED_DIR: /failed-klipy
@@ -138,6 +147,12 @@ services:
       # Sem dosáhne Caddy Constructivy. Certifikáty se tu nedrží —
       # TLS končí u něj.
       - edge
+
+volumes:
+  # Vnitřní stav služeb klipů. Pojmenované, ne cesty na hostiteli —
+  # viz poznámka u sky-events.
+  klipy-fronta:
+  klipy-failed:
 
 networks:
   # Jediné místo, kde se ty dva systémy potkávají.

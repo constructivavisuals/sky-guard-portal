@@ -238,6 +238,50 @@ def spust(handler) -> tuple[HTTPServer, str]:
     return server, f"127.0.0.1:{server.server_port}"
 
 
+def test_klip_jen_v_ostrem_rezimu() -> None:
+    """
+    Úkol na klip vzniká JEN když to portál povolí.
+
+    Přes den se klipy nepořizují — na stavbě se pohybují lidé, kteří
+    tam být mají, a záznam je stejně na kartě. O tom, kdy je ostrý
+    režim, rozhoduje portál: okno má zónu, dny v týdnu a přesahuje
+    půlnoc, takže druhý výpočet na relayi by se jednou rozešel.
+
+    Chybějící `klip` v odpovědi se bere jako NE. Starší portál
+    o klipech neví a nemá se stát, že relay začne po nasazení
+    stahovat klipy nepřetržitě, protože si mlčení vyložil jako ano.
+    """
+    print("\n── klipy jen v ostrém režimu ──")
+
+    import tempfile
+
+    kamera = {"serial_number": SERIAL, "name": "Klanečná — jeřáb"}
+    udalost = {"code": "SmartMotionHuman", "action": "Start",
+               "index": "0", "data": {}}
+
+    puvodni = events.portal.signed_post
+    puvodni_fronta = events.KLIPY_FRONTA
+
+    def pust(odpoved: dict) -> int:
+        """Pošle detekci a vrátí, kolik úkolů po ní ve frontě je."""
+        with tempfile.TemporaryDirectory() as tmp:
+            events.KLIPY_FRONTA = Path(tmp)
+            events.portal.signed_post = lambda *a, **k: odpoved
+            events.posli_detekci(kamera, udalost, None)
+            return len(list(Path(tmp).glob("*.json")))
+
+    try:
+        zkontroluj("v ostrém režimu úkol vznikne",
+                   pust({"detection_id": "d1", "klip": True}) == 1)
+        zkontroluj("mimo ostrý režim NE",
+                   pust({"detection_id": "d1", "klip": False}) == 0)
+        zkontroluj("a když se portál nevyjádří, taky ne",
+                   pust({"detection_id": "d1"}) == 0)
+    finally:
+        events.portal.signed_post = puvodni
+        events.KLIPY_FRONTA = puvodni_fronta
+
+
 def test_cely_retez() -> None:
     print("\n── celý řetěz ──")
 
@@ -310,6 +354,7 @@ def main() -> int:
     test_prodlevy()
     test_cooldown()
     test_adresy()
+    test_klip_jen_v_ostrem_rezimu()
     test_cely_retez()
 
     print()

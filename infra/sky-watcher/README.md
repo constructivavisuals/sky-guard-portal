@@ -380,6 +380,51 @@ Když playback nevyjde, je záchrana: klip se vezme ze živého vedlejšího
 proudu dopředu. Přijde se o pre-roll, ale důkaz zůstane. Hlásí se to
 jako varování — je to zhoršený stav, ne rovnocenná cesta.
 
+#### Klipy jen v ostrém režimu
+
+Přes den se klipy nepořizují: na stavbě se pohybují lidé, kteří tam
+být mají, a záznam je stejně na kartě v kameře. Do Hetzneru patří jen
+to, co se stalo, když tam nikdo být neměl.
+
+**Rozhoduje portál, ne relay.** Okno ostrého režimu má zónu, dny
+v týdnu a přesahuje půlnoc — druhý výpočet na relayi by byl druhý
+zdroj pravdy a jednou by se rozešly. Portál to proto řekne rovnou
+v odpovědi na detekci:
+
+```json
+{ "detection_id": "…", "dispatch": "skipped", "klip": true }
+```
+
+Rozhoduje se podle `site_is_armed` v databázi, tedy toutéž funkcí
+jako u ohlášení příjezdu (`src/lib/site-armed.ts`). Když se stav
+nepodaří zjistit, bere se jako STŘEŽENO — radši klip navíc než
+chybějící důkaz.
+
+Chybějící `klip` v odpovědi bere relay jako NE. Starší portál
+o klipech neví a nemá se stát, že relay po nasazení začne stahovat
+klipy nepřetržitě, protože si mlčení vyložil jako ano.
+
+#### Fronta je pojmenovaný svazek, ne cesta na hostiteli
+
+Stálo to dvě hodiny provozu bez jediného klipu, takže to stojí za
+zápis: `sky-events` do fronty píše, `sky-klipy` z ní čte, a oba
+kontejnery běží pod `watcher` (uid 10001).
+
+Vazba na cestu hostitele, která ještě neexistuje, se vyrobí jako
+**root** — a zápis pak selže. Služby přitom běží dál, detekce chodí
+a klipy prostě nevznikají. Pojmenovaný svazek si oproti tomu převezme
+vlastníka z obrazu, kde je adresář založený v Dockerfile pod
+`watcher`.
+
+Obě služby si navíc při startu frontu **zkusí zapsat** a neúspěch
+hlásí jako ERROR. Existenci adresáře kontrolovat nestačí — ta projde.
+
+```bash
+docker compose logs sky-events | grep -i fronta   # co říká při startu
+docker compose exec sky-klipy ls /fronta          # co v ní leží
+docker compose exec sky-klipy ls /failed-klipy    # co neprošlo
+```
+
 ### Portálová strana
 
 Hotová. Lístky vydává `/api/kamery/<id>/zaznam?od=<ISO čas>` a časová

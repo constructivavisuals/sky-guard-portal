@@ -88,6 +88,29 @@ log = logging.getLogger("sky-klipy")
 # zpracovat před restartem, zůstane ležet na disku.
 
 
+def fronta_je_zapisovatelna(dir_fronty: Path) -> str | None:
+    """
+    Ověří, že se do fronty dá zapsat. Vrací důvod, nebo None.
+
+    ═══ Proč to stojí za kontrolu při startu ══════════════════════
+    Protože selhání zápisu je jinak vidět až na patnácté detekci —
+    a i tam jen jako varování mezi ostatními řádky. Služba běží,
+    detekce chodí, klipy nevznikají a nic nekřičí.
+
+    Nejčastější příčina: svazek vyrobil Docker na hostiteli jako
+    `root`, ale kontejner běží pod `watcher`. Proto se to zkouší
+    zápisem, ne kontrolou existence — ta by prošla.
+    """
+    try:
+        dir_fronty.mkdir(parents=True, exist_ok=True)
+        zkouska = dir_fronty / ".zapis-test"
+        zkouska.write_text("", encoding="utf-8")
+        zkouska.unlink()
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
 def zapis_ukol(dir_fronty: Path, serial: str, kdy: datetime, kod: str) -> Path:
     """
     Položí úkol do fronty. Volá se z events.py.
@@ -327,7 +350,17 @@ def main() -> int:
         log.error("PORTAL_URL nebo RELAY_SECRET není nastavené.")
         return 2
 
-    FRONTA_DIR.mkdir(parents=True, exist_ok=True)
+    # Táž kontrola jako v events.py, jen z druhé strany: tahle služba
+    # z fronty čte a do karantény zapisuje. Prázdná fronta vypadá
+    # stejně jako nezapisovatelná, tak ať se to dá rozlišit.
+    duvod = fronta_je_zapisovatelna(FRONTA_DIR)
+    if duvod:
+        log.error(
+            "Na frontu (%s) se nedá sáhnout: %s. Bez toho se žádný klip "
+            "nezpracuje. Obvykle je to svazek vyrobený Dockerem jako "
+            "root — kontejner běží pod uid 10001.", FRONTA_DIR, duvod,
+        )
+
     playback.KAMERY.obnov()
     log.info("Klipy: fronta %s, %d s před a %d s po detekci",
              FRONTA_DIR, PRE_SEC, POST_SEC)
