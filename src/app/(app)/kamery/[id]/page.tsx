@@ -45,6 +45,12 @@ export default async function Page({ params }: PageProps<"/kamery/[id]">) {
   const { id } = await params;
   const supabase = await createClient();
 
+  // Jednou pro celý průchod. Serverová komponenta se vykreslí jednou
+  // za požadavek, takže je „teď" legitimní údaj — pravidlo proti
+  // nečistým voláním míří na opakované renderování v prohlížeči.
+  // eslint-disable-next-line react-hooks/purity
+  const ted = Date.now();
+
   // ═══ Všechny tři dotazy najednou ═══════════════════════════════
   // Dřív se čekalo na kameru a teprve pak se šlo pro detekce a klipy.
   // Byla to dvě kola po síti za sebou, ačkoli druhé dvě potřebují jen
@@ -79,7 +85,7 @@ export default async function Page({ params }: PageProps<"/kamery/[id]">) {
       .from("camera_recordings")
       .select("started_at, ended_at")
       .eq("camera_id", id)
-      .gte("started_at", new Date(Date.now() - LHUTA_DNI * 86_400_000).toISOString())
+      .gte("started_at", new Date(ted - LHUTA_DNI * 86_400_000).toISOString())
       .not("storage_path", "is", null)
       .is("video_expired_at", null)
       .order("started_at", { ascending: false })
