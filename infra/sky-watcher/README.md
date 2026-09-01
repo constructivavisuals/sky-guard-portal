@@ -618,6 +618,12 @@ ho berou vážně.
 
 Výchozí je proto `subtype=0`; přebít se dá proměnnou `PLAYBACK_SUBTYPE`.
 
+> Pro pořádek: u dvou kamer, které 404 vracely, se měnilo obojí —
+> `subtype` i hodiny. Druhý běh zkoušky ale zkusil OBA subtypy a oba
+> vrátily 404, takže je podle měření vyřešily až opravené hodiny.
+> Na výsledku to nic nemění, obojí je správně; jen ať se příště
+> nehledá na špatném místě.
+
 `zkouska.py` na 404 zkusí i ten druhý proud a řekne, který ta kamera
 má. Když vrátí 404 na oba, ptá se dál — a v tomhle pořadí, protože
 tak se to na místě ukázalo:
@@ -650,8 +656,15 @@ v minutách; opravuje se to NTP a časovou zónou v kameře.
 nahrává nepřetržitě, podle rozvrhu, nebo vůbec. „Podle rozvrhu" samo
 o sobě není závada — rozvrh může pokrývat celý týden. Zkouška se proto
 zeptá i na něj (`Record`) a spočítá, které dny jsou pokryté CELÉ.
-Nepokryté časy jsou na kartě díry: přehrávání v nich vrátí 404
-a časová osa slibuje, co tam není.
+
+> **Nepřečteno není totéž co nenastaveno.** První verze tohohle čtení
+> obvinila všech devět kamer z prázdného rozvrhu — přitom všem devíti
+> záznam z karty normálně chodil, takže to nemohla být pravda. Vzor
+> jen nesedl na jejich tvar odpovědi.
+>
+> Když se rozvrh přečíst nedá, hlásí se to jako **poznámka** a přiloží
+> se kus toho, co kamera poslala. Vydávat vlastní neúspěch za vadu
+> zařízení je horší než mlčet.
 
 > **Změřeno:** hodinový posun hodin u dvou kamer způsobil přesně to,
 > co vypadalo jako prázdná karta. Byla to zóna, ne karta ani rozvrh.

@@ -231,9 +231,12 @@ def rezim_nahravani(lan_ip: str) -> tuple[str | None, str]:
 
 # `table.Record[0].TimeSection[den][úsek]=1 00:00:00-23:59:59`
 # První číslo je zapnuto/vypnuto, za ním rozsah v čase kamery.
+#
+# Volně schválně: firmwary se liší v počtu cifer i v mezerách a
+# u konce dne se objevuje 23:59:59 i 24:00:00.
 USEK_RE = re.compile(
-    r"Record\[\d+\]\.TimeSection\[(\d)\]\[\d\]="
-    r"(\d)\s+(\d{2}):(\d{2}):(\d{2})-(\d{2}):(\d{2}):(\d{2})"
+    r"TimeSection\[(\d+)\]\[\d+\]\s*=\s*"
+    r"(\d)\s+(\d{1,2}):(\d{1,2}):(\d{1,2})\s*-\s*(\d{1,2}):(\d{1,2}):(\d{1,2})"
 )
 
 
@@ -258,19 +261,36 @@ def rozvrh_nahravani(lan_ip: str) -> tuple[set[int] | None, str]:
     except Exception as exc:  # noqa: BLE001
         return None, str(exc)[:120]
 
+    useky = list(USEK_RE.finditer(telo))
+    if not useky:
+        # ═══ Nepřečteno NENÍ totéž co nenastaveno ══════════════════
+        # Tohle rozlišení tu chybělo a stálo jeden falešný poplach:
+        # devět kamer bylo obviněno z prázdného rozvrhu, přestože
+        # všem devíti záznam z karty normálně chodil. Vzor prostě
+        # nesedl na jejich tvar odpovědi.
+        #
+        # Když se nedá přečíst, řekne se to — a přiloží se kus toho,
+        # co kamera poslala, aby se vzor dal opravit.
+        ukazka = " | ".join(
+            r.strip() for r in telo.splitlines() if "TimeSection" in r
+        )[:200]
+        return None, (
+            "rozvrh se nepodařilo přečíst"
+            + (f"; kamera posílá: {ukazka}" if ukazka else "; bez TimeSection")
+        )
+
     cele: set[int] = set()
-    for shoda in USEK_RE.finditer(telo):
+    for shoda in useky:
         den = int(shoda.group(1))
         if shoda.group(2) != "1":
             continue
         od = int(shoda.group(3)) * 3600 + int(shoda.group(4)) * 60 + int(shoda.group(5))
         do = int(shoda.group(6)) * 3600 + int(shoda.group(7)) * 60 + int(shoda.group(8))
-        # Celý den: od půlnoci nejméně do 23:59.
+        # Celý den: od půlnoci nejméně do 23:59. Konec se píše
+        # 23:59:59 i 24:00:00, oboje je celý den.
         if od == 0 and do >= 23 * 3600 + 59 * 60:
             cele.add(den)
 
-    if not cele and "TimeSection" not in telo:
-        return None, "kamera rozvrh nevrátila"
     return cele, ""
 
 
@@ -297,7 +317,9 @@ def krok_nahravani(s: Sesit, lan_ip: str) -> None:
     # Režim „podle rozvrhu": rozhodne až ten rozvrh.
     dny, chyba = rozvrh_nahravani(lan_ip)
     if dny is None:
-        s.pozn(f"kamera nahrává {popis}, rozvrh se nepodařilo přečíst ({chyba})")
+        # Poznámka, ne chyba. Že si s odpovědí neporadíme, není vada
+        # kamery — a vydávat jedno za druhé je horší než mlčet.
+        s.pozn(f"kamera nahrává {popis}; {chyba}")
         return
 
     if len(dny) >= 7:
