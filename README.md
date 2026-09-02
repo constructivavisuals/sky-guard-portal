@@ -172,6 +172,33 @@ Postup rotace:
 Prázdná nebo shodná hodnota se ignoruje, takže krok 3 jde udělat i tak,
 že se proměnná nechá prázdná.
 
+## Aplikace na ploše (iOS)
+
+### Změna v `appleWebApp` se do nainstalované aplikace NEDOSTANE
+
+iOS si údaje o webové aplikaci — `apple-mobile-web-app-status-bar-style`,
+`apple-mobile-web-app-capable` a chování při startu — uloží ve chvíli,
+kdy si uživatel přidá ikonu na plochu, a při dalších spuštěních je znovu
+nečte.
+
+Obsah stránek se přitom aktualizuje normálně (service worker chodí pro
+navigace vždycky na síť). Vzniká tím matoucí stav: **stránka nová,
+chování při startu staré.**
+
+Stálo to pět kol ladění. Spodní lišta seděla po tvrdém startu výš a po
+přechodu na jinou stránku se srovnala; příčinou byl
+`statusBarStyle: "black-translucent"`, u kterého okno sahá pod stavový
+řádek a iOS jeho výšku při startu nahlásí špatně. Oprava na `"black"`
+byla správná, ale do nainstalované aplikace se nedostala — a tak to
+vypadalo, že nezabrala.
+
+**Po každé změně v `appleWebApp` nebo v manifestu je proto potřeba
+aplikaci z plochy odebrat a přidat znovu**, jinak se testuje stará
+instalace. Platí to i pro ověřování, že se něco opravilo.
+
+Změny v CSS, komponentách a datech se propisují běžně; tohle se týká
+jen metadat webové aplikace.
+
 ## Stavební kamery
 
 Klient může mít stavbu s kamerami a bez dronu, areál s dronem a bez
