@@ -6,7 +6,6 @@ import type { SiteOption } from "@/lib/site.ts";
 
 import { MobileNav } from "./mobile-nav.tsx";
 import { Sidebar } from "./sidebar.tsx";
-import { LadeniOkna } from "./ladeni-okna.tsx";
 import { Topbar, type GuardState } from "./topbar.tsx";
 
 // App shell pro přihlášené.
@@ -79,11 +78,6 @@ export function Shell({
       </div>
 
       <MobileNav isAdmin={profile?.role === "admin"} capabilities={capabilities} />
-
-      {/* Dočasné: výpis rozměrů okna na doladění spodní lišty.
-          Zapíná se /prehled?ladeni=okno, vypíná ?ladeni=vypnout.
-          Až bude lišta sedět, zmizí to odsud i ze souborů. */}
-      <LadeniOkna />
     </div>
   );
 }

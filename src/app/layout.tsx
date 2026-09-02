@@ -29,7 +29,22 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Sky Guard",
-    statusBarStyle: "black-translucent",
+    // ═══ `black`, ne `black-translucent` ════════════════════════════
+    // U `black-translucent` sahá okno až pod stavový řádek a iOS při
+    // startu z plochy nahlásí jeho výšku špatně — než se to srovná,
+    // je okno kratší, než ve skutečnosti je. Spodní lišta je k jeho
+    // spodku připnutá, takže sedí výš a pod ní zbývá pruh pozadí.
+    // Přechod na jinou stránku okno přeměří a lišta padne, kam patří:
+    // přesně tak se to projevovalo.
+    //
+    // U `black` si stavový řádek vyhradí iOS sám, okno má svou
+    // konečnou velikost od prvního vykreslení a měřit není co.
+    //
+    // Vzhled se tím nemění: aplikace je tmavá a systémový černý pruh
+    // je od našeho pozadí k nerozeznání. Horní lišta má odsazení přes
+    // `env(safe-area-inset-top)`, které v tomhle režimu vyjde nula —
+    // a správně, protože stavový řádek už obsah nepřekrývá.
+    statusBarStyle: "black",
   },
   formatDetection: { telephone: false },
   other: {
