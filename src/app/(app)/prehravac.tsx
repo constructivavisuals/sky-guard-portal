@@ -288,10 +288,11 @@ export function Prehravac({
   );
 
   // ═══ Otočení nestačí, musí být i tlačítko ════════════════════════
-  // Aplikace přidaná na plochu má v manifestu `orientation: portrait`,
-  // takže se NEOTOČÍ — a s ní ani obraz. Totéž když má člověk
-  // zamčenou orientaci v ovládacím centru. Na otáčení se tedy spolehnout
-  // nedá a bez tlačítka by se do celé obrazovky nedostal vůbec.
+  // Manifest orientaci nezamyká (viz app/manifest.ts), takže se okno
+  // po otočení telefonu otočí a tenhle dotaz se chytne. Spolehnout se
+  // na to ale nedá: kdo má zamčené otáčení v systému, ten telefonem
+  // nepohne s ničím — a na iPhonu se takový zámek ze stránky obejít
+  // nedá. Bez tlačítka by se do celé obrazovky nedostal vůbec.
   //
   // `null` znamená „rozhoduje otočení". Jakmile někdo sáhne na
   // tlačítko, rozhoduje ono — dvě věci, které si přetahují tentýž

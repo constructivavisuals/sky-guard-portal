@@ -172,9 +172,9 @@ Postup rotace:
 Prázdná nebo shodná hodnota se ignoruje, takže krok 3 jde udělat i tak,
 že se proměnná nechá prázdná.
 
-## Aplikace na ploše (iOS)
+## Aplikace na ploše
 
-### Změna v `appleWebApp` se do nainstalované aplikace NEDOSTANE
+### Změna v `appleWebApp` se do nainstalované aplikace NEDOSTANE (iOS)
 
 iOS si údaje o webové aplikaci — `apple-mobile-web-app-status-bar-style`,
 `apple-mobile-web-app-capable` a chování při startu — uloží ve chvíli,
@@ -198,6 +198,32 @@ instalace. Platí to i pro ověřování, že se něco opravilo.
 
 Změny v CSS, komponentách a datech se propisují běžně; tohle se týká
 jen metadat webové aplikace.
+
+### Orientaci manifest nezamyká (Android)
+
+`orientation` v manifestu platí **jen na Androidu** — iOS to pole
+ignoruje. Když tam stálo `portrait`, aplikace přidaná na plochu se na
+Androidu neotočila nikde, ani na stránce kamery: obraz tedy nešel
+roztáhnout otočením telefonu, což je u videa to první, co každý zkusí.
+Na iPhonu to celou dobu fungovalo, takže to vypadalo na vadu Androidu.
+
+Proto je tam **`orientation: "any"`** a otáčení se nechává na systému.
+Stránka si to sama přebít nemůže: `screen.orientation.unlock()` vrací
+orientaci na tu z manifestu, ne na „jak kdo drží telefon“.
+
+Přehrávač si otočení hlídá dotazem `(orientation: landscape) and
+(max-height: 500px)` a roztáhne se přes celé okno vlastní vrstvou, ne
+Fullscreen API (to by na iOS převzalo ovládání i s osou). Výška v dotazu
+odděluje telefon naležato od monitoru, který je taky „na šířku“.
+
+Tlačítko na celou obrazovku zůstává vedle toho: kdo má zamčené otáčení
+v systému, ten telefonem nezmůže nic — a na iPhonu se takový zámek ze
+stránky obejít nedá.
+
+**Nainstalovaná aplikace na Androidu si změnu manifestu vezme až při
+příští aktualizaci WebAPK** (Chrome ji kontroluje řádově v hodinách až
+dni). Na ověření je jistější ikonu z plochy odebrat a přidat znovu —
+stejně jako u iOS výš.
 
 ## Stavební kamery
 

@@ -10,14 +10,28 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Perimetrická ochrana dronem",
     lang: "cs",
     display: "standalone",
-    // Zamyká orientaci jen tam, kde to prohlížeč umí — tedy na
-    // Androidu. iOS pole `orientation` IGNORUJE i v aplikaci přidané
-    // na plochu a webu žádné API na zamčení nedává; kdo to na iPhonu
-    // chce, musí použít zámek otáčení v ovládacím centru.
+    // ═══ Orientace se NEZAMYKÁ ═══════════════════════════════════
+    // Bývalo tu `portrait` a Android to u aplikace přidané na plochu
+    // bere doslova: okno se neotočilo NIKDE, ani na stránce kamery.
+    // Obraz tedy nešel roztáhnout otočením telefonu — a otočit telefon
+    // je to první, co u videa každý zkusí.
     //
-    // Proto má přehrávač na celou obrazovku vlastní tlačítko a
-    // nespoléhá na otočení.
-    orientation: "portrait",
+    // Na iPhonu se to neprojevilo: iOS pole `orientation` ignoruje.
+    // Rozdíl mezi telefony pak vypadá jako vada kamery nebo Androidu,
+    // a hledá se kdekoli jinde než v manifestu.
+    //
+    // Zamknout to zpátky nejde bez toho, aby se rozbilo otáčení
+    // v přehrávači: `screen.orientation.unlock()` vrací orientaci na
+    // tu z manifestu, takže ji stránka sama neobejde.
+    //
+    // Cena je, že se na Androidu otočí i ostatní stránky. Ty to
+    // snesou — rozvržení je responzivní a telefon naležato je pro ně
+    // totéž co úzké okno.
+    //
+    // Tlačítko na celou obrazovku v přehrávači zůstává: kdo má zamčené
+    // otáčení v systému, otočením si obraz nezvětší — a na iPhonu se
+    // takový zámek ze stránky obejít nedá vůbec.
+    orientation: "any",
     theme_color: "#08090C",
     background_color: "#08090C",
     // Po spuštění z plochy nemá smysl začínat na rozcestníku —
