@@ -42,6 +42,29 @@ export function formatDateTime(
 }
 
 /**
+ * Jen datum v pásmu lokality — `14. 9. 2026`.
+ *
+ * Bez času schválně: u věcí, které platí celý den nebo týden (stáří
+ * náhledu kamery), by minuty jen předstíraly přesnost, kterou ten
+ * údaj nemá.
+ */
+export function formatDate(
+  iso: string | null,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("cs-CZ", {
+    timeZone,
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+/**
  * `08:03:07` v pásmu lokality.
  *
  * Pro čas záznamu nad přehrávačem. Sekundy tu na rozdíl od okna

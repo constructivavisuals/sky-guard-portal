@@ -8,6 +8,7 @@ import {
   formatConditions,
   formatBytes,
   formatConfidence,
+  formatDate,
   formatDateTime,
   formatDuration,
   durationBetween,
@@ -35,6 +36,24 @@ describe("formatDateTime", () => {
   it("null i nesmysl vrací pomlčku", () => {
     assert.equal(formatDateTime(null), "—");
     assert.equal(formatDateTime("včera"), "—");
+  });
+});
+
+describe("formatDate", () => {
+  it("datum je taky v zóně lokality — o půlnoci jde o jiný den", () => {
+    // 23:30 UTC je v Praze už 25. srpna, v New Yorku pořád 24.
+    const iso = "2026-08-24T23:30:00Z";
+    assert.match(formatDate(iso, "Europe/Prague"), /25\. 8\. 2026/);
+    assert.match(formatDate(iso, "America/New_York"), /24\. 8\. 2026/);
+  });
+
+  it("čas se neukazuje", () => {
+    assert.doesNotMatch(formatDate("2026-08-24T20:00:00Z", "Europe/Prague"), /:/);
+  });
+
+  it("null i nesmysl vrací pomlčku", () => {
+    assert.equal(formatDate(null), "—");
+    assert.equal(formatDate("včera"), "—");
   });
 });
 

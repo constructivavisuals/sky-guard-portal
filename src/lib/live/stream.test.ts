@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  frameUrl,
   isStreamQuality,
   liveSocketUrl,
   playbackSocketUrl,
@@ -120,6 +121,37 @@ describe("playbackSocketUrl", () => {
       }).replace("wss:", "https:"),
     );
     assert.equal(url.searchParams.get("src"), "CAM1-pb-1788000000");
+    assert.equal(url.searchParams.get("token"), "999.abc");
+  });
+});
+
+describe("frameUrl", () => {
+  it("schéma se NEPŘEPISUJE — snímek se tahá po HTTP, ne po websocketu", () => {
+    const url = frameUrl({
+      baseUrl: "https://kamery.sky-guard.cz",
+      stream: SERIAL,
+      token: "1.a",
+    });
+    assert.equal(
+      url,
+      `https://kamery.sky-guard.cz/api/frame.jpeg?src=${SERIAL}&token=1.a`,
+    );
+  });
+
+  it("koncové lomítko nezdvojí cestu", () => {
+    const url = frameUrl({
+      baseUrl: "https://kamery.sky-guard.cz/",
+      stream: "CAM1",
+      token: "1.a",
+    });
+    assert.ok(url.startsWith("https://kamery.sky-guard.cz/api/frame.jpeg?"));
+  });
+
+  it("lístek jde v dotazu zakódovaný", () => {
+    const url = new URL(
+      frameUrl({ baseUrl: "https://k.cz", stream: "CAM 1", token: "999.abc" }),
+    );
+    assert.equal(url.searchParams.get("src"), "CAM 1");
     assert.equal(url.searchParams.get("token"), "999.abc");
   });
 });

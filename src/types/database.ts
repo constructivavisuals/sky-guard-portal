@@ -338,6 +338,18 @@ export type Camera = {
   sd_capacity_gb: number | null;
   /** Lhůta SD KARTY V KAMEŘE, ne našeho úložiště. */
   sd_retention_days: number | null;
+  /**
+   * Statický náhled do seznamu kamer. Migrace 20260921120000.
+   *
+   * Cesta v privátním bucketu `nahledy`, ne URL. NULL = náhled se
+   * ještě nepodařilo pořídit; obnovuje ho /api/cron/nahledy.
+   */
+  preview_path: string | null;
+  /**
+   * Kdy náhled vznikl. Ukazuje se u něj — statický snímek bez data by
+   * se dal splést s živým obrazem.
+   */
+  preview_captured_at: string | null;
 };
 
 /**

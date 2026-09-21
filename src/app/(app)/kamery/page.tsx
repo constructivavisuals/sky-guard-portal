@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ChevronRight, Video } from "lucide-react";
 
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
+import { PREVIEW_BUCKET, PREVIEW_SIGNED_URL_TTL } from "@/lib/cameras/preview.ts";
+import { formatDate } from "@/lib/format.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
 
@@ -40,10 +42,21 @@ export const metadata: Metadata = { title: "Kamery" };
 // Administrativní stav zůstává v Areálech, kde ho admin nastavuje
 // a kde má tím pádem smysl.
 //
-// ═══ Jeden sloupec, ne mřížka náhledů ══════════════════════════════
-// Mřížka živých náhledů vypadá dobře a stojí devět spojení na kamery,
-// které zároveň píšou na vlastní kartu. Náhled se proto načte až
-// v detailu, u jedné kamery.
+// ═══ Náhled ano, živá mřížka ne ════════════════════════════════════
+// Jméno KL_03 neřekne nikomu, kdo po té stavbě nechodí, kam ta kamera
+// kouká — a tak se otevíraly po řadě, dokud se nenašla ta správná.
+// Řeší to jeden STATICKÝ snímek u řádku, který jednou týdně obnovuje
+// `/api/cron/nahledy`.
+//
+// Mřížka ŽIVÝCH náhledů by vypadala líp a stála devět spojení na
+// kamery, které zároveň píšou na vlastní kartu — při každém otevření
+// seznamu. Živý obraz se proto pořád načítá až v detailu, u jedné
+// kamery.
+//
+// Statický snímek se u toho musí přiznat, jinak je to horší než nic:
+// pod každým náhledem je datum pořízení. Bez něj by obrázek tvrdil,
+// že tak ta stavba vypadá TEĎ, a klient by se podle týden starého
+// záběru rozhodoval, jestli tam někdo je.
 
 export const dynamic = "force-dynamic";
 
@@ -51,30 +64,74 @@ interface CameraRow {
   id: string;
   name: string;
   serial_number: string | null;
-  sites: { name: string } | null;
+  site_id: string;
+  sites: { name: string; timezone: string } | null;
+  /** Migrace 20260921120000; chybí, dokud nenaběhne. */
+  preview_path?: string | null;
+  preview_captured_at?: string | null;
+}
+
+const SLOUPCE = "id, name, serial_number, site_id, sites(name, timezone)";
+const SLOUPCE_S_NAHLEDEM = `${SLOUPCE}, preview_path, preview_captured_at`;
+
+async function nacistKamery(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  siteId: string | null,
+  sNahledem: boolean,
+) {
+  let query = supabase
+    .from("cameras")
+    .select(sNahledem ? SLOUPCE_S_NAHLEDEM : SLOUPCE)
+    .eq("ingest_mode", "ftp")
+    .neq("status", "decommissioned")
+    .order("name");
+
+  if (siteId) query = query.eq("site_id", siteId);
+
+  return await query.returns<CameraRow[]>();
 }
 
 export default async function Page() {
   const { selected } = await getSiteSelection();
 
-
   let cameras: CameraRow[] = [];
   let failed = false;
+  /** Cesta náhledu → podepsaná adresa. Prázdné, než proběhne cron. */
+  const nahledy = new Map<string, string>();
 
   try {
     const supabase = await createClient();
-    let query = supabase
-      .from("cameras")
-      .select("id, name, serial_number, sites(name)")
-      .eq("ingest_mode", "ftp")
-      .neq("status", "decommissioned")
-      .order("name");
 
-    if (selected) query = query.eq("site_id", selected.id);
+    // Nejdřív se sloupci náhledu, a když migrace 20260921120000 ještě
+    // nenaběhla, znovu bez nich. Bez téhle větve by stačilo nasadit kód
+    // dřív než migraci a celý seznam kamer by zmizel za hláškou
+    // „nepodařilo se načíst" — tedy kvůli obrázku by se nedalo otevřít
+    // ani video.
+    let vysledek = await nacistKamery(supabase, selected?.id ?? null, true);
+    if (vysledek.error) {
+      vysledek = await nacistKamery(supabase, selected?.id ?? null, false);
+    }
+    if (vysledek.error) throw vysledek.error;
 
-    const { data, error } = await query.returns<CameraRow[]>();
-    if (error) throw error;
-    cameras = data ?? [];
+    cameras = vysledek.data ?? [];
+
+    const cesty = cameras
+      .map((row) => row.preview_path)
+      .filter((cesta): cesta is string => Boolean(cesta));
+
+    if (cesty.length > 0) {
+      // Jedním voláním pro celý seznam — jinak by to bylo tolik kol po
+      // síti, kolik je kamer. Podepisuje se klientem PŘIHLÁŠENÉHO
+      // uživatele, takže o přístupu rozhoduje politika nad
+      // storage.objects, ne tenhle kód.
+      const { data } = await supabase.storage
+        .from(PREVIEW_BUCKET)
+        .createSignedUrls(cesty, PREVIEW_SIGNED_URL_TTL);
+
+      for (const item of data ?? []) {
+        if (item.signedUrl && item.path) nahledy.set(item.path, item.signedUrl);
+      }
+    }
   } catch {
     failed = true;
   }
@@ -112,31 +169,72 @@ export default async function Page() {
         />
       ) : (
         <ul className="border-t border-[var(--line)]">
-          {dostupne.map((row) => (
-            <li key={row.id}>
-              <Link
-                href={`/kamery/${row.id}`}
-                className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-4 transition hover:bg-[var(--surface-2)] sm:px-6"
-              >
-                <Video
-                  className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-[var(--text)]">
-                    {row.name}
+          {dostupne.map((row) => {
+            const nahled = row.preview_path
+              ? (nahledy.get(row.preview_path) ?? null)
+              : null;
+            const poridzeno =
+              nahled && row.preview_captured_at
+                ? formatDate(row.preview_captured_at, row.sites?.timezone)
+                : null;
+
+            return (
+              <li key={row.id}>
+                <Link
+                  href={`/kamery/${row.id}`}
+                  className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-3 transition hover:bg-[var(--surface-2)] sm:px-6"
+                >
+                  {/*
+                    Pevná velikost i bez snímku, aby seznam nepoposkočil
+                    u kamery, která náhled zatím nemá — a aby se po
+                    dotažení obrázku nepřekreslil zbytek řádku.
+                  */}
+                  <span className="block h-12 w-20 shrink-0 overflow-hidden border border-[var(--line)] bg-[var(--surface-2)] sm:h-14 sm:w-24">
+                    {nahled ? (
+                      // Obyčejný <img>: adresa je podepsaná a krátkodobá,
+                      // takže by ji next/image cachoval pod klíčem, který
+                      // za čtvrt hodiny přestane platit.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={nahled}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center">
+                        <Video
+                          className="h-4 w-4 text-[var(--text-muted)]"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    )}
                   </span>
-                  <span className="block truncate text-xs text-[var(--text-muted)]">
-                    {row.sites?.name ?? "—"}
+
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-[var(--text)]">
+                      {row.name}
+                    </span>
+                    <span className="block truncate text-xs text-[var(--text-muted)]">
+                      {/*
+                        Datum u náhledu není ozdoba: statický snímek
+                        vypadá jako živý obraz a tohle je jediné místo,
+                        kde se přizná, že je starý.
+                      */}
+                      {row.sites?.name ?? "—"}
+                      {poridzeno ? ` · náhled z ${poridzeno}` : null}
+                    </span>
                   </span>
-                </span>
-                <ChevronRight
-                  className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
-                  aria-hidden="true"
-                />
-              </Link>
-            </li>
-          ))}
+
+                  <ChevronRight
+                    className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
+                    aria-hidden="true"
+                  />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
 

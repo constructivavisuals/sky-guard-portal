@@ -571,6 +571,51 @@ tvrzení relaye.
 
 Od 85 % chodí varování `storage_quota` (push, s odstupem jako ostatní).
 
+### Náhledy v seznamu kamer
+
+U každé kamery v `/kamery` je **statický snímek**, aby se poznalo, kam
+kouká — `KL_03` samo o sobě neřekne nic nikomu, kdo po té stavbě
+nechodí.
+
+Bere je `GET /api/cron/nahledy`, **jednou týdně**:
+
+```cron
+41 4 * * 1 . /etc/sky-guard.env && curl -fsS -m 300 -o /dev/null -H "Authorization: Bearer $CRON_SECRET" https://portal.sky-guard.cz/api/cron/nahledy
+```
+
+Přegenerovat je mimo pořadí (po přendání kamery, po montáži) jde týmž
+řádkem spuštěným ručně — endpoint je idempotentní, jen přepíše soubory.
+
+Snímek se tahá cestou, která už existuje: `/api/frame.jpeg` na relayi,
+tedy **táž brána a týž lístek jako živý obraz**. Portál si vydá lístek
+na hlavní proud, stáhne jeden snímek, zmenší ho na 640 px a uloží do
+privátního bucketu `nahledy` pod `<site_id>/<camera_id>.jpg`. Čte se
+podepsanou adresou, platnou 15 minut; kdo na lokalitu nevidí, podpis
+nedostane.
+
+Kamery se obcházejí **po jedné**. Každý snímek znamená, že go2rtc otevře
+RTSP spojení na kameru přes tunel, a devět naráz je devět spojení na
+stavbu, která u toho píše na karty.
+
+**Kamera, ze které se snímek nepodaří vzít, si nechá ten minulý.**
+Selháním běhu je až stav, kdy neprošla ani jedna — to znamená rozbitou
+cestu k relayi nebo chybějící bucket a `curl -f` pošle mail. Jedna
+nefungující kamera mail každý týden neposílá.
+
+Pod náhledem je vždycky **datum pořízení**. Bez něj by statický obrázek
+tvrdil, že tak ta stavba vypadá teď, a klient by se podle týden starého
+záběru rozhodoval, jestli tam někdo je. Živý obraz zůstává v detailu
+kamery.
+
+V `CRON_JOBS` (dohled nad cronem níž) tahle úloha **schválně není**:
+zastaralý náhled je vidět sám na sobě, kdežto varování na přehledu je od
+toho, že se nelétá nebo nechodí notifikace. Do `cron_runs` se běh
+zapisuje normálně, takže se dá dohledat.
+
+Potřebuje migraci `20260921120000_nahledy_kamer.sql` (bucket a dva
+sloupce v `cameras`). Dokud neběží, seznam kamer funguje jako dřív —
+jen bez obrázků.
+
 ## Co kamera umí
 
 `cameras.detects_person`, `detects_vehicle` a `reads_plate` (migrace

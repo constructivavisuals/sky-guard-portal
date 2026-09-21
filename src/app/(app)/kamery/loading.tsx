@@ -16,12 +16,14 @@ export default function Loading() {
         {[0, 1, 2, 3, 4].map((i) => (
           <li
             key={i}
-            className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-4 sm:px-6"
+            className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-3 sm:px-6"
           >
-            <div className="h-2 w-2 shrink-0 rounded-full bg-[var(--surface-3)]" />
+            {/* Místo pro náhled. Stejný rozměr jako v seznamu, jinak
+                obsah po dorenderování poskočí právě o ten obrázek. */}
+            <div className="h-12 w-20 shrink-0 bg-[var(--surface-3)] sm:h-14 sm:w-24" />
             <div className="min-w-0 flex-1">
               <div className="h-4 w-40 bg-[var(--surface-2)]" />
-              <div className="mt-2 h-3 w-28 bg-[var(--surface-2)]" />
+              <div className="mt-2 h-3 w-36 bg-[var(--surface-2)]" />
             </div>
           </li>
         ))}

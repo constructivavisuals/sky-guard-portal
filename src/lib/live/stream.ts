@@ -117,3 +117,25 @@ export function playbackSocketUrl(options: {
 }): string {
   return socketUrl({ ...options, path: "/zaznam/api/ws" });
 }
+
+/**
+ * Adresa JEDNOHO snímku z proudu (JPEG).
+ *
+ * Táž brána jako u živého obrazu: `/api/frame.jpeg` je v allowlistu
+ * v Caddyfile a lístek ověřuje sky-live, takže se o přístupu rozhoduje
+ * na stejném místě a stejným podpisem. Jméno proudu je součástí lístku,
+ * takže snímek z cizí kamery se vytáhnout nedá.
+ *
+ * Na rozdíl od obou socketů se schéma NEPŘEPISUJE — je to obyčejný
+ * požadavek přes HTTP a chodí ze serveru portálu (cron náhledů), ne
+ * z prohlížeče.
+ */
+export function frameUrl(options: {
+  baseUrl: string;
+  stream: string;
+  token: string;
+}): string {
+  const zaklad = options.baseUrl.replace(/\/+$/, "");
+  const dotaz = new URLSearchParams({ src: options.stream, token: options.token });
+  return `${zaklad}/api/frame.jpeg?${dotaz.toString()}`;
+}
