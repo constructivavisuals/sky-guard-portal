@@ -47,3 +47,4 @@
 20260917120000_recording_day_counts.sql
 20260918120000_zaznamy_hetzner.sql
 20260919120000_kamery_online.sql
+20260921120000_nahledy_kamer.sql

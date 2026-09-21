@@ -177,19 +177,44 @@ export default async function Page() {
               nahled && row.preview_captured_at
                 ? formatDate(row.preview_captured_at, row.sites?.timezone)
                 : null;
+            // Druhý řádek. U vybrané lokality stojí popisek sám, tak
+            // začíná velkým písmenem; za jménem lokality je to
+            // pokračování věty. Kamera bez náhledu to řekne — prázdný
+            // řádek by vypadal jako chyba vykreslení a ikona vedle něj
+            // jako rozbitý obrázek.
+            const popisek = selected
+              ? poridzeno
+                ? `Náhled z ${poridzeno}`
+                : "Náhled se zatím nepořídil"
+              : [row.sites?.name ?? "—", poridzeno ? `náhled z ${poridzeno}` : null]
+                  .filter(Boolean)
+                  .join(" · ");
 
             return (
               <li key={row.id}>
                 <Link
                   href={`/kamery/${row.id}`}
-                  className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-3 transition hover:bg-[var(--surface-2)] sm:px-6"
+                  className="flex items-center gap-4 border-b border-[var(--line)] px-4 py-2.5 transition hover:bg-[var(--surface-2)] sm:px-6 sm:py-3"
                 >
                   {/*
                     Pevná velikost i bez snímku, aby seznam nepoposkočil
                     u kamery, která náhled zatím nemá — a aby se po
                     dotažení obrázku nepřekreslil zbytek řádku.
+
+                    ═══ Velikost je daná obrazovkou, ne vkusem ═══════
+                    Šest kamer na lokalitě se musí vejít na telefon BEZ
+                    scrollování — jinak je poslední kamera schovaná
+                    a seznam přestane být rozcestník. Na iPhonu vychází
+                    řádek na 84 px: náhled 64 px a 2×10 px kolem něj.
+                    Kdo bude přidávat, ať to na telefonu přeměří;
+                    o dva řádky víc znamená menší náhled, ne delší
+                    stránku.
+
+                    Poměr stran drží při 16:9 (64×112 je 1,75), aby se
+                    ze snímku ořízl co nejmenší kus. Na širokém displeji
+                    je místa dost, tam se náhled zvětší.
                   */}
-                  <span className="block h-12 w-20 shrink-0 overflow-hidden border border-[var(--line)] bg-[var(--surface-2)] sm:h-14 sm:w-24">
+                  <span className="block h-16 w-28 shrink-0 overflow-hidden border border-[var(--line)] bg-[var(--surface-2)] sm:h-20 sm:w-36">
                     {nahled ? (
                       // Obyčejný <img>: adresa je podepsaná a krátkodobá,
                       // takže by ji next/image cachoval pod klíčem, který
@@ -205,7 +230,7 @@ export default async function Page() {
                     ) : (
                       <span className="flex h-full w-full items-center justify-center">
                         <Video
-                          className="h-4 w-4 text-[var(--text-muted)]"
+                          className="h-5 w-5 text-[var(--text-muted)]"
                           aria-hidden="true"
                         />
                       </span>
@@ -221,9 +246,13 @@ export default async function Page() {
                         Datum u náhledu není ozdoba: statický snímek
                         vypadá jako živý obraz a tohle je jediné místo,
                         kde se přizná, že je starý.
+
+                        Jméno lokality se vypisuje, jen když se dívá
+                        přes všechny — u vybrané lokality ho nese
+                        nadpis stránky a v každém řádku by jen bral
+                        místo datu, které se pak na telefonu ořízne.
                       */}
-                      {row.sites?.name ?? "—"}
-                      {poridzeno ? ` · náhled z ${poridzeno}` : null}
+                      {popisek}
                     </span>
                   </span>
 
