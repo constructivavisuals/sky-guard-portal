@@ -58,8 +58,15 @@ export interface ArealData {
 export const nactiAreal = cache(async (id: string): Promise<ArealData> => {
   try {
     const supabase = await createClient();
+    // Filtr na `cameras.status` omezí jen vnořený počet kamer, ne
+    // lokalitu samotnou: vyřazená kamera se do počtu nepočítá.
     const dotaz = (sloupce: string) =>
-      supabase.from("sites").select(sloupce).eq("id", id).maybeSingle<SiteDetail>();
+      supabase
+        .from("sites")
+        .select(sloupce)
+        .eq("id", id)
+        .neq("cameras.status", "decommissioned")
+        .maybeSingle<SiteDetail>();
 
     // Dvoustupňový výběr: bez záchytné větve by chybějící sloupec
     // zavřel celý detail areálu, ne jen jedno pole formuláře.

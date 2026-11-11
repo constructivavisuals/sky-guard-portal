@@ -114,6 +114,111 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
     failed = true;
   }
 
+  // Vyřazené kamery se načítají taky, ale do hlavního seznamu nepatří.
+  // Schovat je úplně nejde: vyřazení nahrazuje mazání a tohle je jediné
+  // místo, kde se stav mění. Kamera vyřazená omylem by šla vrátit jen
+  // přes SQL — a dál by blokovala své jméno i sériové číslo (unikátní
+  // indexy), aniž by admin viděl proč. Proto sbalený blok pod seznamem,
+  // jen pro admina; klientovi nemají co říct.
+  const aktivni = rows.filter((row) => row.status !== "decommissioned");
+  const vyrazene = rows.filter((row) => row.status === "decommissioned");
+
+  const tabulka = (seznam: CameraRow[], caption: string) => (
+    <DataTable
+      caption={caption}
+      head={
+        <>
+          <Th>Název</Th>
+          <Th>Zóna</Th>
+          <Th>Model</Th>
+          <Th>Příjem</Th>
+          <Th>Umí</Th>
+          <Th className="text-right">Ohnisko</Th>
+          {/* IP se přidává k sériovému číslu do jednoho sloupce:
+              obojí je údaj pro správu hardwaru a samostatný sloupec
+              by tabulku na mobilu rozjel. */}
+          {showSerial ? <Th>Sériové číslo a IP</Th> : null}
+          <Th>Stav</Th>
+          {admin ? <Th className="w-12"><span className="sr-only">Úpravy</span></Th> : null}
+        </>
+      }
+    >
+      {seznam.map((row) => (
+        <Tr key={row.id}>
+          <Td label="Název" className="font-medium">
+            {row.name}
+            {/* Popis umístění pod názvem: kdo čte detekci, potřebuje
+                vědět, kam se kamera dívá. */}
+            {row.mount_description ? (
+              <span className="mt-0.5 block text-xs font-normal text-[var(--text-muted)]">
+                {row.mount_description}
+              </span>
+            ) : null}
+          </Td>
+          <Td label="Zóna">{orDash(row.zones?.name)}</Td>
+          <Td label="Model">{orDash(row.model)}</Td>
+          <Td label="Příjem">
+            {row.ingest_mode === "ftp" ? (
+              <span className="text-xs">FTP relay</span>
+            ) : (
+              <span className="text-xs text-[var(--text-muted)]">podepsaný</span>
+            )}
+          </Td>
+          <Td label="Umí">
+            {capabilitiesKnown ? (
+              <CameraSkills camera={row} />
+            ) : (
+              <span className="text-[var(--text-muted)]">—</span>
+            )}
+          </Td>
+          <TdTight label="Ohnisko" className="text-right tabular-nums">
+            {formatFocalLength(row.focal_mm)}
+          </TdTight>
+          {showSerial ? (
+            <TdTight
+              label="Sériové číslo a IP"
+              className="font-mono text-xs text-[var(--text-muted)]"
+            >
+              {orDash(row.serial_number)}
+              {row.lan_ip ? <span className="block">{row.lan_ip}</span> : null}
+            </TdTight>
+          ) : null}
+          <Td label="Stav">
+            <CameraStatusBadge status={row.status} />
+          </Td>
+          {admin ? (
+            <Td className="text-right">
+              <CameraForm
+                sites={sites}
+                zones={zoneChoices}
+                camera={{
+                  id: row.id,
+                  site_id: row.site_id,
+                  zone_id: row.zone_id,
+                  name: row.name,
+                  model: row.model,
+                  serial_number: row.serial_number,
+                  lan_ip: row.lan_ip,
+                  mount_description: row.mount_description,
+                  ingest_mode: row.ingest_mode,
+                  ftp_username: row.ftp_username,
+                  detects_person: row.detects_person,
+                  detects_vehicle: row.detects_vehicle,
+                  reads_plate: row.reads_plate,
+                  focal_mm: row.focal_mm,
+                  latitude: parsePointEwkbHex(row.location)?.latitude ?? null,
+                  longitude: parsePointEwkbHex(row.location)?.longitude ?? null,
+                  azimuth: row.azimuth,
+                  status: row.status,
+                }}
+              />
+            </Td>
+          ) : null}
+        </Tr>
+      ))}
+    </DataTable>
+  );
+
   return (
     <>
       <Section className="py-3 sm:py-3">
@@ -131,107 +236,24 @@ export default async function Page({ params }: PageProps<"/arealy/[id]/kamery">)
           title="Kamery se nepodařilo načíst"
           description="Zkuste to za chvíli znovu. Pokud potíž trvá, zkontrolujte připojení k databázi."
         />
-      ) : rows.length === 0 ? (
+      ) : aktivni.length === 0 ? (
         <EmptyState
           icon={<Cctv className="h-5 w-5" aria-hidden="true" />}
           title="Žádné kamery"
           description="Přidejte kameru k zóně, aby mohla posílat detekce."
         />
       ) : (
-        <DataTable
-          caption="Kamery a jejich stav"
-          head={
-            <>
-              <Th>Název</Th>
-              <Th>Zóna</Th>
-              <Th>Model</Th>
-              <Th>Příjem</Th>
-              <Th>Umí</Th>
-              <Th className="text-right">Ohnisko</Th>
-              {/* IP se přidává k sériovému číslu do jednoho sloupce:
-                  obojí je údaj pro správu hardwaru a samostatný sloupec
-                  by tabulku na mobilu rozjel. */}
-              {showSerial ? <Th>Sériové číslo a IP</Th> : null}
-              <Th>Stav</Th>
-              {admin ? <Th className="w-12"><span className="sr-only">Úpravy</span></Th> : null}
-            </>
-          }
-        >
-          {rows.map((row) => (
-            <Tr key={row.id}>
-              <Td label="Název" className="font-medium">
-                {row.name}
-                {/* Popis umístění pod názvem: kdo čte detekci, potřebuje
-                    vědět, kam se kamera dívá. */}
-                {row.mount_description ? (
-                  <span className="mt-0.5 block text-xs font-normal text-[var(--text-muted)]">
-                    {row.mount_description}
-                  </span>
-                ) : null}
-              </Td>
-              <Td label="Zóna">{orDash(row.zones?.name)}</Td>
-              <Td label="Model">{orDash(row.model)}</Td>
-              <Td label="Příjem">
-                {row.ingest_mode === "ftp" ? (
-                  <span className="text-xs">FTP relay</span>
-                ) : (
-                  <span className="text-xs text-[var(--text-muted)]">podepsaný</span>
-                )}
-              </Td>
-              <Td label="Umí">
-                {capabilitiesKnown ? (
-                  <CameraSkills camera={row} />
-                ) : (
-                  <span className="text-[var(--text-muted)]">—</span>
-                )}
-              </Td>
-              <TdTight label="Ohnisko" className="text-right tabular-nums">
-                {formatFocalLength(row.focal_mm)}
-              </TdTight>
-              {showSerial ? (
-                <TdTight
-                  label="Sériové číslo a IP"
-                  className="font-mono text-xs text-[var(--text-muted)]"
-                >
-                  {orDash(row.serial_number)}
-                  {row.lan_ip ? <span className="block">{row.lan_ip}</span> : null}
-                </TdTight>
-              ) : null}
-              <Td label="Stav">
-                <CameraStatusBadge status={row.status} />
-              </Td>
-              {admin ? (
-                <Td className="text-right">
-                  <CameraForm
-                    sites={sites}
-                    zones={zoneChoices}
-                    camera={{
-                      id: row.id,
-                      site_id: row.site_id,
-                      zone_id: row.zone_id,
-                      name: row.name,
-                      model: row.model,
-                      serial_number: row.serial_number,
-                      lan_ip: row.lan_ip,
-                      mount_description: row.mount_description,
-                      ingest_mode: row.ingest_mode,
-                      ftp_username: row.ftp_username,
-                      detects_person: row.detects_person,
-                      detects_vehicle: row.detects_vehicle,
-                      reads_plate: row.reads_plate,
-                      focal_mm: row.focal_mm,
-                      latitude: parsePointEwkbHex(row.location)?.latitude ?? null,
-                      longitude: parsePointEwkbHex(row.location)?.longitude ?? null,
-                      azimuth: row.azimuth,
-                      status: row.status,
-                    }}
-                  />
-                </Td>
-              ) : null}
-            </Tr>
-          ))}
-        </DataTable>
+        tabulka(aktivni, "Kamery a jejich stav")
       )}
+
+      {!failed && admin && vyrazene.length > 0 ? (
+        <details className="border-b border-[var(--line)]">
+          <summary className="cursor-pointer px-4 py-3 text-xs text-[var(--text-muted)] hover:text-[var(--text)] sm:px-6">
+            Vyřazené ({vyrazene.length})
+          </summary>
+          {tabulka(vyrazene, "Vyřazené kamery")}
+        </details>
+      ) : null}
     </>
   );
 }

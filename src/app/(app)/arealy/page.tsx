@@ -59,8 +59,15 @@ export default async function Page() {
 
   try {
     const supabase = await createClient();
+    // Vyřazené kamery se do počtu nepočítají. Filtr omezí jen vnořený
+    // počet, lokality zůstanou všechny.
     const dotaz = (sloupce: string) =>
-      supabase.from("sites").select(sloupce).order("name").returns<SiteRow[]>();
+      supabase
+        .from("sites")
+        .select(sloupce)
+        .neq("cameras.status", "decommissioned")
+        .order("name")
+        .returns<SiteRow[]>();
 
     // Dvoustupňový výběr kvůli rth_altitude (migrace 20260916120000).
     let { data, error } = await dotaz(
