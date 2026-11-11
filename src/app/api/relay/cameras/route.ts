@@ -85,7 +85,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       "serial_number, name, lan_ip, rtsp_main_path, rtsp_sub_path, " +
         "sites(id, name, timezone)",
     )
-    .eq("ingest_mode", "ftp")
+    .not("lan_ip", "is", null)
     .order("name")
     .returns<CameraRow[]>();
 
