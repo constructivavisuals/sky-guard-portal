@@ -82,7 +82,6 @@ async function nacistKamery(
   let query = supabase
     .from("cameras")
     .select(sNahledem ? SLOUPCE_S_NAHLEDEM : SLOUPCE)
-    .eq("ingest_mode", "ftp")
     .neq("status", "decommissioned")
     .order("name");
 
