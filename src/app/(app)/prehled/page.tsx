@@ -110,7 +110,6 @@ export default async function Page() {
   /** Pro varování o kamerách přes relay bez adresy v síti. */
   let kamery = {
     pocet: 0,
-    klipu: 0,
     posledniDetekceAt: null as string | null,
     posledniDetekceKamera: null as string | null,
   };
@@ -127,7 +126,7 @@ export default async function Page() {
     {
       const since = startOfLocalDay(site.timezone, now).toISOString();
 
-      const [detections, dispatches, suppressed, flights, passageCount, announcedCount, passageRows, patrolFlights, cameraCount, posledniDetekce, klipCount] =
+      const [detections, dispatches, suppressed, flights, passageCount, announcedCount, passageRows, patrolFlights, cameraCount, posledniDetekce] =
         await Promise.all([
           supabase.from("detections").select("id", { count: "exact", head: true })
             .eq("site_id", site.id).gte("detected_at", since),
@@ -171,12 +170,7 @@ export default async function Page() {
             .eq("site_id", site.id)
             .order("detected_at", { ascending: false }).limit(1)
             .returns<{ detected_at: string; cameras: { name: string } | null }[]>(),
-          // Uložené klipy: kolik důkazů v úložišti opravdu leží.
-          supabase.from("camera_recordings")
-            .select("id, cameras!inner(site_id)", { count: "exact", head: true })
-            .eq("cameras.site_id", site.id)
-            .not("storage_path", "is", null)
-            .is("video_expired_at", null),
+          // Počet uložených klipů tu schválně NENÍ — viz PocetKlipu.
         ]);
 
       counts = {
@@ -196,8 +190,6 @@ export default async function Page() {
 
       kamery = {
         pocet: cameraCount.count ?? 0,
-        // Chybějící tabulka (nenasazená migrace) dá null, ne pád.
-        klipu: klipCount.error ? 0 : (klipCount.count ?? 0),
         posledniDetekceAt: (posledniDetekce.data ?? [])[0]?.detected_at ?? null,
         posledniDetekceKamera:
           (posledniDetekce.data ?? [])[0]?.cameras?.name ?? null,
@@ -283,6 +275,7 @@ export default async function Page() {
               <NaKamery pocet={kamery.pocet} />
               <KameryABlok
                 kamery={kamery}
+                siteId={site.id}
                 timeZone={site.timezone}
                 dosahDni={PLAYBACK_REACH_DAYS}
               />
@@ -466,15 +459,16 @@ function NaKamery({ pocet }: { pocet: number }) {
  */
 function KameryABlok({
   kamery,
+  siteId,
   timeZone,
   dosahDni,
 }: {
   kamery: {
     pocet: number;
-    klipu: number;
     posledniDetekceAt: string | null;
     posledniDetekceKamera: string | null;
   };
+  siteId: string;
   timeZone: string;
   dosahDni: number;
 }) {
@@ -522,11 +516,46 @@ function KameryABlok({
           label="Uložených klipů"
           icon={<Film className="h-3.5 w-3.5" aria-hidden="true" />}
         >
-          {kamery.klipu}
+          <Suspense
+            fallback={
+              <span
+                aria-label="Načítá se"
+                className="inline-block h-6 w-12 animate-pulse bg-[var(--surface-2)] align-middle"
+              />
+            }
+          >
+            <PocetKlipu siteId={siteId} />
+          </Suspense>
         </Metric>
       </div>
     </>
   );
+}
+
+/**
+ * Počet uložených klipů — zvlášť a streamovaný.
+ *
+ * Je to jediný dotaz přehledu, který počítá přes VŠECHNY klipy
+ * lokality, ne přes dnešek. Dokud čtecí politika klipů ověřovala
+ * přístup funkcí na každém řádku (do migrace 20261116120000), trvalo
+ * to u desítek tisíc klipů vteřiny — a protože byl ve společné vlně,
+ * čekal na něj celý přehled včetně stavu střežení. Na telefonu přes
+ * pět vteřin kostry.
+ *
+ * Číslo je doplňkový údaj, ne odpověď na „jak to tam vypadá". Proto
+ * dorazí, až bude, a zbytek stránky na něj nečeká.
+ */
+async function PocetKlipu({ siteId }: { siteId: string }) {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("camera_recordings")
+    .select("id, cameras!inner(site_id)", { count: "exact", head: true })
+    .eq("cameras.site_id", siteId)
+    .not("storage_path", "is", null)
+    .is("video_expired_at", null);
+
+  // Chybějící tabulka (nenasazená migrace) dá nulu, ne pád.
+  return <>{error ? 0 : (count ?? 0)}</>;
 }
 
 // ── Stav doku ────────────────────────────────────────────────────
