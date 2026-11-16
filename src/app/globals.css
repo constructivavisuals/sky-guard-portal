@@ -269,3 +269,19 @@ body {
     padding-bottom: 0;
   }
 }
+
+/* ── Přepínání lokality ─────────────────────────────────────────
+   Po dobu, kdy se lokalita přepíná, stojí v liště už nový název, ale
+   pod ním ještě obsah té staré. Ztlumení říká „tohle neplatí, nové se
+   načítá" — bez něj by se čísla staré lokality dala přečíst jako nová.
+
+   Klepání do ztlumeného obsahu se ignoruje: akce nad starou lokalitou
+   by se provedla pod hlavičkou té nové. Spodní lišta je mimo <main>,
+   takže navigace zůstává funkční.
+
+   Krátké zpoždění, aby rychlé přepnutí neblikalo. */
+html[data-prepinani] main {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 150ms ease 120ms;
+}

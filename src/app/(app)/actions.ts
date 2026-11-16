@@ -13,8 +13,8 @@ import { ALL_SITES, SITE_COOKIE, isSiteId } from "@/lib/site.ts";
  * viditelnou lokalitu. Kontroluje se jen tvar, ať se do cookie nedostane
  * cokoli.
  */
-export async function selectSite(formData: FormData) {
-  const value = String(formData.get("siteId") ?? "");
+export async function selectSite(siteId: string) {
+  const value = typeof siteId === "string" ? siteId : "";
   const store = await cookies();
 
   if (value === ALL_SITES) {
