@@ -77,31 +77,11 @@ const ULOZISTE_KLIC = "sky-guard.kvalita-obrazu";
  */
 function nactiKvalitu(): Kvalita {
   try {
-    // Výslovná volba platí vždycky, ať byla kterákoli.
-    const ulozena = localStorage.getItem(ULOZISTE_KLIC);
-    if (ulozena === "sub" || ulozena === "main") return ulozena;
-  } catch {
-    // Nedostupné úložiště = nikdo nepřepínal.
-  }
-  return vychoziKvalita();
-}
-
-/**
- * Telefon a tablet. Tam se 4K nemá kde ukázat — displej má na šířku
- * kolem 1200 bodů — a platí se za něj tím nejhorším, co živý obraz
- * může udělat: nejdelším čekáním na první snímek. Klíčový snímek 4K
- * proudu je řádově větší a musí projít linkou ze stavby.
- */
-const MALA_OBRAZOVKA = "(max-width: 1023px)";
-
-/**
- * Výchozí kvalita, když si nikdo nic nevybral: na telefonu plynulá,
- * na monitoru detailní. Na monitoru je obraz velký a detail je to, kvůli
- * čemu se tam člověk dívá; na telefonu je důležitější, aby naskočil.
- */
-function vychoziKvalita(): Kvalita {
-  try {
-    return window.matchMedia(MALA_OBRAZOVKA).matches ? "sub" : "main";
+    // Jen výslovně zvolená „Plynulá" přebije výchozí. Prázdné úložiště
+    // znamená „nikdo nepřepínal", tedy plné rozlišení — na telefonu
+    // i na monitoru. Plynulý proud jako výchozí na telefonu se
+    // zkoušel a nechtělo se: obraz má být detailní hned po otevření.
+    return localStorage.getItem(ULOZISTE_KLIC) === "sub" ? "sub" : "main";
   } catch {
     return "main";
   }
