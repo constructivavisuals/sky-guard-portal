@@ -23,6 +23,21 @@ npm test
 `npm run typecheck` samotný po čerstvém klonu spadne na chybějících
 typech rout. Nejdřív `build`.
 
+### Funkce běží ve Frankfurtu (`fra1`), vedle databáze
+
+Region je zapsaný ve `vercel.json`, ne jen v nastavení projektu, aby
+ho nikdo nepřepnul zpátky omylem. Databáze Supabase je v AWS
+eu-central-1 (Frankfurt), Hetzner úložiště ve Falkensteinu a uživatelé
+v Česku.
+
+Do listopadu 2026 funkce běžely ve výchozím `iad1` (Washington). Každý
+dotaz do databáze tak šel přes Atlantik a zpátky, zhruba 90 ms,
+a stránka jich dělá několik za sebou: layout, pak stránka, pak
+podepsané adresy. Na telefonu z toho byly vteřiny, než se cokoli
+ukázalo, a přepnutí lokality vypadalo, že nezabralo.
+
+Kdyby se databáze stěhovala, musí se region přestěhovat s ní.
+
 ## Migrace
 
 Migrace se pouštějí ručně přes SQL Editor v Supabase, ne přes CLI.
