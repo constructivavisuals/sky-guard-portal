@@ -3,7 +3,6 @@ import Link from "next/link";
 import { ChevronRight, Video } from "lucide-react";
 
 import { EmptyState, PageHeader } from "@/components/ui.tsx";
-import { PREVIEW_BUCKET, PREVIEW_SIGNED_URL_TTL } from "@/lib/cameras/preview.ts";
 import { formatDate } from "@/lib/format.ts";
 import { getSiteSelection } from "@/lib/selected-site.ts";
 import { createClient } from "@/lib/supabase/server.ts";
@@ -95,8 +94,6 @@ export default async function Page() {
 
   let cameras: CameraRow[] = [];
   let failed = false;
-  /** Cesta náhledu → podepsaná adresa. Prázdné, než proběhne cron. */
-  const nahledy = new Map<string, string>();
 
   try {
     const supabase = await createClient();
@@ -113,24 +110,6 @@ export default async function Page() {
     if (vysledek.error) throw vysledek.error;
 
     cameras = vysledek.data ?? [];
-
-    const cesty = cameras
-      .map((row) => row.preview_path)
-      .filter((cesta): cesta is string => Boolean(cesta));
-
-    if (cesty.length > 0) {
-      // Jedním voláním pro celý seznam — jinak by to bylo tolik kol po
-      // síti, kolik je kamer. Podepisuje se klientem PŘIHLÁŠENÉHO
-      // uživatele, takže o přístupu rozhoduje politika nad
-      // storage.objects, ne tenhle kód.
-      const { data } = await supabase.storage
-        .from(PREVIEW_BUCKET)
-        .createSignedUrls(cesty, PREVIEW_SIGNED_URL_TTL);
-
-      for (const item of data ?? []) {
-        if (item.signedUrl && item.path) nahledy.set(item.path, item.signedUrl);
-      }
-    }
   } catch {
     failed = true;
   }
@@ -168,9 +147,15 @@ export default async function Page() {
         />
       ) : (
         <ul className="border-t border-[var(--line)]">
-          {dostupne.map((row) => {
+          {dostupne.map((row, poradi) => {
+            // Adresa se mění jen s novým snímkem, takže ji telefon
+            // podá z cache — viz /api/kamery/[id]/nahled. Dřív tu byla
+            // podepsaná adresa, nová při každém vykreslení, a náhledy
+            // se kvůli tomu stahovaly při každém otevření seznamu.
             const nahled = row.preview_path
-              ? (nahledy.get(row.preview_path) ?? null)
+              ? `/api/kamery/${row.id}/nahled?v=${encodeURIComponent(
+                  row.preview_captured_at ?? row.preview_path,
+                )}`
               : null;
             const poridzeno =
               nahled && row.preview_captured_at
@@ -215,14 +200,19 @@ export default async function Page() {
                   */}
                   <span className="block h-16 w-28 shrink-0 overflow-hidden border border-[var(--line)] bg-[var(--surface-2)] sm:h-20 sm:w-36">
                     {nahled ? (
-                      // Obyčejný <img>: adresa je podepsaná a krátkodobá,
-                      // takže by ji next/image cachoval pod klíčem, který
-                      // za čtvrt hodiny přestane platit.
+                      // Obyčejný <img>: optimalizace next/image si obrázek
+                      // stahuje sama ze serveru, bez přihlášení uživatele,
+                      // a náhled pod RLS by nedostala. Zmenšený je stejně
+                      // už z cronu.
+                      //
+                      // Prvních šest se načítá hned: tolik se jich vejde
+                      // na telefon a líné načítání by je pustilo až po
+                      // rozvržení stránky.
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={nahled}
                         alt=""
-                        loading="lazy"
+                        loading={poradi < 6 ? "eager" : "lazy"}
                         decoding="async"
                         className="h-full w-full object-cover"
                       />

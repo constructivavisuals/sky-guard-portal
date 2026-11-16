@@ -32,6 +32,11 @@ export function isStreamQuality(value: unknown): value is StreamQuality {
  * Pokud se na nějaké stavbě obraz zadrhává, není to důvod měnit
  * výchozí hodnotu pro všechny — divák si přepne a volba se mu
  * v prohlížeči pamatuje.
+ *
+ * Výjimkou je telefon (`vychoziKvalita()` v kamera-detail.tsx): tam
+ * přehrávač začíná na vedlejším proudu. Ne kvůli zadrhávání, ale kvůli
+ * rozjezdu — na klíčový snímek 4K se čekalo vteřiny a na displeji
+ * telefonu z něj stejně nic navíc vidět není.
  */
 export function streamName(
   serialNumber: string,

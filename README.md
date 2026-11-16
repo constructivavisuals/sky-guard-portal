@@ -630,9 +630,15 @@ Přegenerovat je mimo pořadí (po přendání kamery, po montáži) jde týmž
 Snímek se tahá cestou, která už existuje: `/api/frame.jpeg` na relayi,
 tedy **táž brána a týž lístek jako živý obraz**. Portál si vydá lístek
 na hlavní proud, stáhne jeden snímek, zmenší ho na 640 px a uloží do
-privátního bucketu `nahledy` pod `<site_id>/<camera_id>.jpg`. Čte se
-podepsanou adresou, platnou 15 minut; kdo na lokalitu nevidí, podpis
-nedostane.
+privátního bucketu `nahledy` pod `<site_id>/<camera_id>.jpg`.
+
+Čte se přes `GET /api/kamery/<id>/nahled?v=<čas pořízení>`: kamera
+se dohledá pod RLS, soubor se stáhne klientem přihlášeného uživatele
+a vrátí s `Cache-Control: private, max-age=86400`. Dřív šla do `<img>`
+rovnou podepsaná adresa — jenže ta je s každým vykreslením jiná,
+takže telefon náhledy stahoval při každém otevření seznamu znovu.
+Teď se adresa mění jen s novým snímkem a seznam má obrázky z cache.
+Kdo na lokalitu nevidí, dostane 404.
 
 Kamery se obcházejí **po jedné**. Každý snímek znamená, že go2rtc otevře
 RTSP spojení na kameru přes tunel, a devět naráz je devět spojení na

@@ -15,13 +15,15 @@
 export const PREVIEW_BUCKET = "nahledy";
 
 /**
- * Jak dlouho platí podepsaná adresa náhledu.
+ * Jak dlouho si prohlížeč smí náhled držet v cache.
  *
- * Delší než u snímku detekce (5 min): náhledů je na stránce devět
- * naráz a stránka může zůstat otevřená. Kratší než hodina, protože je
- * to pořád obraz z cizího pozemku.
+ * Náhled se servíruje přes /api/kamery/<id>/nahled?v=<čas pořízení>,
+ * takže nový snímek má novou adresu a zastaralý obrázek z cache se
+ * neukáže. Strop je tu kvůli přístupu: kdo o lokalitu přijde, tomu
+ * náhled v prohlížeči nejpozději za den vyprší. Den, ne týden — pořád
+ * je to obraz z cizího pozemku.
  */
-export const PREVIEW_SIGNED_URL_TTL = 900;
+export const PREVIEW_CACHE_SEC = 86_400;
 
 /**
  * Na jakou šířku se snímek zmenší.

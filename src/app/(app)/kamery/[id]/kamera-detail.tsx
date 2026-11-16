@@ -77,9 +77,31 @@ const ULOZISTE_KLIC = "sky-guard.kvalita-obrazu";
  */
 function nactiKvalitu(): Kvalita {
   try {
-    // Jen výslovně uložená „sub" přebije výchozí. Prázdné úložiště
-    // znamená „nikdo nepřepínal", tedy plné rozlišení.
-    return localStorage.getItem(ULOZISTE_KLIC) === "sub" ? "sub" : "main";
+    // Výslovná volba platí vždycky, ať byla kterákoli.
+    const ulozena = localStorage.getItem(ULOZISTE_KLIC);
+    if (ulozena === "sub" || ulozena === "main") return ulozena;
+  } catch {
+    // Nedostupné úložiště = nikdo nepřepínal.
+  }
+  return vychoziKvalita();
+}
+
+/**
+ * Telefon a tablet. Tam se 4K nemá kde ukázat — displej má na šířku
+ * kolem 1200 bodů — a platí se za něj tím nejhorším, co živý obraz
+ * může udělat: nejdelším čekáním na první snímek. Klíčový snímek 4K
+ * proudu je řádově větší a musí projít linkou ze stavby.
+ */
+const MALA_OBRAZOVKA = "(max-width: 1023px)";
+
+/**
+ * Výchozí kvalita, když si nikdo nic nevybral: na telefonu plynulá,
+ * na monitoru detailní. Na monitoru je obraz velký a detail je to, kvůli
+ * čemu se tam člověk dívá; na telefonu je důležitější, aby naskočil.
+ */
+function vychoziKvalita(): Kvalita {
+  try {
+    return window.matchMedia(MALA_OBRAZOVKA).matches ? "sub" : "main";
   } catch {
     return "main";
   }
@@ -198,9 +220,19 @@ export function KameraDetail({
         přetočení běžícího. Bez něj by v <video> zůstala viset
         MediaSource z minulého spojení.
       */}
-      {zalozka !== "zaznam" || !hydratovano ? (
+      {!hydratovano ? (
+        // ═══ Do nahydratování jen rámeček ═══════════════════════════
+        // Na serveru není localStorage ani velikost displeje, takže by
+        // se přehrávač vykreslil s výchozí kvalitou a hned po hydrataci
+        // vyměnil za tu správnou. Mezitím by stihl vydat lístek
+        // a otevřít spojení — relay by kvůli tomu začal tahat 4K proud
+        // ze stavby, jen aby ho vzápětí zahodil.
+        <div className="border border-[var(--line)] bg-[var(--surface)]">
+          <div className="relative aspect-video max-h-[75vh] bg-black" />
+        </div>
+      ) : zalozka !== "zaznam" ? (
         // Živě i u událostí: nad seznamem má běžet obraz, ne černá
-        // plocha. Do nahydratování taky — vybraný čas ještě není.
+        // plocha.
         <Prehravac
           // Kvalita je v klíči: jiný proud, ne přepnutí zdroje
           // v běžícím <video>.
