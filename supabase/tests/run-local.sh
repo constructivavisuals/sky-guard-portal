@@ -114,6 +114,11 @@ run_test_file vehicle_passages.sql
 echo "== kontrola seedu Vysoké Veselí =="
 run_test_file seed_vysoke_veseli.sql
 
+# Musí běžet PŘED znovuspuštěním základní migrace níž: ta vrací čtecí
+# politikám původní (pomalý, ale stejně přísný) tvar.
+echo "== rychlé RLS: stejná pravidla, viditelnost jednou na dotaz =="
+run_test_file rls_rychlost.sql
+
 # Regrese na past z auditu (4A): základní migrace definuje
 # site_is_visible() a pozdější ji rozšiřuje o granty. Když se ta
 # základní pustí znovu, nesmí to izolaci klientů rozvolnit.

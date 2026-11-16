@@ -55,9 +55,12 @@ BEGIN
   RAISE NOTICE 'ok    přihlášeným práva zůstala';
 
   -- ── cron_runs čte jen operátor ─────────────────────────────────
+  -- Obojí tvar je totéž pravidlo; ten v závorkách (InitPlan) zavedla
+  -- migrace 20261116120000, aby se role neověřovala na každém řádku.
   SELECT count(*) INTO v_pocet
     FROM pg_policies
-   WHERE schemaname = 'public' AND tablename = 'cron_runs' AND qual = 'is_operator()';
+   WHERE schemaname = 'public' AND tablename = 'cron_runs'
+     AND qual IN ('is_operator()', '( SELECT is_operator() AS is_operator)');
 
   IF v_pocet <> 1 THEN
     RAISE EXCEPTION 'FAIL cron_runs nemá politiku na is_operator()';
