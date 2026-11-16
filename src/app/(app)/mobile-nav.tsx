@@ -66,9 +66,22 @@ export function MobileNav({
   isAdmin?: boolean;
   capabilities: SiteCapabilities;
 }) {
-  const pathname = usePathname();
+  const skutecna = usePathname();
   const [session, setSession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // ═══ Záložka svítí hned po klepnutí ════════════════════════════
+  // usePathname() se změní až s novou stránkou, takže klepnutá
+  // záložka se dřív rozsvítila, až když dorazila data — na pomalém
+  // signálu klidně za vteřinu, a do té doby to vypadalo, že klepnutí
+  // nezabralo.
+  //
+  // Klepnutí platí jen pro cestu, ze které se klepalo. Jakmile se
+  // cesta změní (navigace doběhla, nebo vedla jinam), platí zase
+  // usePathname() — bez efektu a bez úklidu.
+  const [klepnuto, setKlepnuto] = useState<{ href: string; z: string } | null>(null);
+  const pathname = klepnuto && klepnuto.z === skutecna ? klepnuto.href : skutecna;
+  const klepnout = (href: string) => setKlepnuto({ href, z: skutecna });
 
   const primary = visibleRoutes(PRIMARY, capabilities);
   const viditelneSecondary = visibleRoutes(SECONDARY, capabilities);
@@ -85,6 +98,10 @@ export function MobileNav({
           pathname={pathname}
           items={secondary}
           onClose={() => setMoreOpen(false)}
+          onNavigate={(href) => {
+            klepnout(href);
+            setMoreOpen(false);
+          }}
         />
       ) : null}
 
@@ -100,11 +117,21 @@ export function MobileNav({
         // svislý.
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur-lg pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]"
       >
+        {/* ═══ Výchozí prefetch, ne `prefetch` ═══════════════════
+            Plný prefetch tu býval a stál víc, než dal: při každém
+            startu aplikace se na pozadí vykreslily čtyři celé stránky
+            se všemi dotazy do databáze — a přetahovaly se o síť se
+            stránkou, na kterou se člověk zrovna díval. Navíc je router
+            pět minut držel a podával jako čerstvé, což u stavu
+            střežení být nesmí.
+
+            Výchozí prefetch stáhne kostru po loading.tsx, takže po
+            klepnutí naskočí hned a data dorazí čerstvá. */}
         {primary.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
-            prefetch
+            onClick={() => klepnout(href)}
             aria-current={isActive(pathname, href) ? "page" : undefined}
             className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 px-1 transition-transform duration-100 active:scale-95 ${
               isActive(pathname, href)
@@ -144,10 +171,12 @@ function MoreSheet({
   pathname,
   items,
   onClose,
+  onNavigate,
 }: {
   pathname: string;
   items: readonly { href: string; label: string; icon: typeof Settings }[];
   onClose: () => void;
+  onNavigate: (href: string) => void;
 }) {
   return (
     <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
@@ -180,8 +209,7 @@ function MoreSheet({
             <li key={href}>
               <Link
                 href={href}
-                prefetch
-                onClick={onClose}
+                onClick={() => onNavigate(href)}
                 aria-current={isActive(pathname, href) ? "page" : undefined}
                 className={`flex min-h-[52px] items-center gap-3 border-b border-[var(--line)] px-5 text-sm tracking-tight transition ${
                   isActive(pathname, href)

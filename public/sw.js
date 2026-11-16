@@ -25,9 +25,24 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
       )
+      .then(zapnoutPreload)
       .then(() => self.clients.claim()),
   );
 });
+
+// ═══ Navigation preload ═══════════════════════════════════════════
+// Worker, který zachytává přechody mezi stránkami, se musí nejdřív
+// probudit, a teprve pak pošle požadavek na stránku. Na iPhonu po
+// studeném startu z plochy to jsou stovky milisekund černé obrazovky,
+// během kterých se nic nestahuje.
+//
+// S preloadem prohlížeč stránku stahuje rovnou a souběžně s probouzením
+// workeru; worker si pak jen vezme hotovou odpověď. Kde to prohlížeč
+// neumí, zůstává to, co bylo: obyčejný fetch.
+function zapnoutPreload() {
+  if (!self.registration.navigationPreload) return undefined;
+  return self.registration.navigationPreload.enable().catch(() => undefined);
+}
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -37,17 +52,24 @@ self.addEventListener("fetch", (event) => {
   if (request.mode !== "navigate") return;
 
   event.respondWith(
-    fetch(request).catch(async () => {
-      const cache = await caches.open(CACHE);
-      const fallback = await cache.match(OFFLINE_URL);
-      return (
-        fallback ??
-        new Response("Aplikace je offline.", {
-          status: 503,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        })
-      );
-    }),
+    (async () => {
+      try {
+        // Odpověď, kterou prohlížeč stáhl už během probouzení workeru.
+        const predem = await event.preloadResponse;
+        if (predem) return predem;
+        return await fetch(request);
+      } catch {
+        const cache = await caches.open(CACHE);
+        const fallback = await cache.match(OFFLINE_URL);
+        return (
+          fallback ??
+          new Response("Aplikace je offline.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        );
+      }
+    })(),
   );
 });
 
